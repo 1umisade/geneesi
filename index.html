@@ -2453,6 +2453,38 @@ async function run(){
       for(let k=0;k<3;k++) x[k] = Math.min(1, Math.max(0, x[k] + (tgt[k] - got[k])*0.5)); }
     gBgRaw.set(x[0], x[1], x[2]);
   };
+/* Megacheap membrane slab. A flat fill, but it MUST take the same front-to-back darkening every
+   molecule takes, or no single colour can ever match the sheet it stands in for - near lipids render
+   bright yellow and far ones brown, so a StandardMaterial slab was orange against one and yellow
+   against the other depending only on where you stood. Depth is taken per fragment, since the slab
+   spans tens of thousands of units and its far end really is much further away than its near end.
+   The reference is WORLD z, matching vWCen in the atom shaders - the shading plane is a fixed wall
+   behind the scene, not the camera, so the darkening does not swim about as you move. */
+BABYLON.Effect.ShadersStore['slabVertexShader'] = `
+precision highp float;
+attribute vec3 position;
+uniform mat4 world;
+uniform mat4 view;
+uniform mat4 projection;
+varying float vZ;
+void main(void){
+  vec4 wp = world * vec4(position, 1.0);
+  vZ = wp.z;
+  gl_Position = projection * view * wp;
+}`;
+BABYLON.Effect.ShadersStore['slabPixelShader'] = `
+precision highp float;
+uniform vec3 slabCol;
+uniform float focalD;
+uniform float depthK;
+uniform float depthLo;
+uniform float startOff;
+uniform float spread;
+varying float vZ;
+void main(void){
+  float dt = clamp((vZ - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
+  gl_FragColor = vec4(slabCol * mix(1.0, depthLo, dt * depthK), 1.0);
+}`;
   const bgMat = new BABYLON.ShaderMaterial('bgMat', scene, 'bg', { attributes:['position'], uniforms:['cBg','focusAmt','focusDark'] });
   bgMat.backFaceCulling = false;
   bgMat.onBindObservable.add(()=>{ const eff=bgMat.getEffect(); if(!eff) return; syncBgRaw(); eff.setColor3('cBg', gBgRaw); eff.setFloat('focusAmt', gFocusDimAmt); eff.setFloat('focusDark', gFocusDark); });
@@ -4696,10 +4728,13 @@ async function run(){
         width: 2*memHalfX*MEGA_SCALE, height: Math.max(1, ySpan*0.25), depth: 2*memHalfZ*MEGA_SCALE }, scene);
       slab.position.copyFrom(bilayerCen);
       slab.isPickable = false; slab.renderingGroupId = 0; slab.alwaysSelectAsActiveMesh = true;
-      const sm = new BABYLON.StandardMaterial('memSlabMat', scene);
-      sm.diffuseColor = new BABYLON.Color3(0,0,0);
-      sm.emissiveColor = new BABYLON.Color3(0.35,0.33,0.22);   // placeholder until the real lipid mean lands below
-      sm.disableLighting = true; sm.backFaceCulling = false;
+      const sm = new BABYLON.ShaderMaterial('memSlabMat', scene, 'slab', {
+        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread'] });
+      sm.backFaceCulling = false;
+      sm.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22));   // placeholder until the real lipid mean lands below
+      sm.onBindObservable.add(()=>{ const eff=sm.getEffect(); if(!eff) return;
+        eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+        eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); });
       slab.material = sm; gMemSlab = slab;
     }
     buildMembrane = async () => {   // deferred: runs after the scene is revealed, so the complexes show first and the membrane fills in
@@ -5836,11 +5871,13 @@ async function run(){
          per-instance colours carry the membrane's own tinting, and the element mean came out a warm grey
          against an olive sheet. Done once, as soon as the deferred membrane build has produced some. */
       if(gSlabN && !gSlabDone){ gSlabDone = true;
-        /* A flat fill of the spheres' mean albedo comes out far brighter than the sheet actually renders:
-           the real lipids are shaded, depth-darkened, and separated by gaps of background. Bracketed
-           against the real sheet in one frame - 0.72 was clearly too bright, 0.45 slightly too dark. */
-        const K = 0.50;
-        gMemSlab.material.emissiveColor.set(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K); }
+        /* Now that the slab darkens with depth exactly as the lipids do, its colour is simply their own
+           mean, pulled down only for the gaps of background between packed spheres. Earlier attempts had
+           to bake an average depth darkening into this constant, which is why it was orange near the
+           sheet and yellow far from it - there is no constant that is right at two depths. */
+        const K = 0.82;
+        gMemSlab.material.setColor3('slabCol',
+          new BABYLON.Color3(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K)); }
       if(gMemSlab.isEnabled() !== gMembrane) gMemSlab.setEnabled(gMembrane);
     }
     const MEGA2 = gMega*gMega;
