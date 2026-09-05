@@ -2591,6 +2591,7 @@ async function run(){
   let gPing = null;                     // {x,y,z,t0} → the expanding move-order ping on the floor
   const gFollow = new Map();            // mi → {tmi, ang, ring} → keep chasing molecule tmi at a standoff
   const EDGE_M = 110;                    // screen-edge pan band width (px) — panning ramps up across this margin
+  const EDGE_PAN = false;                // screen-edge panning off — the camera moves on the keys and the joystick drag only
   const modelSize = mi => { const md=mInfo[mi]; return Math.hypot(md.x1-md.x0, md.y1-md.y0, md.z1-md.z0); };   // bbox diagonal
   // per-model glide rate → bigger complexes move slower, small cofactors nip about (mapped across the size range)
   const gModelGlide = new Float32Array(mols.length);
@@ -2905,7 +2906,7 @@ async function run(){
           const c1=gPing.follow?'74,51,32':'163,184,129', c2=gPing.follow?'124,92,57':'196,214,150';   // dark-brown = follow, sage = ground move (Solukko palette)ddddddddddddddddd
           oc2.strokeStyle='rgba('+c1+','+a+')'; oc2.lineWidth=3;   oc2.beginPath(); oc2.arc(s.x, s.y, 6+el*30, 0, 6.2832); oc2.stroke();
           oc2.strokeStyle='rgba('+c2+','+a+')'; oc2.lineWidth=2; oc2.beginPath(); oc2.arc(s.x, s.y, 2+el*15, 0, 6.2832); oc2.stroke(); } } }
-    if(gDev){ const W=selOverlay.width, H=selOverlay.height, M=EDGE_M;   // dev: show the edge-pan trigger bands (sage)
+    if(gDev && EDGE_PAN){ const W=selOverlay.width, H=selOverlay.height, M=EDGE_M;   // dev: show the edge-pan trigger bands (sage)
       const con=document.getElementById('sc2-console'), bE=H-(con?con.offsetHeight:0);   // left/right/top bands live over the play area
       oc2.fillStyle='rgba(163,184,129,0.12)';
       oc2.fillRect(0,0,M,bE); oc2.fillRect(W-M,0,M,bE); oc2.fillRect(M,0,W-2*M,M);   // left / right / top ramps
@@ -2917,7 +2918,7 @@ async function run(){
   window.addEventListener('pointermove', ev => { edgeMX=ev.clientX; edgeMY=ev.clientY; edgeOnCanvas=(ev.target===canvas); edgeIn=true; }, {passive:true});
   window.addEventListener('pointerout', ev => { if(!ev.relatedTarget){ edgeOnCanvas=false; edgeIn=false; } });
   scene.onBeforeRenderObservable.add(() => {
-    if(dragging || !edgeIn){ setPanCursor(false); return; }
+    if(!EDGE_PAN || dragging || !edgeIn){ setPanCursor(false); return; }
     const W=canvas.clientWidth, H=canvas.clientHeight, M=EDGE_M;
     let ex=0, ey=0;
     // BOTTOM: only the very last pixels of the viewport (no buffer) — works even over the console bar
@@ -2960,7 +2961,7 @@ async function run(){
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
   let gRotSpeed  = 2.2;    // max yaw/pitch rate in rad/s (WASD) — 2.2 ≈ 126 deg/s
   const RAMP_S = 7.0;      // seconds from the initial nudge to full speed
-  const RAMP_MIN = 0.01;   // a press starts at 1% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
+  const RAMP_MIN = 0.05;   // a press starts at 5% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
   let _moveRamp = RAMP_MIN, _rotRamp = RAMP_MIN;
   const rampStep = () => (1-RAMP_MIN) * Math.min(120, scene.getEngine().getDeltaTime())/1000/RAMP_S;
   scene.onBeforeRenderObservable.add(() => {
@@ -4251,13 +4252,41 @@ async function run(){
       for(let k=0;k<m.na;k++){ cx+=m.x[k]; cy+=m.y[k]; cz+=m.z[k]; }
       cx=cx/m.na+ox; cy=cy/m.na+oy; cz=cz/m.na+oz;
       const R = new Float32Array(NLAT*NLON);
+      /* Splat every atom into ALL the bearings its vdW sphere actually subtends, taking the exact
+         ray-sphere exit distance along each one. The previous version raised only the single bearing
+         bucket the atom's centre landed in, then max-dilated over a 5x5 bucket window to cover the
+         surface in between. That window spans about 11 degrees, so a single far tip of an elongated
+         complex raised every bearing within 11 degrees of it to the tip's own reach - the shell
+         ballooned outward into a star several times the size of the protein. Subtending the cone
+         properly is the same order of work (a buried atom subtends a few degrees, so it touches a
+         handful of bearings) and the shell hugs the atoms instead. */
       for(let k=0;k<m.na;k++){
         const dx=m.x[k]+ox-cx, dy=m.y[k]+oy-cy, dz=m.z[k]+oz-cz;
-        const r=Math.hypot(dx,dy,dz); if(r<1e-6) continue;
-        const li=Math.min(NLAT-1, Math.max(0, Math.round(Math.acos(dz/r)/Math.PI*(NLAT-1))));
-        let lo=Math.floor((Math.atan2(dy,dx)+Math.PI)/(2*Math.PI)*NLON) % NLON; if(lo<0) lo+=NLON;
-        const reach = r + info(m.el[k]).vr*FILL_SCALE;
-        const q=li*NLON+lo; if(reach > R[q]) R[q]=reach;
+        const a = info(m.el[k]).vr*FILL_SCALE;
+        const r = Math.hypot(dx,dy,dz);
+        const phiP = (r<1e-9) ? 0 : Math.acos(Math.max(-1, Math.min(1, dz/r)));
+        const thP  = Math.atan2(dy,dx), sPhiP = Math.sin(phiP);
+        const ang  = (r <= a) ? Math.PI : Math.asin(Math.min(1, a/r));   // half-angle this atom subtends
+        const cAng = Math.cos(ang), rr_aa = r*r - a*a;
+        const liC  = phiP/Math.PI*(NLAT-1), dLat = Math.ceil(ang/Math.PI*(NLAT-1)) + 1;
+        const l0 = Math.max(0, Math.floor(liC-dLat)), l1 = Math.min(NLAT-1, Math.ceil(liC+dLat));
+        for(let li=l0; li<=l1; li++){
+          const phi = li/(NLAT-1)*Math.PI, sp=Math.sin(phi), cpv=Math.cos(phi);
+          let loLo=0, loHi=NLON-1;
+          if(sp > 1e-6 && sPhiP > 1e-6){
+            const cosD = (cAng - Math.cos(phiP)*cpv) / (sPhiP*sp);       // longitudes within `ang` at this latitude
+            if(cosD > 1) continue;                                       // this latitude ring misses the atom entirely
+            if(cosD > -1){ const half = Math.ceil(Math.acos(cosD)/(2*Math.PI)*NLON) + 1;
+              const c0 = Math.round((thP+Math.PI)/(2*Math.PI)*NLON); loLo = c0-half; loHi = c0+half; }
+          }
+          for(let lo=loLo; lo<=loHi; lo++){
+            const b2=((lo%NLON)+NLON)%NLON, theta = b2/NLON*2*Math.PI - Math.PI;
+            const b = sp*Math.cos(theta)*dx + sp*Math.sin(theta)*dy + cpv*dz;
+            const disc = b*b - rr_aa; if(disc < 0) continue;             // this bearing misses the atom
+            const t = b + Math.sqrt(disc), q = li*NLON+b2;
+            if(t > R[q]) R[q] = t;
+          }
+        }
       }
       // fill bearings no atom landed on, from whatever neighbours do have a value
       for(let pass=0; pass<6; pass++){
@@ -4274,19 +4303,11 @@ async function run(){
         }
         if(!holes) break;
       }
-      // Dilate over a 5x5 bearing window. An atom lands in ONE bucket but the surface between buckets
-      // has to clear it too, so each vertex takes the largest reach anywhere nearby - the shell then
-      // contains the atoms instead of cutting between them. Measured 98.2% -> 100% enclosed.
-      const D = new Float32Array(R);
-      for(let li=0; li<NLAT; li++) for(let lo=0; lo<NLON; lo++){
-        let best=0;
-        for(let dl=-2; dl<=2; dl++) for(let dn=-2; dn<=2; dn++){
-          const a=li+dl; if(a<0||a>=NLAT) continue;
-          const b=((lo+dn)%NLON+NLON)%NLON;
-          const v=R[a*NLON+b]; if(v>best) best=v;
-        }
-        D[li*NLON+lo]=best;
-      }
+      // The mesh interpolates linearly BETWEEN bearings, so its surface sags a little inside the true
+      // hull in the gaps. Half a bearing step is 2.8 degrees, worth about 0.1% - 1.5% covers it with
+      // room to spare, against the several hundred percent the old 5x5 dilate cost.
+      const D = new Float32Array(R.length);
+      for(let q=0;q<R.length;q++) D[q] = R[q]*1.015;
       // vertices are CENTROID-RELATIVE, so the mesh can simply carry its model's transform
       const pos=[], idx=[];
       for(let li=0; li<NLAT; li++){
@@ -5091,10 +5112,11 @@ async function run(){
        60000 matrices every frame cost ~8 ms per frame, which is most of the frame budget. */
     const oR = info(codeO).vr*FILL_SCALE;
     const bLo = new BABYLON.Vector3(x0+oR, y0+oR, z0+oR), bHi = new BABYLON.Vector3(x1-oR, y1-oR, z1-oR);
-    // solid = never turn to glass. The reveal bubble is what makes the water go clear so its orbitals
-    // show; the other species have no orbitals, so their bubble radius is pinned to 0 and they stay
-    // opaque at every distance. (isShell must stay 1 either way — with isShell 0 the alpha is scaled BY
-    // the reveal, so the sphere would be invisible everywhere except inside the crisp zone.)
+    // solid = never turn to glass. The reveal bubble is what makes a molecule go clear inside the crisp
+    // zone so its orbitals show through. Only species that HAVE orbitals want it: water, CO2 and O2.
+    // Free protons stay solid because a bare nucleus has no electron cloud to reveal.
+    // (isShell must stay 1 either way — with isShell 0 the alpha is scaled BY the reveal, so the sphere
+    // would be invisible everywhere except inside the crisp zone.)
     const wMat=(rad, solid)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad,scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
         uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2'],
@@ -5150,7 +5172,7 @@ async function run(){
     const codeC = codeOf('C');
     // One species: `n` molecules, each a rigid set of atoms given as offsets from the molecule centre.
     // `seed` picks an independent random stream so two species never share start points or velocities.
-    const mkFree = (nm, n, seed, atoms, molBase) => {
+    const mkFree = (nm, n, seed, atoms, molBase, solid) => {
       const c=new Float32Array(n*3), v=new Float32Array(n*3), ax=new Float32Array(n*3);
       for(let i=0;i<n;i++){
         c[i*3]=x0+rnd(seed+i*3+1)*bw; c[i*3+1]=y0+rnd(seed+i*3+2)*bh; c[i*3+2]=z0+rnd(seed+i*3+3)*bd;
@@ -5162,7 +5184,7 @@ async function run(){
       }
       for(const a of atoms){
         const mesh=BABYLON.MeshBuilder.CreatePlane(nm+a.tag,{size:2},scene);
-        mesh.material=wMat(a.r, true); mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true;
+        mesh.material=wMat(a.r, solid); mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true;
         mesh.renderingGroupId=1;
         const cb=new Float32Array(n*4), mb=new Float32Array(n*16), og=new Float32Array(n*3), vl=new Float32Array(n*3);
         const mid=new Float32Array(n);
@@ -5185,14 +5207,14 @@ async function run(){
     };
     const cR = info(codeC).vr*FILL_SCALE;
     // Free protons — crimson, and small: a bare nucleus has no electron cloud to fill a vdW sphere.
-    const FREE_P = mkFree('p', 20000, 91731, [{tag:'H', r:info(codeH).vr*FILL_SCALE*0.42, col:[0.90,0.24,0.30], d:0}], MOLBASE.p);
+    const FREE_P = mkFree('p', 20000, 91731, [{tag:'H', r:info(codeH).vr*FILL_SCALE*0.42, col:[0.90,0.24,0.30], d:0}], MOLBASE.p, true);
     // CO2 — charcoal carbon between two slate oxygens, C=O 1.16 Å. Reads as grey smoke against the water.
     const FREE_CO2 = mkFree('co2', 20000, 218347, [{tag:'C', r:cR, col:[0.24,0.25,0.28], d:0},
                                   {tag:'Oa', r:oR, col:[0.52,0.55,0.60], d: 1.16},
-                                  {tag:'Ob', r:oR, col:[0.52,0.55,0.60], d:-1.16}], MOLBASE.co2);
+                                  {tag:'Ob', r:oR, col:[0.52,0.55,0.60], d:-1.16}], MOLBASE.co2, false);
     // O2 — oxygen's own red, the gas photosynthesis puts out. O=O 1.21 Å, so ±0.605 from the centre.
     const FREE_O2 = mkFree('o2', 5000, 400391, [{tag:'a', r:oR, col:[0.94,0.15,0.15], d: 0.605},
-                                {tag:'b', r:oR, col:[0.94,0.15,0.15], d:-0.605}], MOLBASE.o2);
+                                {tag:'b', r:oR, col:[0.94,0.15,0.15], d:-0.605}], MOLBASE.o2, false);
 
     /* ── Water orbitals inside the crisp zone ───────────────────────────────────────────────────────
        Every water within gCrisp gets the same orbital treatment the proteins get: core shells, the two
@@ -5433,11 +5455,13 @@ async function run(){
            upload is 1 MB, and doing both every frame during the membrane build dropped it to 4.7 fps. */
         { const ov = document.getElementById('overlay');
           if(ov && !ov.classList.contains('gone')) return; }
+        const t0 = performance.now();
         const dt = Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed;
         if(!gFreeOn || !gCollideOn || dt <= 0){
           if(prevActive.size){ for(const id of prevActive){ const o=id*4; gMolDisp[o]=gMolDisp[o+1]=gMolDisp[o+2]=0;
               gDVel[id*3]=gDVel[id*3+1]=gDVel[id*3+2]=0; }
             prevActive.clear(); gMolTex.update(gMolDisp); }
+          gSimActive = 0; gSimMs = 0;
           return;
         }
         const cp = cam.position, R2 = SIM_R*SIM_R;
