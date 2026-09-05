@@ -3453,6 +3453,7 @@ async function run(){
   // rims). Outside it EVERYTHING drops to the cheap opaque disc material — one radius governs both, so
   // there is exactly one quality boundary in the scene. Set to the real value once CELL is known.
   let gCrisp = 130;
+  let gMega  = 800;           // megacheap radius: past this the membrane is a bare slab and proteins thin hard
   let cofListPanel = null;               // right-side cofactor-type list (built later); shown only in ETC mode
   const etcGroups = [];                  // whole cofactor molecules {cx,cy,cz,r,type,atoms} → mid-range picking
   let etcGroupPos = null;                // {gx,gy,gz} per cofactor ATOM (indices match etcGroups[].atoms)
@@ -4639,6 +4640,8 @@ async function run(){
      (~2000 lipids) as space-filling vdW spheres, placed below the protein. ─────── */
   const bilayerCen = new BABYLON.Vector3(memCenX, MEMBRANE_Y, memCenZ);
   let bilayerHalf = 0;
+  let gMemSlab = null;        // the megacheap membrane: one flat slab standing in for the far lipids
+  let gSlabR=0, gSlabG=0, gSlabB=0, gSlabN=0, gSlabDone=false;   // running mean of the lipid spheres' own colours
   let buildMembrane = null;   // the heavy lipid membrane build, deferred to run AFTER the scene is revealed (complexes show first, membrane fills in)
   if(lipids.length){
     const NTY = lipids.length;
@@ -4688,6 +4691,28 @@ async function run(){
     const halfX=(Gx-1)*S*0.5, halfZ=(Gz-1)*S*0.5;
     const JIT = S*0.34;   // per-tile in-plane position jitter → breaks the crystalline grid
     bilayerHalf = Math.max(halfX, halfZ) + Math.max(xr,zr) + JIT + S*0.5;   // +S*0.5 = the row stagger below
+    /* ── MEGACHEAP membrane ── the third quality tier, below crisp and cheap.
+       The detailed lipid sheet cannot simply be made ten times bigger: its pitch is derived from the
+       sheet AREA against a fixed lipid budget, so a 10x sheet would come out with the same 20000 lipids
+       spread ten times thinner and the bilayer would read as a sparse dusting. So the detailed sheet
+       keeps its extent and its density, and a single flat slab - two triangles - carries the membrane
+       out to ten times that span. Up close the real lipids sit in front of it and hide it completely.
+       Past the megacheap radius the lipid cells switch off entirely and the slab is what you see: a
+       solid sheet of the lipids' own average colour, which at that distance is what a million packed
+       lipid spheres look like anyway.
+       It is deliberately much THINNER than the bilayer (25%), so seen edge-on it hides inside the lipid
+       band instead of occluding the middle of it. */
+    const MEGA_SCALE = 10;                     // how much further the slab reaches than the detailed sheet
+    { const slab = BABYLON.MeshBuilder.CreateBox('memSlab', {
+        width: 2*memHalfX*MEGA_SCALE, height: Math.max(1, ySpan*0.25), depth: 2*memHalfZ*MEGA_SCALE }, scene);
+      slab.position.copyFrom(bilayerCen);
+      slab.isPickable = false; slab.renderingGroupId = 0; slab.alwaysSelectAsActiveMesh = true;
+      const sm = new BABYLON.StandardMaterial('memSlabMat', scene);
+      sm.diffuseColor = new BABYLON.Color3(0,0,0);
+      sm.emissiveColor = new BABYLON.Color3(0.35,0.33,0.22);   // placeholder until the real lipid mean lands below
+      sm.disableLighting = true; sm.backFaceCulling = false;
+      slab.material = sm; gMemSlab = slab;
+    }
     buildMembrane = async () => {   // deferred: runs after the scene is revealed, so the complexes show first and the membrane fills in
     await yield_();
     // ── Randomisation: NV pre-baked rotamer templates. Each tile picks one by a DETERMINISTIC hash
@@ -4835,7 +4860,8 @@ async function run(){
           for(let k=0;k<LN;k++){ const el=lipid.el[k], cc=lipCol(el), o=si*16;
             sM[o]=1;sM[o+5]=1;sM[o+10]=1;sM[o+15]=1;
             sM[o+12]=tp[k*3]+ox; sM[o+13]=tp[k*3+1]+oy; sM[o+14]=tp[k*3+2]+oz;
-            sC[si*4]=cc[0];sC[si*4+1]=cc[1];sC[si*4+2]=cc[2];sC[si*4+3]=0; sR[si]=info(el).vr*FILL_SCALE; sAnc[si]=oz; si++; }
+            sC[si*4]=cc[0];sC[si*4+1]=cc[1];sC[si*4+2]=cc[2];sC[si*4+3]=0; sR[si]=info(el).vr*FILL_SCALE; sAnc[si]=oz; si++;
+            gSlabR+=cc[0]; gSlabG+=cc[1]; gSlabB+=cc[2]; gSlabN++; }
           for(let i=0;i<cn;i++){ const o=ci*16, s=i*16;
             for(let j=0;j<16;j++) coreM[o+j]=t.core.m[s+j];
             coreM[o+12]+=ox; coreM[o+13]+=oy; coreM[o+14]+=oz;
@@ -5794,6 +5820,19 @@ async function run(){
     if(gCut[2] < 0.001) gCut[2] = 0; else if(gCut[2] > 0.999) gCut[2] = 1;
     gCut[0] = bilayerCen.z;                                          // cut plane (membrane centre z)
     gCut[1] = (cp.z - bilayerCen.z) >= 0 ? 1 : -1;                   // which side is toward the camera
+    if(gMemSlab){
+      /* Colour the slab from what the lipid spheres actually render, not from raw element colours: the
+         per-instance colours carry the membrane's own tinting, and the element mean came out a warm grey
+         against an olive sheet. Done once, as soon as the deferred membrane build has produced some. */
+      if(gSlabN && !gSlabDone){ gSlabDone = true;
+        /* A flat fill of the spheres' mean albedo comes out far brighter than the sheet actually renders:
+           the real lipids are shaded, depth-darkened, and separated by gaps of background. Bracketed
+           against the real sheet in one frame - 0.72 was clearly too bright, 0.45 slightly too dark. */
+        const K = 0.50;
+        gMemSlab.material.emissiveColor.set(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K); }
+      if(gMemSlab.isEnabled() !== gMembrane) gMemSlab.setEnabled(gMembrane);
+    }
+    const MEGA2 = gMega*gMega;
     for(const cell of cellList){
       if(!cell.macro && !gMembrane){   // membrane hidden (perf toggle) → force every lipid mesh off, skip the rest
         if(cell.visOn !== false){ cell.visOn = false; for(const m of cell.meshes) m.setEnabled(false); }
@@ -5828,10 +5867,17 @@ async function run(){
       // handful you are practically standing in. Everything else is dropped outright, so the screen shows
       // just the immediate neighbourhood and the cost of all the rest reads off the frame rate.
       const closeR = CULL_CLOSE + cR;
-      const wantSph = vis && !!cell.sphere && (!gCullOnly || d2 < closeR*closeR);
+      /* MEGACHEAP, the third tier under crisp and cheap. A membrane cell this far out is replaced
+         outright by the slab underneath it, which costs two triangles for the whole sheet instead of
+         a few thousand impostors per cell. Proteins are the content, so they are never dropped - they
+         just thin much harder (see the instance count below). */
+      const mega = d2 > MEGA2 + cR*cR;
+      const wantSph = vis && !!cell.sphere && (!gCullOnly || d2 < closeR*closeR) && !(mega && !cell.macro);
       const nucR = gCrisp*0.5 + cR + 8;                     // nuclei use their OWN tight range, not the orbital one
       const wantNuc = vis && gGfxMode === 1 && d2 < nucR*nucR;   // nuclei: mode 1, genuinely up close only
-      if(cell.visOn !== wantOrb){ cell.visOn = wantOrb; for(const m of cell.meshes) m.setEnabled(wantOrb); }
+      if(mega && !cell.macro){ if(cell.visOn !== false){ cell.visOn = false; for(const m of cell.meshes) m.setEnabled(false); }
+        if(cell.nucOn !== false){ cell.nucOn = false; if(cell.nuc) cell.nuc.setEnabled(false); } }
+      else if(cell.visOn !== wantOrb){ cell.visOn = wantOrb; for(const m of cell.meshes) m.setEnabled(wantOrb); }
       if(cell.sphOn !== wantSph){ cell.sphOn = wantSph; if(cell.sphere) cell.sphere.setEnabled(wantSph); }
       /* DISTANCE LOD for the vdW impostors — the real cost here is overdraw, not triangles: each impostor
          ray-traces a sphere in the fragment shader, and at normal zoom half a million of them shade ~13
@@ -5842,7 +5888,8 @@ async function run(){
         // the sheet, so it keeps its full count. Only the proteins thin, and only once their atoms are
         // down to about a pixel, where they have already merged into a solid mass.
         const want = cell.macro
-          ? (d2 > 1440000 ? (cell.sphFull>>2) : d2 > 360000 ? (cell.sphFull>>1) : cell.sphFull)
+          ? (mega ? Math.max(1, cell.sphFull>>4)
+                  : d2 > 1440000 ? (cell.sphFull>>2) : d2 > 360000 ? (cell.sphFull>>1) : cell.sphFull)
           : cell.sphFull;
         if(cell.sphCount !== want){ cell.sphCount = want; cell.sphere.thinInstanceCount = want; }
         // ONE quality boundary: inside the crisp zone an atom gets the full ray-traced treatment, outside
@@ -6605,6 +6652,15 @@ async function run(){
     gBubbleR = (gGfxMode === 1) ? gCrisp : 1e9; };   // keep the shader reveal radius on the same boundary
   czSld.value = String(Math.round(gCrisp)); czValEl.textContent = String(Math.round(gCrisp));   // start at the built-in reveal distance
 
+  // The second boundary: past this the membrane is the bare slab and proteins keep 1 atom in 16.
+  const mgRow = document.createElement('div');
+  mgRow.innerHTML = 'megahalpa alue: <b id="dev-mg-val">800</b>';
+  const mgSld = document.createElement('input');
+  mgSld.type='range'; mgSld.min='200'; mgSld.max='3000'; mgSld.style.cssText='width:100%;cursor:pointer;';
+  const mgValEl = mgRow.querySelector('#dev-mg-val');
+  mgSld.oninput = () => { gMega = +mgSld.value; mgValEl.textContent = String(gMega); };
+  mgSld.value = String(Math.round(gMega)); mgValEl.textContent = String(Math.round(gMega));
+
   // Show ONLY the immediate neighbourhood: every cell whose near edge is further than CULL_CLOSE from the
   // camera is hidden outright, leaving just what you are practically standing in.
   const cullRow = document.createElement('div');
@@ -6633,6 +6689,7 @@ async function run(){
   // above (so its startup side-effects, such as the render-scale default, still run) - it is simply
   // not shown any more.
   devPanel.appendChild(backRow); devPanel.appendChild(czRow); devPanel.appendChild(czSld);
+  devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
   devPanel.appendChild(zmRow); devPanel.appendChild(zmSld);
   devPanel.appendChild(rtRow); devPanel.appendChild(rtSld);
