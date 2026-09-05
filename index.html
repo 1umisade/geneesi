@@ -3474,7 +3474,7 @@ void main(void){
   // rims). Outside it EVERYTHING drops to the cheap opaque disc material — one radius governs both, so
   // there is exactly one quality boundary in the scene. Set to the real value once CELL is known.
   let gCrisp = 130;
-  let gMega  = 800;           // megacheap radius: past this the membrane is a bare slab and proteins thin hard
+  let gMega  = 1600;          // megacheap radius: past this the membrane is a bare slab and proteins thin hard
   let cofListPanel = null;               // right-side cofactor-type list (built later); shown only in ETC mode
   const etcGroups = [];                  // whole cofactor molecules {cx,cy,cz,r,type,atoms} → mid-range picking
   let etcGroupPos = null;                // {gx,gy,gz} per cofactor ATOM (indices match etcGroups[].atoms)
@@ -5881,6 +5881,16 @@ void main(void){
       if(gMemSlab.isEnabled() !== gMembrane) gMemSlab.setEnabled(gMembrane);
     }
     const MEGA2 = gMega*gMega;
+    /* The membrane's detail now RAMPS with distance instead of being all-or-nothing. The tile order was
+       already strided so any prefix of a cell's sphere buffer is a spatially even sample of the block,
+       and sphEnd marks the tile boundaries, so this costs one lookup and a thinInstanceCount write - no
+       rebuild. Thinning the sheet used to be off the table because it visibly changed its density, but
+       that was when there was nothing behind it. The slab is behind it now, in the lipids' own colour,
+       so a thinned sheet reads as less TEXTURE rather than as holes. */
+    const MEM1 = (gMega*0.25)*(gMega*0.25), MEM2 = (gMega*0.5)*(gMega*0.5), MEM3 = (gMega*0.75)*(gMega*0.75);
+    const memFrac = (cell, f) => { const e = cell.sphEnd;
+      if(!e || !e.length) return cell.sphFull;
+      return e[Math.max(0, Math.min(e.length-1, Math.round(e.length*f)-1))]; };
     for(const cell of cellList){
       if(!cell.macro && !gMembrane){   // membrane hidden (perf toggle) → force every lipid mesh off, skip the rest
         if(cell.visOn !== false){ cell.visOn = false; for(const m of cell.meshes) m.setEnabled(false); }
@@ -5938,7 +5948,10 @@ void main(void){
         const want = cell.macro
           ? (mega ? Math.max(1, cell.sphFull>>4)
                   : d2 > 1440000 ? (cell.sphFull>>2) : d2 > 360000 ? (cell.sphFull>>1) : cell.sphFull)
-          : cell.sphFull;
+          : (d2 > MEM3 ? memFrac(cell, 0.125)
+             : d2 > MEM2 ? memFrac(cell, 0.25)
+             : d2 > MEM1 ? memFrac(cell, 0.5)
+             : cell.sphFull);
         if(cell.sphCount !== want){ cell.sphCount = want; cell.sphere.thinInstanceCount = want; }
         // ONE quality boundary: inside the crisp zone an atom gets the full ray-traced treatment, outside
         // it drops to the cheap OPAQUE disc — a flat fill that also early-Z rejects when hidden.
@@ -6702,9 +6715,9 @@ void main(void){
 
   // The second boundary: past this the membrane is the bare slab and proteins keep 1 atom in 16.
   const mgRow = document.createElement('div');
-  mgRow.innerHTML = 'megahalpa alue: <b id="dev-mg-val">800</b>';
+  mgRow.innerHTML = 'megahalpa alue: <b id="dev-mg-val">1600</b>';
   const mgSld = document.createElement('input');
-  mgSld.type='range'; mgSld.min='200'; mgSld.max='3000'; mgSld.style.cssText='width:100%;cursor:pointer;';
+  mgSld.type='range'; mgSld.min='200'; mgSld.max='5000'; mgSld.style.cssText='width:100%;cursor:pointer;';
   const mgValEl = mgRow.querySelector('#dev-mg-val');
   mgSld.oninput = () => { gMega = +mgSld.value; mgValEl.textContent = String(gMega); };
   mgSld.value = String(Math.round(gMega)); mgValEl.textContent = String(Math.round(gMega));
