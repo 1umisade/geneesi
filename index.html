@@ -3351,7 +3351,7 @@ void main(void){
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
   let gZoomMax = 60;       // the wheel's MAXIMUM: world units per full notch - the ramp is a percentage of this, never of a distance
   let gRotSpeed  = 2.705;  // max yaw/pitch rate in rad/s (WASD) — 2.705 ≈ 155 deg/s
-  const RAMP_S = 7.0;      // seconds from the initial nudge to full speed
+  const RAMP_S = 3.5;      // seconds from the initial nudge to full speed (halved from 7 on request, 2026-09-06)
   const RAMP_MIN = 0.05;   // a press starts at 5% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
   let _moveRamp = RAMP_MIN, _rotRamp = RAMP_MIN;
   const rampStep = () => (1-RAMP_MIN) * Math.min(120, scene.getEngine().getDeltaTime())/1000/RAMP_S;
