@@ -1234,6 +1234,14 @@ varying float vMemAnc; attribute float memAnc;   // per-lipid anchor Z → whole
 #ifdef LIPWRAP
 uniform vec3 tileOff;    // membrane wrap - see the imp shader
 #endif
+#ifdef LIPBAKE
+/* Template instancing. The lobe's own transform is BAKED into position and normal at build time, so
+   the instance matrix is a pure translation - one per LIPID rather than one per lobe. With a
+   translation-only matrix the existing maths already collapses correctly (taper is 1, the cofactor
+   normal transform is the identity), so only two things need a baked path: the unit-lobe direction,
+   which normalize(position) can no longer recover, and ocen, which is now lipid-local. */
+attribute vec3 localDir;
+#endif
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/orb shaders exactly so a lipid's bonds ride with its atoms.
@@ -1283,13 +1291,23 @@ void main(void){
 #endif
   vec4 vp = view * wp;
   vViewPos = vp.xyz;
+#ifdef LIPBAKE
+  vLocalDir = localDir;                            // position carries the baked lobe transform, so this is an attribute
+#else
   vLocalDir = normalize(position);                 // direction on the unit lobe → where the electrons ride
+#endif
+#ifdef LIPBAKE
+  vSeed = fract(sin(dot(W[3].xyz + ocen, vec3(12.9898, 78.233, 37.719))) * 43758.5453);   // per-ATOM phase
+#else
   vSeed = fract(sin(dot(W[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+#endif
   vec3 sn = vec3(nrm.x, nrm.y*wsc, nrm.z);         // undo the taper (x,z) position-scale on the normal
   vec3 M0=world0.xyz, M1=world1.xyz, M2=world2.xyz;   // cofactor matrix → correct normal under non-uniform scale
   vec3 wn = cross(M1,M2)*sn.x + cross(M2,M0)*sn.y + cross(M0,M1)*sn.z;
   vNrmV = (view * vec4(wn, 0.0)).xyz;
-#ifdef LIPWRAP
+#ifdef LIPBAKE
+  vec3 ocenW = ocen + W[3].xyz;  // baked templates hold ocen lipid-local, so the instance puts it in the world
+#elif defined(LIPWRAP)
   vec3 ocenW = ocen + tileOff;   // ocen is a WORLD attribute, so a wrapped copy has to carry it along -
 #else
   vec3 ocenW = ocen;             // the reveal cone keys off it, which is what makes orbitals appear
@@ -1515,6 +1533,14 @@ varying float vMemAnc; attribute float memAnc;   // per-lipid anchor Z → whole
 #ifdef LIPWRAP
 uniform vec3 tileOff;    // membrane wrap - see the imp shader
 #endif
+#ifdef LIPBAKE
+/* Template instancing. The lobe's own transform is BAKED into position and normal at build time, so
+   the instance matrix is a pure translation - one per LIPID rather than one per lobe. With a
+   translation-only matrix the existing maths already collapses correctly (taper is 1, the cofactor
+   normal transform is the identity), so only two things need a baked path: the unit-lobe direction,
+   which normalize(position) can no longer recover, and ocen, which is now lipid-local. */
+attribute vec3 localDir;
+#endif
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/bond shaders exactly so a lipid's orbitals ride with it.
@@ -1561,13 +1587,23 @@ void main(void){
 #endif
   vec4 vp = view * wp;
   vViewPos = vp.xyz;
+#ifdef LIPBAKE
+  vLocalDir = localDir;                            // position carries the baked lobe transform, so this is an attribute
+#else
   vLocalDir = normalize(position);                 // direction on the unit lobe → where the electrons ride
+#endif
+#ifdef LIPBAKE
+  vSeed = fract(sin(dot(W[3].xyz + ocen, vec3(12.9898, 78.233, 37.719))) * 43758.5453);   // per-ATOM phase
+#else
   vSeed = fract(sin(dot(W[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);   // per-lobe phase
+#endif
   vec3 M0=world0.xyz, M1=world1.xyz, M2=world2.xyz;   // cofactor matrix → correct normal under the lobe's non-uniform scale
   vec3 wn = cross(M1,M2)*normal.x + cross(M2,M0)*normal.y + cross(M0,M1)*normal.z;
   vNrmV = (view * vec4(wn, 0.0)).xyz;
   vCol = ocol;   // orbitals ALWAYS keep their element colour — per-model pastel applies to the vdW spheres only
-#ifdef LIPWRAP
+#ifdef LIPBAKE
+  vec3 ocenW = ocen + W[3].xyz;  // baked templates hold ocen lipid-local, so the instance puts it in the world
+#elif defined(LIPWRAP)
   vec3 ocenW = ocen + tileOff;   // ocen is a WORLD attribute, so a wrapped copy has to carry it along -
 #else
   vec3 ocenW = ocen;             // the reveal cone keys off it, which is what makes orbitals appear
@@ -4958,20 +4994,205 @@ void main(void){
     const NEAR_R = Math.max(60, S*3);   // "close to the camera" → nuclei + electrons switch on inside this
     const mkLipMat = (nm, shader, attrs, extra) => {
       const mat = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs,
-        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec','elecR','memCut','selModel','tileOff','memDrift'].concat(extra||[]),
-        defines:['#define ELECGATE','#define MEMFADE','#define LIPWRAP'] });   // ELECGATE isolates elecR, MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
+        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec','elecR','memCut','selModel','memDrift'].concat(extra||[]),
+        // LIPBAKE, not LIPWRAP: these draw the shared templates, and the per-frame gather already places
+        // each instance on the wrapped copy, so the shader has no wrapping left to do.
+        defines:['#define ELECGATE','#define MEMFADE','#define LIPBAKE'] });   // ELECGATE isolates elecR, MEMFADE = the cross-cut fade
       mat.setFloat('bubbleR',1e9); mat.setFloat('nElec',2); mat.setFloat('coneCos',-1.0);
       mat.setFloat('drawElec',1); mat.setFloat('elecR', NEAR_R); mat.backFaceCulling=true; mat.setFloat('selModel', -1);   // orbitals always, electrons only up close
-      mat.onBindObservable.add(mesh=>{ const eff=mat.getEffect(); if(!eff) return;
-        eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
+      mat.onBindObservable.add(()=>{ const eff=mat.getEffect(); if(!eff) return;
         eff.setFloat('memDrift', gMemDrift);
         eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 2 → membrane orbitals only inside the close forward cone
         eff.setFloat('uT', gWaveT); eff.setVector3('selCenter', selCenter); eff.setFloat('focusId', gFocusId); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
         eff.setColor3('fogColor', scene.fogColor); eff.setFloat('fogStart', scene.fogStart); eff.setFloat('fogEnd', scene.fogEnd); });
       return realAlpha(mat);
     };
-    const lipCoreMat = mkLipMat('lipCoreMat','orb',['position','normal','ocol','ocen','oid','memAnc','world0','world1','world2','world3']);
-    const lipBondMat = mkLipMat('lipBondMat','bond',['position','normal','taper','ocen','bcol','oid','memAnc','world0','world1','world2','world3'],['opacity']); lipBondMat.setFloat('nElec',1);
+    const lipCoreMat = mkLipMat('lipCoreMat','orb',['position','normal','localDir','ocol','ocen','oid','memAnc','world0','world1','world2','world3']);
+    const lipBondMat = mkLipMat('lipBondMat','bond',['position','normal','localDir','taper','ocen','bcol','oid','memAnc','world0','world1','world2','world3'],['opacity']); lipBondMat.setFloat('nElec',1);
+    /* ── ORBITAL TEMPLATE INSTANCING ────────────────────────────────────────────────────────────────
+       The membrane's orbital lobes used to be baked per lipid: every one of the 20000 lipids got its own
+       copy of ~100 core lobes and ~200 bond lobes, each a 16-float matrix plus colour, centre, id, taper
+       and anchor. Measured: 93 MB of cores and 387 MB of bond lobes, 480 MB in all, resident whether or
+       not a single one was on screen.
+
+       But there are only NTY x NV x 2 distinct lipids in the whole sheet - species by rotamer by leaflet,
+       64 of them - and the builder was literally copying a template matrix and adding the tile origin to
+       its translation. So the lobes are baked ONCE per template into that template's vertex data, and a
+       lipid becomes a single thin instance carrying nothing but a translation.
+
+       Because the instance matrix is then a pure translation, the shaders' existing maths still holds:
+       taper is 1 and the cofactor normal transform collapses to the identity. Only the unit-lobe
+       direction and ocen needed a baked path - see LIPBAKE.
+
+       The instances are gathered per frame from the lipids near the camera, the same way the water
+       orbitals already are, so the sheet no longer needs a cell for them at all. */
+    const NTPL = NTY*2*NV, ORB_CAP = 384;
+    /* A HARD BUDGET on how many lipids may show orbitals at once, nearest first. Each lipid carries
+       about 600 lobes, so at ten times the old density a 130-unit reveal radius swept up 1300 lipids -
+       nearly 800000 lobes, which no amount of instancing makes cheap. Bounding the COUNT rather than
+       radius keeps the crisp zone the size the slider says while capping what it can cost, and the
+       lipids that lose are always the furthest, where the cloud is smallest on screen. */
+    const ORB_TOTAL = 420, ORB_SCRATCH = 8192;
+    /* And the budget ADAPTS, the same way the supersample backoff does, because the right number is a
+       property of the machine rather than of the scene: an Intel UHD manages a fraction of what a
+       discrete card does, and hard-coding either one is wrong for the other. It eases down when frames
+       are slow and back up when they are not, so the crisp zone is as generous as the hardware allows. */
+    let gOrbBudget = ORB_TOTAL;
+    const oCand = new Int32Array(ORB_SCRATCH), oD2 = new Float32Array(ORB_SCRATCH);
+    const oPx = new Float32Array(ORB_SCRATCH), oPy = new Float32Array(ORB_SCRATCH), oPz = new Float32Array(ORB_SCRATCH);
+    const oSort = new Float32Array(ORB_SCRATCH);
+    const tplIdx = (ty, leaf, v) => (ty*2 + leaf)*NV + v;
+    const orbTpl = [];
+    { // one unit sphere of each resolution, read once and reused for every lobe
+      const grab = seg => { const m = BABYLON.MeshBuilder.CreateSphere('tplSrc', {segments:seg, diameter:1}, scene);
+        const g = { p: m.getVerticesData('position'), n: m.getVerticesData('normal'), i: m.getIndices() };
+        m.dispose(); return g; };
+      const CORE_G = grab(6), BOND_G = grab(5);
+
+      /* Bake one lobe set into flat vertex arrays, doing exactly what the vertex shader used to do per
+         lobe: the taper scale on the position, its inverse on the normal, and the cofactor of the lobe
+         matrix so the normal survives the non-uniform scale. */
+      const bake = (G, L, hasTaper) => {
+        const NL = L.m.length/16, VN = G.p.length/3, IN = G.i.length;
+        const pos = new Float32Array(NL*VN*3), nrm = new Float32Array(NL*VN*3), dir = new Float32Array(NL*VN*3);
+        const col = new Float32Array(NL*VN*3), cen = new Float32Array(NL*VN*3);
+        const oid = new Float32Array(NL*VN), tap = new Float32Array(NL*VN);
+        const idx = new Uint32Array(NL*IN);
+        for(let l=0; l<NL; l++){
+          const M = L.m, o = l*16;
+          const m00=M[o],   m01=M[o+1], m02=M[o+2];
+          const m10=M[o+4], m11=M[o+5], m12=M[o+6];
+          const m20=M[o+8], m21=M[o+9], m22=M[o+10];
+          const tx=M[o+12], ty2=M[o+13], tz=M[o+14];
+          // cofactor columns - the cross products of the matrix's own columns, as the shader computes them
+          const n0x=m11*m22-m12*m21, n0y=m12*m20-m10*m22, n0z=m10*m21-m11*m20;
+          const n1x=m21*m02-m22*m01, n1y=m22*m00-m20*m02, n1z=m20*m01-m21*m00;
+          const n2x=m01*m12-m02*m11, n2y=m02*m10-m00*m12, n2z=m00*m11-m01*m10;
+          const wsc = hasTaper ? L.tap[l] : 1.0;
+          const cr=L.col[l*3], cg=L.col[l*3+1], cb=L.col[l*3+2];
+          const ex=L.cen[l*3], ey=L.cen[l*3+1], ez=L.cen[l*3+2], od=L.oid[l];
+          for(let vtx=0; vtx<VN; vtx++){
+            const s=vtx*3, d=(l*VN+vtx)*3;
+            const px=G.p[s]*wsc, py=G.p[s+1], pz=G.p[s+2]*wsc;
+            pos[d]   = m00*px + m10*py + m20*pz + tx;
+            pos[d+1] = m01*px + m11*py + m21*pz + ty2;
+            pos[d+2] = m02*px + m12*py + m22*pz + tz;
+            const sx=G.n[s], sy=G.n[s+1]*wsc, sz=G.n[s+2];   // the shader's taper-undo on the normal
+            nrm[d]   = n0x*sx + n1x*sy + n2x*sz;
+            nrm[d+1] = n0y*sx + n1y*sy + n2y*sz;
+            nrm[d+2] = n0z*sx + n1z*sy + n2z*sz;
+            const dl = Math.hypot(G.p[s], G.p[s+1], G.p[s+2]) || 1;
+            dir[d]=G.p[s]/dl; dir[d+1]=G.p[s+1]/dl; dir[d+2]=G.p[s+2]/dl;   // normalize(position), pre-taper
+            col[d]=cr; col[d+1]=cg; col[d+2]=cb;
+            cen[d]=ex; cen[d+1]=ey; cen[d+2]=ez;
+            oid[l*VN+vtx]=od; tap[l*VN+vtx]=1.0;   // the taper lives in the geometry now
+          }
+          for(let q=0;q<IN;q++) idx[l*IN+q] = G.i[q] + l*VN;
+        }
+        return {pos, nrm, dir, col, cen, oid, tap, idx};
+      };
+
+      const mk = (name, B, mat, colAttr, withTaper) => {
+        const m = new BABYLON.Mesh(name, scene);
+        const vd = new BABYLON.VertexData();
+        vd.positions = B.pos; vd.normals = B.nrm; vd.indices = B.idx;
+        vd.applyToMesh(m, false);
+        m.setVerticesData('localDir', B.dir, false, 3);
+        m.setVerticesData(colAttr, B.col, false, 3);
+        m.setVerticesData('ocen', B.cen, false, 3);
+        m.setVerticesData('oid', B.oid, false, 1);
+        if(withTaper) m.setVerticesData('taper', B.tap, false, 1);
+        m.material = mat; m.isPickable = false; m.alwaysSelectAsActiveMesh = true; m.setEnabled(false);
+        return m;
+      };
+
+      for(let ty=0; ty<NTY; ty++) for(let leaf=0; leaf<2; leaf++) for(let v=0; v<NV; v++){
+        const t = TV[ty][leaf][v], T = tplIdx(ty, leaf, v);
+        const cB = bake(CORE_G, t.core, false), bB = bake(BOND_G, t.bond, true);
+        const cM = new Float32Array(ORB_CAP*16), bM = new Float32Array(ORB_CAP*16);
+        const cA = new Float32Array(ORB_CAP), bA = new Float32Array(ORB_CAP);
+        const core = mk('lipTplC'+T, cB, lipCoreMat, 'ocol', false);
+        const bond = mk('lipTplB'+T, bB, lipBondMat, 'bcol', true);
+        core.thinInstanceSetBuffer('matrix', cM, 16, false); core.thinInstanceSetBuffer('memAnc', cA, 1, false);
+        bond.thinInstanceSetBuffer('matrix', bM, 16, false); bond.thinInstanceSetBuffer('memAnc', bA, 1, false);
+        core.thinInstanceCount = 0; bond.thinInstanceCount = 0;
+        orbTpl[T] = { core, bond, cM, bM, cA, bA, n: 0 };
+      }
+    }
+
+    /* Per-lipid lookup for the gather: which template it uses and where it sits. Precomputed, because
+       tileType/tileVar/tileOrg are hashes and running them for 20000 lipids every frame is wasteful. */
+    const LIPN = Gx*Gz*2;
+    const lipT = new Int32Array(LIPN), lipO = new Float32Array(LIPN*3);
+    { let n=0;
+      for(let leaf=0; leaf<2; leaf++) for(let gi=0; gi<Gx; gi++) for(let gj=0; gj<Gz; gj++){
+        const og = tileOrg(gi,gj,leaf);
+        lipT[n] = tplIdx(tileType(gi,gj,leaf), leaf, tileVar(gi,gj,leaf));
+        lipO[n*3]=og[0]; lipO[n*3+1]=og[1]; lipO[n*3+2]=og[2]; n++;
+      }
+    }
+
+    /* The gather. One pass over the lipids, wrapping each onto the copy nearest the camera exactly as the
+       cell wrap does, and appending a translation to its template's instance buffer. A lipid costs one
+       matrix here where it used to cost three hundred, which is the whole point. */
+    let gOrbLive = false;
+    scene.onBeforeRenderObservable.add(()=>{
+      const ov = document.getElementById('overlay');
+      if(ov && !ov.classList.contains('gone')) return;
+      const live = gMembrane && gGfxMode === 1 && gMemSpanX > 0;
+      if(!live){ if(gOrbLive){ gOrbLive = false;
+          for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.n=0; E.core.setEnabled(false); E.bond.setEnabled(false); } }
+        return; }
+      gOrbLive = true;
+      const cp = cam.position, R = gCrisp + 12, R2 = R*R;
+      /* A frustum test as well as a radius. Without it the gather takes every lipid in a SPHERE around
+         the camera, most of which is behind you - at this density that was 4300 lipids where about a
+         quarter are actually on screen, and each one carries some 600 lobes. The old per-cell path
+         tested the frustum for exactly this reason. LOBE_MARGIN covers a lipid's own reach plus its
+         sway, so one is never culled while part of it is still visible. */
+      const fp = BABYLON.Frustum.GetPlanes(cam.getTransformationMatrix()), LOBE_MARGIN = 14;
+      for(let T=0;T<NTPL;T++) if(orbTpl[T]) orbTpl[T].n = 0;
+      let nC = 0;
+      for(let i=0;i<LIPN;i++){
+        const o=i*3, oy=lipO[o+1];
+        const dy=oy-cp.y; if(dy*dy > R2) continue;                        // the sheet is thin in Y - cheapest reject first
+        const ox=lipO[o]   + Math.round((cp.x-lipO[o])/gMemSpanX)*gMemSpanX;
+        const dx=ox-cp.x; if(dx*dx+dy*dy > R2) continue;
+        const oz=lipO[o+2] + Math.round((cp.z-lipO[o+2])/gMemSpanZ)*gMemSpanZ;
+        const dz=oz-cp.z; if(dx*dx+dy*dy+dz*dz > R2) continue;
+        let vis = true;
+        for(let q=0;q<6;q++){ const pl=fp[q];
+          if(pl.normal.x*ox + pl.normal.y*oy + pl.normal.z*oz + pl.d < -LOBE_MARGIN){ vis=false; break; } }
+        if(!vis) continue;
+        if(nC < ORB_SCRATCH){ oCand[nC]=i; oD2[nC]=dx*dx+dy*dy+dz*dz; oPx[nC]=ox; oPy[nC]=oy; oPz[nC]=oz; nC++; }
+      }
+      /* Keep only the nearest ORB_TOTAL. Sorting a copy of the distances and reading off the cutoff is
+         a few thousand comparisons - far cheaper than drawing the lipids it removes. */
+      { const f = engine.getFps();
+        if(f < 45) gOrbBudget = Math.max(40, gOrbBudget*0.92);
+        else if(f > 56) gOrbBudget = Math.min(ORB_TOTAL, gOrbBudget*1.03 + 1); }
+      const budget = gOrbBudget|0;
+      let cut = Infinity;
+      if(nC > budget){ oSort.set(oD2.subarray(0, nC));
+        const v = oSort.subarray(0, nC); v.sort(); cut = v[budget-1]; }
+      for(let k=0;k<nC;k++){
+        if(oD2[k] > cut) continue;
+        const E = orbTpl[lipT[oCand[k]]]; if(!E || E.n >= ORB_CAP) continue;
+        const ox=oPx[k], oy=oPy[k], oz=oPz[k], b = E.n*16;
+        E.cM[b]=1; E.cM[b+5]=1; E.cM[b+10]=1; E.cM[b+15]=1; E.cM[b+12]=ox; E.cM[b+13]=oy; E.cM[b+14]=oz;
+        E.bM[b]=1; E.bM[b+5]=1; E.bM[b+10]=1; E.bM[b+15]=1; E.bM[b+12]=ox; E.bM[b+13]=oy; E.bM[b+14]=oz;
+        E.cA[E.n]=oz; E.bA[E.n]=oz;                                       // anchor Z for the whole-lipid cross-cut
+        E.n++;
+      }
+      for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue;
+        if(E.n){ E.core.thinInstancePartialBufferUpdate('matrix', E.cM.subarray(0,E.n*16), 0);
+                 E.core.thinInstancePartialBufferUpdate('memAnc', E.cA.subarray(0,E.n), 0);
+                 E.bond.thinInstancePartialBufferUpdate('matrix', E.bM.subarray(0,E.n*16), 0);
+                 E.bond.thinInstancePartialBufferUpdate('memAnc', E.bA.subarray(0,E.n), 0); }
+        E.core.thinInstanceCount = E.n; E.bond.thinInstanceCount = E.n;
+        E.core.setEnabled(E.n>0); E.bond.setEnabled(E.n>0);
+      }
+    });
     // Split the G×G grid (×2 leaflets) into BL×BL-tile BLOCKS, each a cellList entry, so the membrane
     // frustum-culls and LODs (orbitals near ↔ vdW spheres far) exactly like the protein cells do.
     const BL = 4, nbx = Math.ceil(Gx/BL), nbz = Math.ceil(Gz/BL);
@@ -4983,11 +5204,11 @@ void main(void){
         // the buffers for the biggest species and pack the tiles back to back. The draw count is
         // whatever was actually written, so the slack at the end is never rendered.
         const cnA=TV.map(T=>T[leaf][0].core.m.length/16), bnA=TV.map(T=>T[leaf][0].bond.m.length/16);
-        const cnX=Math.max(...cnA), bnX=Math.max(...bnA), lnX=Math.max(...prep.map(P=>P.LN));
-        const coreM=new Float32Array(cnX*nt*16), coreCol=new Float32Array(cnX*nt*3), coreCen=new Float32Array(cnX*nt*3), coreOid=new Float32Array(cnX*nt), coreAnc=new Float32Array(cnX*nt);
-        const bM=new Float32Array(bnX*nt*16), bTap=new Float32Array(bnX*nt), bCol=new Float32Array(bnX*nt*3), bCen=new Float32Array(bnX*nt*3), bOid=new Float32Array(bnX*nt), bAnc=new Float32Array(bnX*nt);
+        // Only the vdW spheres are baked per lipid now. The orbital lobes come from the shared templates
+        // above, gathered per frame - which is where the 480 MB went.
+        const lnX=Math.max(...prep.map(P=>P.LN));
         const sM=new Float32Array(lnX*nt*16), sC=new Float32Array(lnX*nt*4), sR=new Float32Array(lnX*nt), sAnc=new Float32Array(lnX*nt);   // per-instance lipid anchor Z (whole-molecule cross-cut)
-        let ci=0, bi=0, si=0, bcx=0, bcz=0;
+        let si=0, bcx=0, bcz=0;
         // Pack the tiles in an INTERLEAVED order (a stride coprime with the tile count) instead of row by
         // row, so any PREFIX of the sphere buffer is a spatially even sample of the whole block. The
         // distance LOD below then thins the membrane just by lowering thinInstanceCount — no rebuild, and
@@ -4998,48 +5219,25 @@ void main(void){
         const order=[]; for(let n=0,kk=0;n<tiles.length;n++,kk=(kk+stride)%tiles.length) order.push(tiles[kk]);
         const sphEnd=new Int32Array(order.length); let tIdx=0;
         for(const tile of order){ const gi=tile[0], gj=tile[1];
-          const ty=tileType(gi,gj,leaf), P=prep[ty], lipid=P.lipid, LN=P.LN, cn=cnA[ty], bn=bnA[ty];   // per-tile species
-          const v=tileVar(gi,gj,leaf), tp=tPosV[ty][leaf][v], t=TV[ty][leaf][v];   // per-tile rotamer
+          const ty=tileType(gi,gj,leaf), P=prep[ty], lipid=P.lipid, LN=P.LN;   // per-tile species
+          const v=tileVar(gi,gj,leaf), tp=tPosV[ty][leaf][v];   // per-tile rotamer
           const og=tileOrg(gi,gj,leaf), ox=og[0], oy=og[1], oz=og[2]; bcx+=ox; bcz+=oz;
           for(let k=0;k<LN;k++){ const el=lipid.el[k], cc=lipCol(el), o=si*16;
             sM[o]=1;sM[o+5]=1;sM[o+10]=1;sM[o+15]=1;
             sM[o+12]=tp[k*3]+ox; sM[o+13]=tp[k*3+1]+oy; sM[o+14]=tp[k*3+2]+oz;
             sC[si*4]=cc[0];sC[si*4+1]=cc[1];sC[si*4+2]=cc[2];sC[si*4+3]=0; sR[si]=info(el).vr*FILL_SCALE; sAnc[si]=oz; si++;
             gSlabR+=cc[0]; gSlabG+=cc[1]; gSlabB+=cc[2]; gSlabN++; }
-          for(let i=0;i<cn;i++){ const o=ci*16, s=i*16;
-            for(let j=0;j<16;j++) coreM[o+j]=t.core.m[s+j];
-            coreM[o+12]+=ox; coreM[o+13]+=oy; coreM[o+14]+=oz;
-            coreCol[ci*3]=t.core.col[i*3]; coreCol[ci*3+1]=t.core.col[i*3+1]; coreCol[ci*3+2]=t.core.col[i*3+2];
-            coreCen[ci*3]=t.core.cen[i*3]+ox; coreCen[ci*3+1]=t.core.cen[i*3+1]+oy; coreCen[ci*3+2]=t.core.cen[i*3+2]+oz;
-            coreOid[ci]=t.core.oid[i]; coreAnc[ci]=oz; ci++; }
-          for(let i=0;i<bn;i++){ const o=bi*16, s=i*16;
-            for(let j=0;j<16;j++) bM[o+j]=t.bond.m[s+j];
-            bM[o+12]+=ox; bM[o+13]+=oy; bM[o+14]+=oz;
-            bTap[bi]=t.bond.tap[i]; bOid[bi]=t.bond.oid[i];
-            bCol[bi*3]=t.bond.col[i*3]; bCol[bi*3+1]=t.bond.col[i*3+1]; bCol[bi*3+2]=t.bond.col[i*3+2];
-            bCen[bi*3]=t.bond.cen[i*3]+ox; bCen[bi*3+1]=t.bond.cen[i*3+1]+oy; bCen[bi*3+2]=t.bond.cen[i*3+2]+oz;
-            bAnc[bi]=oz; bi++; }
           sphEnd[tIdx++]=si;   // instance count after each whole tile → LOD truncates only on tile boundaries
         }
         const bcX=bcx/nt, bcZ=bcz/nt;
-        const coreMesh=BABYLON.MeshBuilder.CreateSphere('lipCo'+bgi+'_'+bgj+'_'+leaf,{segments:6,diameter:1},scene);
-        coreMesh.material=lipCoreMat; coreMesh.isPickable=false; coreMesh.alwaysSelectAsActiveMesh=true;
-        coreMesh.thinInstanceSetBuffer('ocol',coreCol,3,true); coreMesh.thinInstanceSetBuffer('ocen',coreCen,3,true);
-        coreMesh.thinInstanceSetBuffer('oid',coreOid,1,true); coreMesh.thinInstanceSetBuffer('memAnc',coreAnc,1,true); coreMesh.thinInstanceSetBuffer('matrix',coreM,16,true); coreMesh.thinInstanceCount=ci;
-        const bondMesh=BABYLON.MeshBuilder.CreateSphere('lipBo'+bgi+'_'+bgj+'_'+leaf,{segments:5,diameter:1},scene);
-        bondMesh.material=lipBondMat; bondMesh.isPickable=false; bondMesh.alwaysSelectAsActiveMesh=true;
-        bondMesh.thinInstanceSetBuffer('taper',bTap,1,true); bondMesh.thinInstanceSetBuffer('bcol',bCol,3,true);
-        bondMesh.thinInstanceSetBuffer('ocen',bCen,3,true); bondMesh.thinInstanceSetBuffer('oid',bOid,1,true); bondMesh.thinInstanceSetBuffer('memAnc',bAnc,1,true);
-        bondMesh.thinInstanceSetBuffer('matrix',bM,16,true); bondMesh.thinInstanceCount=bi;
         const sphMesh=BABYLON.MeshBuilder.CreatePlane('lipSp'+bgi+'_'+bgj+'_'+leaf,{size:2},scene);
         sphMesh.material=vdwMatStatic; sphMesh.isPickable=false; sphMesh.alwaysSelectAsActiveMesh=true; sphMesh.renderingGroupId=1;
         sphMesh.thinInstanceSetBuffer('matrix',sM,16,true); sphMesh.thinInstanceSetBuffer('instanceColor',sC,4,true); sphMesh.thinInstanceSetBuffer('instR',sR,1,true); sphMesh.thinInstanceSetBuffer('memAnc',sAnc,1,true); sphMesh.thinInstanceCount=si;
-        coreMesh.setEnabled(false); bondMesh.setEnabled(false); sphMesh.setEnabled(false);
-        /* One offset object per cell, shared by its three meshes, so the wrap below is a single write
-           per cell and the shader picks it up through mesh.metadata. */
+        sphMesh.setEnabled(false);
+        /* One offset object per cell, for the wrap - the shader picks it up through mesh.metadata. */
         const off = new BABYLON.Vector3(0,0,0);
-        coreMesh.metadata = {off}; bondMesh.metadata = {off}; sphMesh.metadata = {off};
-        cellList.push({ cx:bcX, cy:bilayerCen.y, cz:bcZ, meshes:[coreMesh,bondMesh], nuc:null, sphere:sphMesh, macro:false, r:blockR, visOn:false, nucOn:false, sphOn:false, sphEnd, sphFull:si, sphCount:si, off });
+        sphMesh.metadata = {off};
+        cellList.push({ cx:bcX, cy:bilayerCen.y, cz:bcZ, meshes:[], nuc:null, sphere:sphMesh, macro:false, r:blockR, visOn:false, nucOn:false, sphOn:false, sphEnd, sphFull:si, sphCount:si, off });
       }
       await yield_();
     } }
