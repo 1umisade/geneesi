@@ -6911,6 +6911,7 @@ void main(void){
   scene.setRenderingAutoClearDepthStencil(2, true, false, true);
   scene.setRenderingAutoClearDepthStencil(3, true, true, false);
   const hlBuf = new Float32Array(160*16);   // orbital + bonding lobes
+  let gHoverAtom = null;                     // the atom the hover outline is on (re-tracked every frame if it moves)
   const orbExtent = e => { let mx=1; for(const sh of econf(e)) mx=Math.max(mx, sh[0]); return mx*SHELL_STEP + 0.2; };
 
   // A spawned atom's orbital lobes, regenerated on demand (same formula as rebuildSpawn) →
@@ -7991,7 +7992,16 @@ void main(void){
     hl.thinInstanceSetBuffer('matrix', hlBuf, 16, true);
     hl.thinInstanceCount = n;
     hl.setEnabled(true);
+    gHoverAtom = atom;
   };
+  /* The pointer event builds the hover outline from the atom's position at THAT moment - between frames,
+     before the next frame's sway clock ticks - so on a lipid or a free molecule it trailed the orbitals by
+     a frame, and sat still while the pointer rested. Rebuild it every frame from the live position, as the
+     selection follower does. Protein atoms have no track() and need none. */
+  scene.onBeforeRenderObservable.add(() => {
+    const a = gHoverAtom; if(!a || !a.track || !hl.isEnabled()) return;
+    if(a.track()) setHL(a); else hl.setEnabled(false);
+  });
 
   // ── Electron-configuration panel (bottom-right) ────────────────────────────
   let selAtom = null;
