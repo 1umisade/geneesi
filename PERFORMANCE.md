@@ -15,7 +15,9 @@ ilman että koodiin on koskettu.
 
 ### Näin tarkistat, kumpi kortti on käytössä
 
-Avaa ⚙️ → **Dev**. Oikean yläkulman lukema kertoo kortin nimen.
+**Kortin nimi näkyy nyt aina** oikeassa alakulmassa: vihreällä = erillisnäytönohjain,
+keltaisella = integroitu tai ohjelmistorasterointi. Hiiri päällä näyttää koko
+tunnistemerkkijonon. Dev-tila ei siis enää ole tarpeen tähän.
 
 - `NVIDIA GeForce RTX 4080` → kunnossa
 - `Intel(R) UHD Graphics` → **tästä pätkiminen johtuu**
@@ -39,6 +41,21 @@ Avaa ⚙️ → **Dev**. Oikean yläkulman lukema kertoo kortin nimen.
   käynnissä olevaa prosessia.
 - **`--force_high_performance_gpu`.** Kokeiltu omalla profiililla, jolloin syntyy
   oma GPU-prosessi joka lukee lipun — ja se päätyi silti Inteliin.
+
+### Asetus on **sovelluskohtainen**
+
+Chromelle tehty asetus ei koske muita selainmoottoreita. Esimerkiksi Claude-
+työpöytäsovellus sisältää oman Chromiuminsa ja valitsee korttinsa itse. Se on
+MSIX-paketoitu, joten se ei löydy `.exe`-tiedostoa selaamalla:
+
+> Asetukset → Järjestelmä → Näyttö → Grafiikka → **Lisää sovellus** → vaihda
+> pudotusvalikko **Microsoft Store -sovellus** → valitse sovellus → Asetukset →
+> **Suuri suorituskyky**.
+
+Asetus astuu voimaan vasta kun sovellus käynnistetään **kokonaan uudelleen** —
+Chromium valitsee kortin GPU-prosessin käynnistyessä, joten jo ajossa olevaa
+prosessia ei voi siirtää. Tämä on todennettu: sama sovellus näytti Inteliä ennen
+uudelleenkäynnistystä ja RTX 4080:aa sen jälkeen.
 
 ## Toinen syy: Legion-virrankäyttötila
 
