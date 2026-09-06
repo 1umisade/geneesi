@@ -1,0 +1,91 @@
+# Geneesi - briefing for a new agent
+
+Read CLAUDE.md first (its four rules and the GLSL comment rule are binding). This file is the
+project context that the code and git history do not tell you. Last updated 2026-09-06.
+
+## What this is
+
+A single-file Babylon.js v9 / WebGL2 molecular viewer of the thylakoid membrane (photosynthesis):
+PSII, cytochrome b6f, PSI, ATP synthase and the other complexes as mol2 models, a lipid bilayer
+built from templates, free water / protons / NADP, plastoquinone and plastocyanin shuttles that
+travel between binding sites, photons that hit chlorophylls. UI text is Finnish. The look is
+"painterly": a posterising comic-book post-process with ink outlines.
+
+- Everything is in `index.html` (about 10 600 lines). There is no build step, no bundler, no
+  framework. Edit the file directly.
+- Deploy = `git push origin main`. GitHub Pages serves it as geneesi.com (the `CNAME` file).
+- Models: the `*.mol2` files in the root. `Chlorophyll.mol` is the 2D structural formula.
+- `PERFORMANCE.md` (Finnish): the page must run on the discrete GPU. Never fix a GPU problem by
+  editing the registry or OS settings - the owner forbade it. The GPU name is shown bottom-right.
+- `smooth.html` is an old experiment, not part of the site.
+- Language of the owner: Finnish, messages often in fast informal English with typos. They
+  test on their own machine and describe what they see. Ask when the ask is ambiguous.
+
+## Working loop that has proven reliable
+
+1. Edit `index.html` with a Python script (exact-string replace with a uniqueness assert, write
+   back with `newline=''` so CRLF is preserved). Short edits via a Bash heredoc, long ones as a
+   script in the scratchpad. Use Windows paths inside Python.
+2. Syntax check: extract every inline `<script>` block (no `src=`) to `chk.js` and run
+   `node --check`. Also scan GLSL strings for a `;` inside a comment (Babylon's preprocessor
+   splits on `;` - a semicolon in a shader comment silently kills the material).
+3. Preview: the Browser pane dev server is `python -m http.server 8777`
+   (`.claude/launch.json`, name `geneesi`). Reload with a cache-busting query.
+4. Verify in the page with `javascript_tool`: the scene is
+   `BABYLON.EngineStore.LastCreatedScene`, the camera is `scene.getCameraByName('cam')`
+   (`scene.activeCamera` may be the selection-mask camera - do not use it). The hidden pane
+   throttles timers, so patch `window.setTimeout` through a MessageChannel before waiting for
+   the chunked build. For deterministic tests: `engine.stopRenderLoop()`, force
+   `engine._deltaTime = 16.7`, call `scene.render()` yourself, then restart the loop.
+   Debug hooks on `window`: `__foot` (protein footprint grid), `__sites` (shuttle sites and
+   occupancy), `__photons`.
+5. Commit with a one-line descriptive message and push. The owner wants each change deployed.
+
+## Architecture in one screen
+
+- Atoms are rendered as thin instances. Thin-instance buffers live on the GEOMETRY: a `clone()`
+  shares geometry, so call `makeGeometryUnique()` before giving a clone its own instances.
+- Level of detail is one derived set of radii, `deriveLod()`: `gCrisp` (full atoms with
+  orbitals, default 132), `gMega` (membrane drawn as a textured slab past this, default 600),
+  `gMemBlend` (blend band, 60). Membrane and proteins use the SAME distances by design.
+- The membrane is gathered per block around the camera into near/far streams with per-template
+  caps; lipids under a protein's footprint (`buildProtFoot()`, a grid over the membrane plane,
+  flood-filled from the border) are never drawn.
+- Proteins have collision shells (`insideShell`, `camInsideModel`); free molecules bounce in a
+  container box; protons pass ATP synthase only from the rotor side and spin the rotor.
+- Shuttles: model clones (`MAX_MODELS` 48), one occupant per binding site (`siteOcc`), dock in
+  contact with the host (`contact()`), wander on the way. Plastoquinone stays in the membrane
+  plane, plastocyanin below the lipid layer.
+- Photons: a camera-facing ribbon per photon drawn by `beamVertexShader` /
+  `beamFragmentShader` (additive, no depth write). The painterly posteriser bands any bright
+  gradient, so beam intensities are kept under its top level. Six fixed colours - the owner
+  rejected rainbow tints.
+- Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
+  `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
+- Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a
+  deterministic 10..100 percent ramp over the first ten notches of a gesture (400 ms chain
+  window), pivots at what is under the cursor, and bleeds inertially. Never make the step a
+  fraction of a distance - the owner rejected that twice.
+- Selection follows atoms on moving models (`followModelAtom`); you cannot select a protein
+  you are inside. Dev switches: selections on/off, photons on/off.
+- Dev mode panel: every tunable has a slider with a reset, and the current slider values are
+  meant to be the shipped defaults (quality 2.01x, crisp 132, mega 600, blend 60, pan 0.21x,
+  rotate 155 deg/s, vignette 1.00 / 40). Adaptive quality back-off was removed on request.
+
+## Pitfalls already paid for
+
+- `hash2` overflowed float64 until `Math.imul` was used; rotamer picks were all 0.
+- Sway phase must be seeded from the lipid origin, or some lipids lose their vdW spheres.
+- ETC group centroids are already normalised - do not divide by n again.
+- `LinesMesh` with vertex colours drew nothing and could kill the render loop.
+- ArcRotate `setTarget` is a no-op when the target is unchanged; nudge it in tests.
+- Per-frame allocations in `rebuildModelXform` caused rotation lag spikes; it uses
+  preallocated matrices now. Keep hot paths allocation-free.
+- A 60-frame synchronous test loop exceeds the 400 ms wheel chain window; space notches by
+  three frames.
+
+## Owner's taste, learned the hard way
+
+Simplest thing that works. No abstractions they did not ask for. Do not touch unrelated code.
+Visuals: Hollywood-grade, soft, no hard edges, no "childish" arcs; they will say when something
+looks flat or jagged. When they say "all good?" check again - twice it was a real bug.
