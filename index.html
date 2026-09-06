@@ -6999,6 +6999,12 @@ void main(void){
     // Dev: live camera position + rotation readout (top-right). Rotation is alpha/beta (RTS orbit angles, which
     // free mode also keeps current via setTarget); radius + mode shown too.
     if(camcoordsEl){ if(gDev){ const p=cam.position, DEG=180/Math.PI;
+        /* R / F roll is not an ArcRotate angle - it lives in cam.upVector. Read it back as the signed angle,
+           about the view axis, between the camera's real screen-up and LEVEL up (world Z with the forward
+           component removed). 0 = level horizon, the sign follows R (+) and F (-). */
+        let roll = 0; { const t = cam.getTarget(), fw = t.subtract(p).normalize(), up = cam.getDirection(BABYLON.Axis.Y).normalize();
+          const lv = new BABYLON.Vector3(0, 0, 1); lv.subtractInPlace(fw.scale(BABYLON.Vector3.Dot(lv, fw)));
+          if(lv.lengthSquared() > 1e-6){ lv.normalize(); roll = Math.atan2(BABYLON.Vector3.Dot(BABYLON.Vector3.Cross(lv, up), fw), BABYLON.Vector3.Dot(up, lv)) * DEG; } }
         if(!gInstr){ gInstr = new BABYLON.SceneInstrumentation(scene);
           gInstr.captureFrameTime = true; gInstr.captureActiveMeshesEvaluationTime = true; gInstr.captureRenderTime = true;
           scene.onAfterRenderObservable.add(() => { gDraws = gInstr.drawCallsCounter.current; }); }
@@ -7017,7 +7023,7 @@ void main(void){
                     + '<br>'+rw2+'×'+rh2+'  '+((rw2*rh2)/1e6).toFixed(2)+' Mpx'
                     + '<br>hsl '+eng2.getHardwareScalingLevel().toFixed(2) : '')
           +'<br>sij. '+p.x.toFixed(0)+', '+p.y.toFixed(0)+', '+p.z.toFixed(0)
-          +'<br>α '+(cam.alpha*DEG).toFixed(1)+'°  β '+(cam.beta*DEG).toFixed(1)+'°'
+          +'<br>α '+(cam.alpha*DEG).toFixed(1)+'°  β '+(cam.beta*DEG).toFixed(1)+'°  kierto '+roll.toFixed(1)+'°'
           +'<br>et. '+Math.abs(cam.radius).toFixed(0);
         // Drop the dev slider panel below this readout — both are pinned right:16px, so the panel's own
         // top ran straight through it. Measured AFTER the text above is in place (an empty readout has
