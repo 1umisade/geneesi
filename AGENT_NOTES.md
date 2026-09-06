@@ -64,6 +64,14 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   `beamFragmentShader` (additive, no depth write). The painterly posteriser bands any bright
   gradient, so beam intensities are kept under its top level. Six fixed colours - the owner
   rejected rainbow tints.
+- A BONDED hydrogen's 1s is an ellipsoid leaning into its bond (`h1sMat`, H_LONG 1.7, H_SHIFT 0.55 of
+  the sphere's matrix scale), everywhere: protein atoms, lipid templates, free water and the atom card.
+  Outlines and the free/lipid fills copy the drawn matrices, so they follow automatically.
+- Free molecules spin (analytic, in the WATERBOX vertex path): angle = per-molecule random mix of the
+  bounced coordinates, so every wall bounce and collision changes the spin. Bouncing proteins re-roll
+  their tumble axis and rate whenever a collision changes their velocity.
+- The membrane slab tier is OFF by default (`gSlabLod`, dev button 'laatta-LoD'): lipids at every
+  distance, no sheet wrap, slab hidden. The protein hull handover still uses memR.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a

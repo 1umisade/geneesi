@@ -3657,6 +3657,18 @@ void main(void){
     _s.set(2*R,2*R,2*R); _q.set(0,0,0,1); _p.set(cx,cy,cz);
     BABYLON.Matrix.ComposeToRef(_s,_q,_p,_m); _m.copyToArray(dstBuf,dstOff);
   };
+  /* A BONDED hydrogen's 1s is not a sphere sitting on the nucleus: it is pulled into the bond. The same
+     ellipsoid the atom card draws - stretched H_LONG along the bond axis and shifted H_SHIFT radii toward
+     the partner, where it overlaps the partner's sigma lobe. d = unit direction toward the partner. */
+  const H_LONG = 1.7, H_SHIFT = 0.55;
+  const h1sMat = (cx,cy,cz, R, d, dst, off) => { const dx=d[0], dy=d[1], dz=d[2], S = 2*R;   // S = the sphere's matrix scale (its unit mesh has radius 0.5), the same figure the card measures and stretches
+    const ax = Math.abs(dy) < 0.9 ? [0,1,0] : [1,0,0];
+    let ux=dy*ax[2]-dz*ax[1], uy=dz*ax[0]-dx*ax[2], uz=dx*ax[1]-dy*ax[0]; const ul=Math.hypot(ux,uy,uz)||1; ux/=ul; uy/=ul; uz/=ul;
+    const wx=dy*uz-dz*uy, wy=dz*ux-dx*uz, wz=dx*uy-dy*ux;
+    dst[off]=ux*S; dst[off+1]=uy*S; dst[off+2]=uz*S; dst[off+3]=0;
+    dst[off+4]=wx*S; dst[off+5]=wy*S; dst[off+6]=wz*S; dst[off+7]=0;
+    dst[off+8]=dx*S*H_LONG; dst[off+9]=dy*S*H_LONG; dst[off+10]=dz*S*H_LONG; dst[off+11]=0;
+    dst[off+12]=cx+dx*S*H_SHIFT; dst[off+13]=cy+dy*S*H_SHIFT; dst[off+14]=cz+dz*S*H_SHIFT; dst[off+15]=1; };
   const LP_LEN = 0.75;                  // lone-pair lobe length (Å)
   const nrm = v => { const l=Math.hypot(v[0],v[1],v[2])||1e-6; return [v[0]/l,v[1]/l,v[2]/l]; };
   const crs = (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
@@ -4145,8 +4157,9 @@ void main(void){
         // orbitals + lone pairs, so drop the pure atomic versions (leave a zero, i.e. invisible, matrix).
         const hybridised = isBonded && maxNe > 1 && sh[0] === maxNe && ty <= 1;   // keep H's sole 1s (no inner core to fall back on)
         // Fine per-orbital id: n*100 + type*10 + sub (sub picks pₓ/p_y/p_z within a p subshell).
-        if(ty === 0){                                     // s → sphere
-          if(!hybridised) sphereMat(cx,cy,cz, R*0.72, orbBuf[e], w*16);
+        if(ty === 0){                                     // s → sphere (a bonded hydrogen's 1s → the ellipsoid leaning into its bond)
+          if(!hybridised){ const hd = (isBonded && EL_LIST[e] === 'H') ? bondDirEA[e][a][0] : null;
+            if(hd) h1sMat(cx,cy,cz, R*0.72, hd, orbBuf[e], w*16); else sphereMat(cx,cy,cz, R*0.72, orbBuf[e], w*16); }
           oc[w*3]=cr; oc[w*3+1]=cg; oc[w*3+2]=cb; orbIdBuf[e][w]=sh[0]*100 + ty*10; put(); w++;
         } else {                                          // p/d/f → elongated lobes (dumbbell / cloverleaf)
           const Lw = R*0.34; let k=0;
@@ -5395,11 +5408,15 @@ void main(void){
       const put=(sx,sy,sz,ex,ey,ez,wid,tap,c,cx,cy,cz,oid)=>{ cylTo(sx,sy,sz,ex,ey,ez,tmp,0,wid);
         for(let j=0;j<16;j++) bond.m.push(tmp[j]);
         bond.tap.push(tap); bond.col.push(c[0],c[1],c[2]); bond.cen.push(cx,cy,cz); bond.oid.push(oid); };
+      // a bonded hydrogen's 1s leans into its bond: the direction to its (single) partner, found first
+      const hDir=[]; for(let b=0;b<NBL;b++){ const i=lipid.b1[b], j=lipid.b2[b];
+        if(EL_LIST[lipid.el[i]]==='H' && !hDir[i]) hDir[i]=nrm([pos[j*3]-pos[i*3], pos[j*3+1]-pos[i*3+1], pos[j*3+2]-pos[i*3+2]]);
+        if(EL_LIST[lipid.el[j]]==='H' && !hDir[j]) hDir[j]=nrm([pos[i*3]-pos[j*3], pos[i*3+1]-pos[j*3+1], pos[i*3+2]-pos[j*3+2]]); }
       for(let k=0;k<LN;k++){ const e=lipid.el[k], cfg=econf(e), maxNe=cfg.reduce((mx,sh)=>Math.max(mx,sh[0]),0);
         const cx=pos[k*3], cy=pos[k*3+1], cz=pos[k*3+2], c=info(e).c;   // orbital lobes → per-element colour
         for(const sh of cfg){ const n=sh[0], ty=sh[1], R=n*SHELL_STEP, oid=n*100+ty*10;
           if(maxNe>1 && n===maxNe && ty<=1) continue;   // valence s/p hybridised → the bonds represent them
-          if(ty===0){ sphereMat(cx,cy,cz,R*0.72,tmp,0); pushCore(c,cx,cy,cz,oid); }
+          if(ty===0){ if(hDir[k]) h1sMat(cx,cy,cz,R*0.72,hDir[k],tmp,0); else sphereMat(cx,cy,cz,R*0.72,tmp,0); pushCore(c,cx,cy,cz,oid); }
           else for(const d of OTMPL[ty]){ cylTo(cx,cy,cz, cx+d[0]*R,cy+d[1]*R,cz+d[2]*R, tmp,0,R*0.34); pushCore(c,cx,cy,cz,oid); } } }
       const bd=[]; for(let k=0;k<LN;k++) bd[k]=[];
       for(let b=0;b<NBL;b++){ const i=lipid.b1[b], j=lipid.b2[b];
@@ -6293,7 +6310,11 @@ void main(void){
         const p=at[k], c=info(e).c;
         for(const sh of cfg){ const n=sh[0], ty=sh[1], R=n*SHELL_STEP, oid=n*100+ty*10;
           if(maxNe>1 && n===maxNe && ty<=1) continue;
-          if(ty===0){ sphereMat(p[0],p[1],p[2], R*0.72, tmp, 0); pushCore(c,p[0],p[1],p[2],oid); }
+          if(ty===0){
+            if(EL_LIST[e]==='H'){ const oi = el.findIndex(x => EL_LIST[x] !== 'H'), o = at[oi < 0 ? 0 : oi];   // the hydrogen's 1s leans toward the oxygen
+              const vx=o[0]-p[0], vy=o[1]-p[1], vz=o[2]-p[2], vl=Math.hypot(vx,vy,vz)||1; h1sMat(p[0],p[1],p[2], R*0.72, [vx/vl,vy/vl,vz/vl], tmp, 0); }
+            else sphereMat(p[0],p[1],p[2], R*0.72, tmp, 0);
+            pushCore(c,p[0],p[1],p[2],oid); }
           else for(const d of OTMPL[ty]){ cylTo(p[0],p[1],p[2], p[0]+d[0]*R,p[1]+d[1]*R,p[2]+d[2]*R, tmp,0,R*0.34); pushCore(c,p[0],p[1],p[2],oid); } } }
       // the two O–H sigma bonds, with the oxygen's back knob
       const cO = info(codeO).c, cH = info(codeH).c, f = 0.62, kL = 0.24, kW = LOBE_W*0.5;
