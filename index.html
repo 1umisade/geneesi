@@ -3268,9 +3268,9 @@ void main(void){
   // Camera feel, tunable from the dev panel. Each is a MAX rate that the camera eases up to: hold a key
   // and the speed ramps 0 → max over RAMP_S seconds, then holds. Releasing every key of that kind drops
   // the ramp straight back to 0, so a tap is a small nudge and a long hold is a full-speed sweep.
-  let gPanSpeed  = 0.05;   // multiplier on the pan speed (W/A/S/D - screen-space pan) - the slider's minimum
+  let gPanSpeed  = 0.21;   // multiplier on the pan speed (W/A/S/D - screen-space pan)
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
-  let gRotSpeed  = 2.2;    // max yaw/pitch rate in rad/s (WASD) — 2.2 ≈ 126 deg/s
+  let gRotSpeed  = 2.705;  // max yaw/pitch rate in rad/s (WASD) — 2.705 ≈ 155 deg/s
   const RAMP_S = 7.0;      // seconds from the initial nudge to full speed
   const RAMP_MIN = 0.05;   // a press starts at 5% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
   let _moveRamp = RAMP_MIN, _rotRamp = RAMP_MIN;
@@ -3790,7 +3790,7 @@ void main(void){
   // THE crisp zone. Inside it atoms get the full treatment (orbitals, nuclei, ray-traced spheres, ink
   // rims). Outside it EVERYTHING drops to the cheap opaque disc material — one radius governs both, so
   // there is exactly one quality boundary in the scene. Set to the real value once CELL is known.
-  let gCrisp = 130;
+  let gCrisp = 132;
   let gMega  = 600;           // megacheap radius: past this the membrane is a bare slab and proteins thin hard (1.5x closer than the ~895 half-period it used to hit)
   let gMemBlend = 60;         // width of the lipid/slab overlap band at the megacheap edge (the gather thins across it, the slab's hole ends at its start)
   let cofListPanel = null;               // right-side cofactor-type list (built later); shown only in ETC mode
@@ -7970,9 +7970,9 @@ void main(void){
     + 'border-radius:12px;box-shadow:0 4px 0 var(--brown);padding:12px 14px;user-select:none;min-width:230px;bottom:246px;max-height:none;overflow-y:auto;';
   // Camera feel: max fly speed (arrow keys) and max turn rate (WASD). Both ease 0 → max over 1 s.
   const mvRow = document.createElement('div');
-  mvRow.innerHTML = 'panorointinopeus: <b id="dev-mv-val">0.05×</b>';
+  mvRow.innerHTML = 'panorointinopeus: <b id="dev-mv-val">0.21×</b>';
   const mvSld = document.createElement('input');
-  mvSld.type='range'; mvSld.min='5'; mvSld.max='400'; mvSld.value='5'; mvSld.style.cssText='width:100%;cursor:pointer;';
+  mvSld.type='range'; mvSld.min='5'; mvSld.max='400'; mvSld.value='21'; mvSld.style.cssText='width:100%;cursor:pointer;';
   const mvValEl = mvRow.querySelector('#dev-mv-val');
   mvSld.oninput = () => { gPanSpeed = +mvSld.value/100; mvValEl.textContent = gPanSpeed.toFixed(2)+'×'; };
   const zmRow = document.createElement('div');
@@ -7982,9 +7982,9 @@ void main(void){
   const zmValEl = zmRow.querySelector('#dev-zm-val');
   zmSld.oninput = () => { gZoomSpeed = +zmSld.value/100; zmValEl.textContent = gZoomSpeed.toFixed(2)+'×'; };
   const rtRow = document.createElement('div');
-  rtRow.innerHTML = 'kääntymisnopeus: <b id="dev-rt-val">126°/s</b>';
+  rtRow.innerHTML = 'kääntymisnopeus: <b id="dev-rt-val">155°/s</b>';
   const rtSld = document.createElement('input');
-  rtSld.type='range'; rtSld.min='5'; rtSld.max='400'; rtSld.value='100'; rtSld.style.cssText='width:100%;cursor:pointer;';
+  rtSld.type='range'; rtSld.min='5'; rtSld.max='400'; rtSld.value='123'; rtSld.style.cssText='width:100%;cursor:pointer;';   // 123 percent of 2.2 rad/s = the 155 deg/s default
   const rtValEl = rtRow.querySelector('#dev-rt-val');
   rtSld.oninput = () => { gRotSpeed = 2.2 * (+rtSld.value/100); rtValEl.textContent = Math.round(gRotSpeed*57.3)+'°/s'; };
   // Colour grade: brightness, saturation, and the two ends of the tonal range independently.
@@ -8026,7 +8026,7 @@ void main(void){
   qSld.oninput = applyQ;
   // Start at 1:1 render scale (≈0.99× on the slider) rather than whatever the auto-detect picked — that
   // is the setting the scene is actually tuned to look right at.
-  { const hsl = 1/0.99;
+  { const hsl = 1/2.01;   // 2x supersampling by default (the panel's 2.01x res)
     qSld.value = String(Math.max(0, Math.min(100, Math.round((hsl-QHSL_LOW)/(QHSL_HIGH-QHSL_LOW)*100)))); applyQ(); }
   // Lighting / brightness slider → gBright (the brightness post-process). 0.30×…2.00×, default 1.00×.
   const lRow = document.createElement('div');
