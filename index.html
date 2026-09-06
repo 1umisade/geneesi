@@ -1330,7 +1330,7 @@ void main(void){
 #endif
   float wsc = taper;   // per-lobe overall width multiplier (electronegative atom's lobe is wider → pair forms a cone)
 #ifdef HORNPROF
-  if(prof > 0.5){ float hp = 0.5*(position.y + 1.0); wsc *= 0.05 + 0.95*pow(hp, 1.9); }
+  if(prof > 0.5){ float hp = 0.5*(position.y + 1.0); wsc *= 0.05 + 0.95*pow(hp, 1.4); }   // 1.4: flares early enough not to read as a needle
 #endif
   vec3 pos = vec3(position.x*wsc, position.y, position.z*wsc);
   vec3 nrm = normal;
@@ -6223,10 +6223,14 @@ void main(void){
           const bx=q[0]-p0[0], by=q[1]-p0[1], bz=q[2]-p0[2];   // the real bond vector: atom 0 is NOT the origin for O2
           const BL=Math.hypot(bx,by,bz), u=[bx/BL, by/BL, bz/BL];
           const c0=info(els[0]).c, ck=info(els[k]).c;
-          // sigma: one horn from each nucleus, needle at the nucleus, full width where the two mouths meet
-          const fs = 0.52;
-          put(p0[0],p0[1],p0[2], p0[0]+bx*fs,p0[1]+by*fs,p0[2]+bz*fs, LOBE_W*1.25, c0, p0[0],p0[1],p0[2], 1000, 1.0, true);
-          put(q[0],q[1],q[2], q[0]-bx*fs,q[1]-by*fs,q[2]-bz*fs, LOBE_W*1.25, ck, q[0],q[1],q[2], 1001, 1.0, true);
+          /* sigma: one horn from each nucleus. The horn profile multiplies an ELLIPSOID, which tapers to a
+             tip at both ends - so a horn that stopped at the midpoint met its partner tip to tip, two little
+             bulbs with a crease between them. They reach 0.62 of the bond instead, so each tip is buried in
+             the other's body and the union reads as one smooth lemon, fattest at the centre: the textbook
+             sigma from two p lobes overlapping head-on. */
+          const fs = 0.62;
+          put(p0[0],p0[1],p0[2], p0[0]+bx*fs,p0[1]+by*fs,p0[2]+bz*fs, LOBE_W*1.35, c0, p0[0],p0[1],p0[2], 1000, 1.0, true);
+          put(q[0],q[1],q[2], q[0]-bx*fs,q[1]-by*fs,q[2]-bz*fs, LOBE_W*1.35, ck, q[0],q[1],q[2], 1001, 1.0, true);
           put(p0[0],p0[1],p0[2], p0[0]-u[0]*kL,p0[1]-u[1]*kL,p0[2]-u[2]*kL, kW, c0, p0[0],p0[1],p0[2], 1000);   // back knobs
           put(q[0],q[1],q[2], q[0]+u[0]*kL,q[1]+u[1]*kL,q[2]+u[2]*kL, kW, ck, q[0],q[1],q[2], 1001);
           // pi cloud. The axis is linear, so the two bond directions never cross to give a p normal -
@@ -6234,11 +6238,16 @@ void main(void){
           const pa = nrm(crs([bx,by,bz], Math.abs(bx)<0.9*BL ? [1,0,0] : [0,1,0]));
           const pb = nrm(crs([bx,by,bz], pa));
           const pp = (k & 1) ? pa : pb;
+          /* pi: ONE continuous lobe above the axis and one below, each spanning nucleus to nucleus. It used to
+             be two flat discs per side, one from each atom to the midpoint, which is the protein builder's
+             convention but reads as four pancakes with gaps. Side-by-side p overlap makes a single elongated
+             lobe per side, thickest in the middle - so that is what is drawn. Shared between the two atoms, so
+             it takes the blend of their colours and sits on the bond's midpoint. */
           const mx=(p0[0]+q[0])/2, my=(p0[1]+q[1])/2, mz=(p0[2]+q[2])/2;
+          const cm=[(c0[0]+ck[0])*0.5, (c0[1]+ck[1])*0.5, (c0[2]+ck[2])*0.5];
           for(const sg of [1,-1]){
-            const cmx=mx+pp[0]*pR*sg, cmy=my+pp[1]*pR*sg, cmz=mz+pp[2]*pR*sg;
-            put(p0[0]+pp[0]*pR*sg, p0[1]+pp[1]*pR*sg, p0[2]+pp[2]*pR*sg, cmx,cmy,cmz, pw*1.1, c0, p0[0],p0[1],p0[2], 1000, 0.85);
-            put(q[0]+pp[0]*pR*sg, q[1]+pp[1]*pR*sg, q[2]+pp[2]*pR*sg, cmx,cmy,cmz, pw*1.1, ck, q[0],q[1],q[2], 1001, 0.85);
+            const ex=pp[0]*pR*sg, ey=pp[1]*pR*sg, ez=pp[2]*pR*sg;
+            put(p0[0]+ex, p0[1]+ey, p0[2]+ez, q[0]+ex, q[1]+ey, q[2]+ez, pw*1.7, cm, mx,my,mz, 1002, 0.9);
           }
           bdirs[0].push(u); bdirs[k].push([-u[0],-u[1],-u[2]]);
         }
