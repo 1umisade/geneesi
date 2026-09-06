@@ -5955,7 +5955,12 @@ void main(void){
   // Default RTS view: an oblique top-down look at the flattened floor plane (models are all at Z=0). The
   // camera is raised in +Z and pulled back along -Y (so the far edge sits at the top of the screen), giving
   // beta≈0.62 rad off straight-down at radius 1184 — same zoom scale as before, now tilted like an RTS.
-  const CAM_DEF_TGT = new BABYLON.Vector3(50, -6, 0), CAM_DEF_POS = new BABYLON.Vector3(50, -693.6, 963.7);
+  // Start view set by the owner on 2026-09-06 from the dev HUD: camera at (41, 30, 820), alpha -222.6 deg,
+  // beta 5.2 deg, distance 625 - the target below is that position minus the orbit offset those angles give.
+  // The previous default (target 50,-6,0 / camera 50,-693.6,963.7, distance 1184) still seeds the zoom limits
+  // and the speed scale (CAM_DEF_R), so only the view moved, not how the camera handles.
+  const CAM_DEF_TGT = new BABYLON.Vector3(82.7, 68.3, 197.6), CAM_DEF_POS = new BABYLON.Vector3(41, 30, 820);
+  const CAM_DEF_R = 1183.85;   // the old default distance - the reference scale for the limits and speeds below
   let CAM_DEF_ALPHA = 0, CAM_DEF_BETA = 0;   // filled in from the derived angles right after the first resetView() (used by viewPerp)
   const resetView = () => { scene.stopAnimation(cam);   // I → restore the default starting view
     if(gFocusRadiusObs){ scene.onBeforeRenderObservable.remove(gFocusRadiusObs); gFocusRadiusObs = null; }
@@ -5964,8 +5969,8 @@ void main(void){
     cam.inertialAlphaOffset = cam.inertialBetaOffset = cam.inertialRadiusOffset = 0; cam.inertialPanningX = cam.inertialPanningY = 0; gZoomVel = 0; };
   resetView();
   CAM_DEF_ALPHA = cam.alpha; CAM_DEF_BETA = cam.beta;   // capture the RTS-orbit angles Babylon derived from the default position (for viewPerp)
-  cam.lowerRadiusLimit = Math.max(0.3, cam.radius*0.0006);   // tiny positive floor → no flip; allows getting right up to an atom (double-click keeps its scale)
-  cam.upperRadiusLimit = cam.radius*5;
+  cam.lowerRadiusLimit = Math.max(0.3, CAM_DEF_R*0.0006);   // tiny positive floor → no flip; allows getting right up to an atom (double-click keeps its scale)
+  cam.upperRadiusLimit = CAM_DEF_R*5;
   // Centre a freshly-selected object: a SHORT one-shot target animation (smooth swivel). This would
   // fight ArcRotateCamera rotation if it kept running during a drag, so it stays safe ONLY because the
   // pointer-down handler calls scene.stopAnimation(cam) first — the animation is killed the instant a
@@ -6947,7 +6952,7 @@ void main(void){
 
   // Headlight follows the camera; fog darkens fragments by distance (front→back)
   const modelR = 0.5*Math.hypot(dimX,dimY,dimZ);
-  const fitRadius = cam.radius;                    // radius at which the whole model fits
+  const fitRadius = CAM_DEF_R;                     // radius at which the whole model fits (the old default view's distance, kept as the scale reference when the start view moved)
   const REVEAL_DIST = Math.max(130, CELL*2.2);     // camera-to-cell distance within which orbital detail shows (else vdW spheres)
   gCrisp = REVEAL_DIST;                            // the live, slider-driven crisp-zone radius starts here
   // Nuclei get their OWN, much tighter range. They are by far the densest thing in the scene — a single
