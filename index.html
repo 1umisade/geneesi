@@ -2665,9 +2665,9 @@ async function run(){
   { const el = document.createElement('div');
     const dgpu = /nvidia|geforce|rtx|radeon|rx |arc |quadro/i.test(gRenderer) && !gSoftware;
     const short = (gRenderer.match(/(NVIDIA GeForce [^,(]*|Radeon[^,(]*|Intel\(R\) [^,(]*|Arc[^,(]*|Apple M[0-9][^,(]*)/i) || [gRenderer])[0].trim();
-    el.textContent = short.slice(0, 44) || '?';
-    el.title = gRenderer;
-    el.style.cssText = 'position:fixed;right:8px;bottom:6px;z-index:24;pointer-events:none;'
+    el.textContent = 'GPU';   // just the word - the colour says which kind, the hover title says which card (owner's request, 2026-09-06)
+    el.id = 'gpu-lbl'; el.title = short + '  |  ' + gRenderer;
+    el.style.cssText = 'position:fixed;right:8px;bottom:6px;z-index:24;pointer-events:auto;cursor:default;'
       + 'font:11px ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 7px;border-radius:6px;'
       + 'background:rgba(24,28,20,.55);border:1px solid rgba(255,255,255,.18);'
       + 'color:' + (dgpu ? '#9ede7a' : '#f0c060') + ';';
@@ -10606,7 +10606,7 @@ void main(void){
     document.head.appendChild(st);
     let idleTimer = null, fsTimer = null;
     // the floating chrome that steps aside when the mouse is still
-    const chrome = () => ['fs-btn','settings-btn','speedbox'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
+    const chrome = () => ['fs-btn','settings-btn','speedbox','gpu-lbl'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
     const wake = () => {
       document.documentElement.classList.remove('cursor-idle');
       clearTimeout(idleTimer);
