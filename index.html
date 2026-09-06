@@ -3337,6 +3337,7 @@ void main(void){
   let gSelEnabled = true;  // dev switch: clicks and double-clicks select nothing while off
   let gPhotonsOn = true;   // dev switch: the photon beams (and their glows) off
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
+  let gZoomMax = 60;       // the wheel's MAXIMUM: world units per full notch - the ramp is a percentage of this, never of a distance
   let gRotSpeed  = 2.705;  // max yaw/pitch rate in rad/s (WASD) — 2.705 ≈ 155 deg/s
   const RAMP_S = 7.0;      // seconds from the initial nudge to full speed
   const RAMP_MIN = 0.05;   // a press starts at 5% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
@@ -3515,10 +3516,11 @@ void main(void){
      instead of resetting mid-gesture. A deliberate pause between two separate nudges is rarely under
      ~300 ms, so it still resets when the user means it to. At a typical ~80 ms per detent, full speed
      arrives after roughly half a second of rolling. */
-  /* The wheel ramp is DETERMINISTIC: the first notch of a gesture is 10 percent of the full step, the
+  /* The wheel ramp is DETERMINISTIC: the first notch of a gesture is 10 percent of the maximum step, the
      second 20, and so on up to the tenth and every notch after it at 100 percent. Only a real pause
-     (WHEEL_CHAIN_MS without a notch) resets it. A full step closes 12 percent of the distance to the
-     point under the cursor, so the same notch feels the same at every scale. */
+     (WHEEL_CHAIN_MS without a notch) resets it. The maximum step is an ABSOLUTE distance (gZoomMax, the
+     dev slider 'zoomin maksiminopeus', world units per notch) - nothing about it depends on how far
+     anything is. */
   const WHEEL_CHAIN_MS = 400, WHEEL_STEPS = 10;
   let wheelStep = 0, wheelLastT = 0;
   canvas.addEventListener('wheel', e => {
@@ -3553,8 +3555,7 @@ void main(void){
     if(!zp) zp = ray.origin.add(ray.direction.scale(Math.max(1, Math.abs(cam.radius))));
     gZoomP = zp;
     const slow = (e.buttons & 4) === 4;   // MIDDLE button held while scrolling → slow creep zoom
-    // a full step: 12 percent of the way to the pivot (2 percent in creep mode), never below a tiny floor
-    const mag = Math.max(fitRadius * 0.0008, Math.abs(cam.radius) * (slow ? 0.02 : 0.12));
+    const mag = gZoomMax * (slow ? 0.15 : 1.0);   // the maximum step, in world units - an absolute, not a fraction of any distance
     gZoomEase = slow ? 0.05 : 0.16;   // creep mode bleeds out over many more frames
     const pct = wheelStep / WHEEL_STEPS;   // 0.1, 0.2, ... 1.0
     gZoomVel += Math.sign(e.deltaY) * mag * pct * gZoomSpeed;
@@ -8030,6 +8031,11 @@ void main(void){
   mvSld.oninput = () => { gPanSpeed = +mvSld.value/100; mvValEl.textContent = gPanSpeed.toFixed(2)+'×'; };
   const zmRow = document.createElement('div');
   zmRow.innerHTML = 'zoomausnopeus: <b id="dev-zm-val">1.00×</b>';
+  // The wheel's maximum step, world units per notch. The 10-20-...-100 percent ramp is a fraction of this.
+  const zxRow = document.createElement('div'); zxRow.innerHTML = 'zoomin maksiminopeus: <b id="dev-zx-val">60</b> / napsautus';
+  const zxSld = document.createElement('input'); zxSld.type='range'; zxSld.min='5'; zxSld.max='300'; zxSld.value='60'; zxSld.style.cssText='width:100%;cursor:pointer;';
+  const zxValEl = zxRow.querySelector('#dev-zx-val');
+  zxSld.oninput = () => { gZoomMax = +zxSld.value; zxValEl.textContent = String(gZoomMax); };
   const zmSld = document.createElement('input');
   zmSld.type='range'; zmSld.min='5'; zmSld.max='400'; zmSld.value='100'; zmSld.style.cssText='width:100%;cursor:pointer;';
   const zmValEl = zmRow.querySelector('#dev-zm-val');
@@ -8265,7 +8271,7 @@ void main(void){
   devPanel.appendChild(cullRow); devPanel.appendChild(selRow); devPanel.appendChild(phRow);   // (cullRow had been built but never attached)
   devPanel.appendChild(psRow); devPanel.appendChild(psSld); devPanel.appendChild(ppRow);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
-  devPanel.appendChild(zmRow); devPanel.appendChild(zmSld);
+  devPanel.appendChild(zmRow); devPanel.appendChild(zmSld); devPanel.appendChild(zxRow); devPanel.appendChild(zxSld);
   devPanel.appendChild(rtRow); devPanel.appendChild(rtSld);
   devPanel.appendChild(zpG.row); devPanel.appendChild(zpG.sld);
   devPanel.appendChild(brG.row); devPanel.appendChild(brG.sld);
