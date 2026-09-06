@@ -622,8 +622,8 @@ uniform mat4 macroXform; uniform vec3 macroCenter;
 #endif
 #ifdef MODELMOVE
 attribute float modelId;         // which loaded model this instance belongs to (index into modelOff)
-uniform mat4 modelXform[24];     // per-model transform (rotate around centre + translate) for repositioning
-uniform vec3 modelCol[24];       // per-model pastel colour
+uniform mat4 modelXform[48];     // per-model transform (rotate around centre + translate) for repositioning
+uniform vec3 modelCol[48];       // per-model pastel colour
 uniform float colorMode;         // 1 = colour by model (pastel), 0 = by element
 #endif
 varying vec2 vUV;
@@ -888,7 +888,7 @@ uniform float focusAmt;    // O: 0 = off, 1 = full grayscale of everything OUTSI
 uniform float focusMode;   // 0 = grayscale all, 1 = keep colour near focusCenterV, 2 = keep colour where focusSet[model]=1
 uniform vec3 focusCenterV; // point-selection centre (view space)
 uniform float focusR;      // point-selection radius
-uniform float focusSet[24];// per-model keep-colour flags (mode 2)
+uniform float focusSet[48];// per-model keep-colour flags (mode 2)
 uniform float focusGroup;  // cofactor group to keep coloured (mode 3, ETCHL overlay only)
 uniform float focusDark;   // darken the grayscale (non-selection) environment: 0 = plain grey, 1 = to black
 #ifdef PLIGHT
@@ -1125,7 +1125,7 @@ attribute vec4 world0; attribute vec4 world1; attribute vec4 world2; attribute v
 attribute float dr;                            // this atom's tube radius in WORLD units, Ångström (0 = its type is toggled off)
 attribute float modelId;                       // which loaded model this cofactor atom belongs to
 uniform mat4 view; uniform mat4 projection;
-uniform mat4 modelXform[24];                   // per-model transform so the cone follows a moved molecule
+uniform mat4 modelXform[48];                   // per-model transform so the cone follows a moved molecule
 varying vec2 vq; varying float vz;
 void main(void){
   vec3 center = vec3(world3.x, world3.y, world3.z);   // instance translation = atom centre
@@ -1162,7 +1162,7 @@ attribute vec4 world0; attribute vec4 world1; attribute vec4 world2; attribute v
 attribute float dr;                            // this atom's vdW radius in world units
 attribute float modelId;                       // which loaded model this cofactor atom belongs to
 uniform mat4 view; uniform mat4 projection;
-uniform mat4 modelXform[24];                   // per-model transform so the silhouette follows a moved molecule
+uniform mat4 modelXform[48];                   // per-model transform so the silhouette follows a moved molecule
 uniform float boilQuad;                        // quad expansion so the boil bulge is not clipped
 uniform float uT; uniform float boil;
 varying vec2 vq; varying vec3 vWC;
@@ -1299,8 +1299,8 @@ uniform float uT;          // thermal-shake time
 uniform mat4 macroXform; uniform vec3 macroCenter;
 #endif
 #ifdef MODELMOVE
-attribute float modelId; uniform mat4 modelXform[24];
-uniform vec3 modelCol[24]; uniform float colorMode;
+attribute float modelId; uniform mat4 modelXform[48];
+uniform vec3 modelCol[48]; uniform float colorMode;
 #endif
 varying float vMid;      // this instance's model index (-1 = untagged) -> sage selection rim
 varying vec3 vViewPos;
@@ -1449,7 +1449,7 @@ uniform float focusAmt;   // O: grayscale everything OUTSIDE the selection (its 
 uniform float focusMode;  // 0 = grayscale all, 1 = keep near focusCenterV, 2 = keep where focusSet[model]=1
 uniform vec3 focusCenterV;
 uniform float focusR;
-uniform float focusSet[24];
+uniform float focusSet[48];
 uniform float focusDark;  // darken the grayscale (non-selection) environment
 varying float vMid;       // this instance's model index
 // Electron glow: a small breathing point of light that slowly orbits its camera-facing spot,
@@ -1612,8 +1612,8 @@ uniform float uT;          // thermal-shake time
 uniform mat4 macroXform; uniform vec3 macroCenter;  // whole-macromolecule drag offset (only movable materials define this)
 #endif
 #ifdef MODELMOVE
-attribute float modelId; uniform mat4 modelXform[24];
-uniform vec3 modelCol[24]; uniform float colorMode;
+attribute float modelId; uniform mat4 modelXform[48];
+uniform vec3 modelCol[48]; uniform float colorMode;
 #endif
 varying float vMid;      // this instance's model index (-1 = untagged) -> sage selection rim
 varying vec3 vViewPos;
@@ -1751,7 +1751,7 @@ uniform float focusAmt;   // O: grayscale everything OUTSIDE the selection (its 
 uniform float focusMode;  // 0 = grayscale all, 1 = keep near focusCenterV, 2 = keep where focusSet[model]=1
 uniform vec3 focusCenterV;
 uniform float focusR;
-uniform float focusSet[24];
+uniform float focusSet[48];
 uniform float focusDark;  // darken the grayscale (non-selection) environment
 varying float vMid;       // this instance's model index
 // Electron glow: a small breathing point of light that slowly orbits its camera-facing spot,
@@ -2197,7 +2197,7 @@ attribute vec3 rcol;       // per-ring element colour
 attribute float modelId;   // which model this ring belongs to
 uniform mat4 view;
 uniform mat4 projection;
-uniform mat4 modelXform[24];   // per-model transform - the tori must follow their molecule exactly as its atoms do
+uniform mat4 modelXform[48];   // per-model transform - the tori must follow their molecule exactly as its atoms do
 uniform mat4 macroXform;
 uniform vec3 macroCenter;
 uniform float uT;
@@ -2513,6 +2513,17 @@ async function run(){
     chl.cfg = {x:-560, y:150, z:130}; chl.name = 'Chlorophyll'; mols.push(chl); }
 
   // Cytochrome b6f (7r0w) is already the physiological HOMODIMER in the file — no clone needed.
+
+  /* Shuttles. Ten plastoquinones carry electrons PSII -> cytochrome b6f inside the membrane, ten
+     plastocyanins carry them b6f -> PSI in the lumen. Each is its own model (a copy of the loaded
+     plastoquinone / plastocyanin), so it renders, picks, casts a collision shell and moves exactly like
+     any other model - the shuttle observer below drives its pose. The originals stay as displayed. */
+  { const clone = (src, cfg, kind, k) => { const m = { name: src.name, na: src.na, x: Float32Array.from(src.x), y: Float32Array.from(src.y), z: Float32Array.from(src.z), el: src.el.slice ? src.el.slice() : Array.from(src.el) };
+      for(const key of Object.keys(src)) if(!(key in m)) m[key] = src[key];   // any other per-atom tables (residues, cofactor flags) are shared read-only
+      m.cfg = Object.assign({}, src.cfg, cfg); m.cfg._used = true; m.name = cfg.label; m.shuttle = kind; m.shuttleK = k; mols.push(m); };
+    const pq = mols.find(m => m.cfg && m.cfg.match === 'plastoquinone'), pc = mols.find(m => m.cfg && m.cfg.match === '1ag6');
+    if(pq) for(let k=0;k<10;k++) clone(pq, { match:'pq-shuttle-'+k, label:'Plastokinoni', x:-400 + k*20, y:0, z:-40 + (k%2)*80 }, 'pq', k);
+    if(pc){ pc.shuttle = 'pc'; pc.shuttleK = 0; for(let k=1;k<10;k++) clone(pc, { match:'pc-shuttle-'+k, label:'Plastosyaniini', x:-100 + k*30, y:-190, z:-60 + (k%3)*60 }, 'pc', k); } }
 
   // Bake per-model rotation (Euler degrees rx,ry,rz read off the gizmo label) around each model's
   // centroid, so the orientation persists. Uses Babylon's YawPitchRoll(y,x,z) — the inverse of
@@ -3787,7 +3798,7 @@ void main(void){
   const gCut = new Float32Array([0, 1, 0]);   // membrane cross-cut: [cutZ, cutSign, strength] (bound as memCut[])
   const MEM_FADE_S = 1.0;      // seconds the membrane takes to fade fully out / back in
   let memCutOn = false;        // latched threshold state (hysteresis) driving that fade
-  const MAX_MODELS = 24;
+  const MAX_MODELS = 48;   // room for the shuttling plastoquinone / plastocyanin copies and the rotor slot
   const gModelOff = new Float32Array(MAX_MODELS*3);   // per-model translation offset (for picking + the label)
   const gModelXform = new Float32Array(MAX_MODELS*16);   // per-model full transform (rotate around centre + translate) → bound as modelXform[]
   const gModelQuat = new Float32Array(MAX_MODELS*4);     // per-model rotation quaternion (x,y,z,w)
@@ -5595,7 +5606,7 @@ void main(void){
             if(w0 >= -0.02 && w1 >= -0.02 && w2 >= -0.02) g[j*footW+i] = 1; } }
       };
       const wv = new Float32Array(SH_LAT*SH_LON*3);
-      for(const h of gHulls){ if(!gMemBound[h.mi]) continue;   // a loose protein drifting past never cuts the membrane
+      for(const h of gHulls){ if(!gMemBound[h.mi] || mols[h.mi].shuttle) continue;   // a loose protein or a shuttle passing never cuts the membrane
         BABYLON.Matrix.FromArrayToRef(gModelXform, h.mi*16, _m);
         for(let li=0;li<SH_LAT;li++){ const phi = li/(SH_LAT-1)*Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
           for(let lo=0;lo<SH_LON;lo++){ const th = lo/SH_LON*2*Math.PI - Math.PI, rr = h.D[li*SH_LON+lo];
@@ -5622,7 +5633,7 @@ void main(void){
       }
     };
     const xformSig = () => { let t = 0;   // hull models only, quantised to 0.01 - anything else changing must not rebuild the grid
-      for(const h of gHulls){ if(!gMemBound[h.mi]) continue; const o = h.mi*16; for(let i=0;i<16;i++) t += Math.round(gModelXform[o+i]*100)*(1 + i*0.37); } return t; };
+      for(const h of gHulls){ if(!gMemBound[h.mi] || mols[h.mi].shuttle) continue; const o = h.mi*16; for(let i=0;i<16;i++) t += Math.round(gModelXform[o+i]*100)*(1 + i*0.37); } return t; };
     window.__foot = () => ({ footW, footH, footX0, footZ0, cell: FOOT_CELL, grid: footUp, sig: footSig, lipH: LIP_H, memFoot:[gMemFootX, gMemFootZ], cen:[bilayerCen.x, bilayerCen.y, bilayerCen.z], hulls: gHulls.map(h=>({mi:h.mi, c:[h.c.x,h.c.y,h.c.z], maxR:h.maxR})) });   // dev: inspect the footprint from the console
     scene.onBeforeRenderObservable.add(()=>{
       const ov = document.getElementById('overlay');
@@ -5956,7 +5967,7 @@ void main(void){
       wh2[i*3]=oh*(ux*ca-qx*sa); wh2[i*3+1]=oh*(uy*ca-qy*sa); wh2[i*3+2]=oh*(uz*ca-qz*sa);
     }
     // Global molecule-id space, shared by the molId attribute and the collision texture.
-    const MOLBASE = { w:0, p:20000, co2:40000, o2:60000 };   // 65000 molecules into 65536 slots
+    const MOLBASE = { w:0, p:20000, co2:40000, o2:60000, nadp:65000 };   // 65500 molecules into 65536 slots
     const codeO=codeOf('O'), codeH=codeOf('H');
     /* Everything below is uploaded ONCE. The molecules fly and bounce entirely in the vertex shader
        (see WATERBOX), driven by the existing uT clock — which is already advanced by dt × gSpeed, so the
@@ -6037,15 +6048,22 @@ void main(void){
     const codeC = codeOf('C');
     // One species: `n` molecules, each a rigid set of atoms given as offsets from the molecule centre.
     // `seed` picks an independent random stream so two species never share start points or velocities.
-    const mkFree = (nm, n, seed, atoms, molBase, solid) => {
-      const c=new Float32Array(n*3), v=new Float32Array(n*3), ax=new Float32Array(n*3);
+    const mkFree = (nm, n, seed, atoms, molBase, solid, yFrom) => {
+      const c=new Float32Array(n*3), v=new Float32Array(n*3), ax=new Float32Array(n*3), fu=new Float32Array(n*3), fv=new Float32Array(n*3);
+      const yA = (yFrom === undefined) ? y0 : yFrom, yB = y1 - yA;   // yFrom: spawn only above it (a species that lives on one side of the membrane)
       for(let i=0;i<n;i++){
-        c[i*3]=x0+rnd(seed+i*3+1)*bw; c[i*3+1]=y0+rnd(seed+i*3+2)*bh; c[i*3+2]=z0+rnd(seed+i*3+3)*bd;
+        c[i*3]=x0+rnd(seed+i*3+1)*bw; c[i*3+1]=yA+rnd(seed+i*3+2)*yB; c[i*3+2]=z0+rnd(seed+i*3+3)*bd;
         const sp=28+rnd(seed+i*5+7)*40, th=rnd(seed+i*5+4)*6.283, ph=Math.acos(2*rnd(seed+i*5+5)-1);
         v[i*3]=sp*Math.sin(ph)*Math.cos(th); v[i*3+1]=sp*Math.cos(ph); v[i*3+2]=sp*Math.sin(ph)*Math.sin(th);
         // the molecule's own axis (linear species lie along it) — an independent uniform direction
         const th2=rnd(seed+i*9+11)*6.283, ph2=Math.acos(2*rnd(seed+i*9+13)-1);
         ax[i*3]=Math.sin(ph2)*Math.cos(th2); ax[i*3+1]=Math.cos(ph2); ax[i*3+2]=Math.sin(ph2)*Math.sin(th2);
+        // a full frame for rigid 3-D species: u and v perpendicular to the axis, rolled by a seeded angle
+        { const a0=ax[i*3], a1=ax[i*3+1], a2=ax[i*3+2]; const hx = Math.abs(a1) < 0.9 ? 0 : 1, hy = Math.abs(a1) < 0.9 ? 1 : 0;
+          let ux=a1*0-a2*hy, uy=a2*hx-a0*0, uz=a0*hy-a1*hx; const ul=Math.hypot(ux,uy,uz)||1; ux/=ul; uy/=ul; uz/=ul;
+          const wx=a1*uz-a2*uy, wy=a2*ux-a0*uz, wz=a0*uy-a1*ux, ro=rnd(seed+i*9+17)*6.283, cr=Math.cos(ro), sr=Math.sin(ro);
+          fu[i*3]=ux*cr+wx*sr; fu[i*3+1]=uy*cr+wy*sr; fu[i*3+2]=uz*cr+wz*sr;
+          fv[i*3]=a1*fu[i*3+2]-a2*fu[i*3+1]; fv[i*3+1]=a2*fu[i*3]-a0*fu[i*3+2]; fv[i*3+2]=a0*fu[i*3+1]-a1*fu[i*3]; }
       }
       for(const a of atoms){
         const mesh=BABYLON.MeshBuilder.CreatePlane(nm+a.tag,{size:2},scene);
@@ -6057,7 +6075,9 @@ void main(void){
           mid[i]=molBase+i;
           cb[i*4]=a.col[0]; cb[i*4+1]=a.col[1]; cb[i*4+2]=a.col[2]; cb[i*4+3]=0;
           mb[i*16]=1; mb[i*16+5]=1; mb[i*16+10]=1; mb[i*16+15]=1;
-          mb[i*16+12]=ax[i*3]*a.d; mb[i*16+13]=ax[i*3+1]*a.d; mb[i*16+14]=ax[i*3+2]*a.d;   // offset along the molecule axis
+          if(a.p){ const q=a.p;   // rigid 3-D species: the atom's offset in the molecule's own frame
+            mb[i*16+12]=fu[i*3]*q[0]+fv[i*3]*q[1]+ax[i*3]*q[2]; mb[i*16+13]=fu[i*3+1]*q[0]+fv[i*3+1]*q[1]+ax[i*3+1]*q[2]; mb[i*16+14]=fu[i*3+2]*q[0]+fv[i*3+2]*q[1]+ax[i*3+2]*q[2]; }
+          else { mb[i*16+12]=ax[i*3]*a.d; mb[i*16+13]=ax[i*3+1]*a.d; mb[i*16+14]=ax[i*3+2]*a.d; }   // offset along the molecule axis
           og[i*3]=c[i*3]; og[i*3+1]=c[i*3+1]; og[i*3+2]=c[i*3+2];
           vl[i*3]=v[i*3]; vl[i*3+1]=v[i*3+1]; vl[i*3+2]=v[i*3+2];
         }
@@ -6068,7 +6088,7 @@ void main(void){
         mesh.thinInstanceSetBuffer('molId',mid,1,true);
         mesh.thinInstanceCount=n; gFreeMeshes.push(mesh);
       }
-      return {c, v, ax, n};   // the orbital builder below rides these same bodies
+      return {c, v, ax, fu, fv, n};   // the orbital builder below rides these same bodies
     };
     const cR = info(codeC).vr*FILL_SCALE;
     /* Free protons, three layers on one stateless body:
@@ -6094,6 +6114,15 @@ void main(void){
     // O2 — oxygen's own red, the gas photosynthesis puts out. O=O 1.21 Å, so ±0.605 from the centre.
     const FREE_O2 = mkFree('o2', 5000, 400391, [{tag:'a', r:oR, col:[0.94,0.15,0.15], d: 0.605},
                                 {tag:'b', r:oR, col:[0.94,0.15,0.15], d:-0.605}], MOLBASE.o2, false);
+    /* NADP(H): 500 copies of the loaded nadph model as a rigid free species in the stroma (spawned above
+       the lipid layer, and the membrane wall keeps them there). Each atom is one mesh of 500 instances,
+       placed by its offset in the molecule's own randomly rolled frame. Element colours, hydrogen's grey. */
+    let FREE_NADP = null;
+    { const nm = mols.find(m => m.cfg && m.cfg.match === 'nadph');
+      if(nm && nm.na){ let cx=0, cy=0, cz=0; for(let k=0;k<nm.na;k++){ cx+=nm.x[k]; cy+=nm.y[k]; cz+=nm.z[k]; } cx/=nm.na; cy/=nm.na; cz/=nm.na;
+        const atoms = []; for(let k=0;k<nm.na;k++){ const e = nm.el[k], I = info(e); atoms.push({ tag:'a'+k, r:I.vr*FILL_SCALE, col:[I.c[0],I.c[1],I.c[2]], d:0, p:[nm.x[k]-cx, nm.y[k]-cy, nm.z[k]-cz], el:e }); }
+        FREE_NADP = mkFree('nadp', 500, 771231, atoms, MOLBASE.nadp, false, MEMBRANE_Y + gMemHalfT + 12);
+        FREE_NADP.atoms = atoms; } }
 
     /* ── Water orbitals inside the crisp zone ───────────────────────────────────────────────────────
        Every water within gCrisp gets the same orbital treatment the proteins get: core shells, the two
@@ -6309,6 +6338,7 @@ void main(void){
       { c: FREE_P.c,    v: FREE_P.v,    base: MOLBASE.p,   n: FREE_P.n },
       { c: FREE_CO2.c,  v: FREE_CO2.v,  base: MOLBASE.co2, n: FREE_CO2.n },
       { c: FREE_O2.c,   v: FREE_O2.v,   base: MOLBASE.o2,  n: FREE_O2.n }];
+    if(FREE_NADP) gSpecies.push({ c: FREE_NADP.c, v: FREE_NADP.v, base: MOLBASE.nadp, n: FREE_NADP.n });
     const gDVel = new Float32Array(MOL_N*3);   // velocity DELTA from collisions (added to the analytic one)
 
     /* ── Free protons are SIMULATED, not analytic ────────────────────────────────────────────────
@@ -6330,7 +6360,7 @@ void main(void){
     /* Shell lookup grid: testing every proton against every shell was 360000 calls a frame (43 ms). A
        64-unit grid over the box lists the shells overlapping each cell, rebuilt each frame (the loose
        proteins move), and a proton tests only the shells in its own cell - usually none. */
-    const SG = 64, SG_MAX = 6;
+    const SG = 64, SG_MAX = 12;
     const sgNx = Math.ceil((bHi.x-bLo.x)/SG)+1, sgNy = Math.ceil((bHi.y-bLo.y)/SG)+1, sgNz = Math.ceil((bHi.z-bLo.z)/SG)+1;
     const sgCnt = new Uint8Array(sgNx*sgNy*sgNz), sgList = new Uint8Array(sgNx*sgNy*sgNz*SG_MAX);
     const sgBuild = () => { sgCnt.fill(0);
@@ -6590,6 +6620,10 @@ void main(void){
       const lin = (F, base, els, offs, rads, key) => { for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,base);
         for(let k=0;k<els.length;k++) test(q[0]+F.ax[i*3]*offs[k], q[1]+F.ax[i*3+1]*offs[k], q[2]+F.ax[i*3+2]*offs[k], rads[k], els[k], {kind:key, i, k, F, off:offs[k]}); } };
       lin(FREE_P,   MOLBASE.p,   [codeH],             [0],             [hRad],           'p');
+      if(FREE_NADP){ const F = FREE_NADP, A = F.atoms;   // rigid species: every atom at its offset in the molecule frame
+        for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,MOLBASE.nadp);
+          for(let k=0;k<A.length;k++){ const a=A[k], o=i*3;
+            test(q[0]+F.fu[o]*a.p[0]+F.fv[o]*a.p[1]+F.ax[o]*a.p[2], q[1]+F.fu[o+1]*a.p[0]+F.fv[o+1]*a.p[1]+F.ax[o+1]*a.p[2], q[2]+F.fu[o+2]*a.p[0]+F.fv[o+2]*a.p[1]+F.ax[o+2]*a.p[2], a.r, a.el, {kind:'nadp', i, k, F, p:a.p, base:MOLBASE.nadp}); } } }
       lin(FREE_CO2, MOLBASE.co2, [codeC,codeO,codeO], [0,1.16,-1.16],  [cRad,oRad,oRad], 'co2');
       lin(FREE_O2,  MOLBASE.o2,  [codeO,codeO],       [0.605,-0.605],  [oRad,oRad],      'o2');
       if(!best) return null;
@@ -6617,7 +6651,10 @@ void main(void){
         atom.fill = (buf, cap, foc) => { const O = ORB_LIN[src.kind]; if(!O || k < 0) return 0;
           return copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
             O.cM, O.cC, O.coreN, O.bM, O.bC, O.bondN, O.bond.tap, O.bond.prof, O.core.oid, O.bond.oid, foc === undefined ? -1 : foc); }; }
-      else { atom.track = () => { const q = centre(src.F.c, src.F.v, src.i, MOLBASE.p); atom.center.set(q[0],q[1],q[2]); atom.world.set(q[0],q[1],q[2]); return true; };
+      else { const base = src.base !== undefined ? src.base : MOLBASE.p;
+        atom.track = () => { const q = centre(src.F.c, src.F.v, src.i, base); let x=q[0], y=q[1], z=q[2];
+          if(src.p){ const F=src.F, o=src.i*3, pp=src.p; x += F.fu[o]*pp[0]+F.fv[o]*pp[1]+F.ax[o]*pp[2]; y += F.fu[o+1]*pp[0]+F.fv[o+1]*pp[1]+F.ax[o+1]*pp[2]; z += F.fu[o+2]*pp[0]+F.fv[o+2]*pp[1]+F.ax[o+2]*pp[2]; }
+          atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
         atom.fill = () => 0; }
       atom.track();   // locate it NOW: the card's orbital preview is built once at selection, from fill(), before the follower's first frame
       return { t:bestT, atom };
@@ -7590,7 +7627,7 @@ void main(void){
      same gModelOff / gModelQuat / rebuildModelXform path the gizmo uses, so everything that follows a
      model - atoms, hull, collision shell - follows. The showcase molecules stay put. */
   const gBouncers = [];
-  for(const h of gHulls){ const mi = h.mi, m = mols[mi]; if(gMemBound[mi] || !m || !m.cfg) continue;
+  for(const h of gHulls){ const mi = h.mi, m = mols[mi]; if(gMemBound[mi] || !m || !m.cfg || m.shuttle) continue;
     if(/chlorophyll|plastoquinone|nadph/i.test(m.cfg.label || '')) continue;
     const th=Math.random()*6.283, ph=Math.acos(2*Math.random()-1), sp=10+Math.random()*8;
     gBouncers.push({ mi, R:h.maxR, vx:sp*Math.sin(ph)*Math.cos(th), vy:sp*Math.cos(ph), vz:sp*Math.sin(ph)*Math.sin(th),
@@ -7620,6 +7657,116 @@ void main(void){
         rebuildModelXform(mi);
       }
     }, -1, true);   // first in the frame, so the shells, hulls and footprint that follow a model see this frame's pose
+  }
+
+  /* ── Shuttles: plastoquinone PSII <-> cytochrome b6f, plastocyanin b6f <-> PSI ─────────────────
+     Binding sites come from the structures' own bound cofactors (etcGroups): the plastoquinone rides
+     between PSII's PL9 pocket and b6f's most lumenal PL9 (the Qo site), inside the membrane; the
+     plastocyanin between b6f's most lumenal heme (heme f, in cytochrome f) and PSI's lumenal face, in
+     the lumen. dock - travel - dock, each on its own timer, poses written through the gizmo's path. */
+  const gShuttles = [];
+  { const grpC = g => [g.cx, g.cy, g.cz];
+    const modelIdx = (pred) => mols.findIndex(m => m.cfg && pred(m));
+    const psiiMi = modelIdx(m => m.cfg.match === '3jcu'), b6fMi = modelIdx(m => m.cfg.match === '7r0w'), psiMi = modelIdx(m => /photosystem i$/i.test(m.cfg.label || ''));
+    const groupsOf = (mi, type) => etcGroups.filter(g => g.type === type && g.n && modelOf(g.cx, g.cy, g.cz) === mi);
+    let pqA = null, pqB = null, pcA = null, pcB = null;
+    if(psiiMi >= 0 && b6fMi >= 0){
+      const qs = groupsOf(psiiMi, 3); if(qs.length){ const c = mInfo[psiiMi]; qs.sort((a,b) => Math.hypot(b.cx-c.cx, b.cz-c.cz) - Math.hypot(a.cx-c.cx, a.cz-c.cz)); pqA = grpC(qs[0]); }
+      const qb = groupsOf(b6fMi, 3); if(qb.length){ qb.sort((a,b) => a.cy - b.cy); pqB = grpC(qb[0]); } }
+    if(b6fMi >= 0 && psiMi >= 0){
+      const hs = groupsOf(b6fMi, 4); if(hs.length){ hs.sort((a,b) => a.cy - b.cy); pcA = grpC(hs[0]); }
+      const c = mInfo[psiMi]; pcB = [c.cx, c.y0, c.cz]; }
+    for(const h of gHulls){ const m = mols[h.mi]; if(!m || !m.shuttle) continue;
+      const pq = m.shuttle === 'pq'; const A = pq ? pqA : pcA, B = pq ? pqB : pcB, hostA = pq ? psiiMi : b6fMi, hostB = pq ? b6fMi : psiMi;
+      if(!A || !B) continue;
+      const R = h.maxR; const offA = pq ? [0,0,0] : [0, -(R + 8), 0], offB = pq ? [0,0,0] : [0, -(R + 4), 0];   // a protein docks on the surface, a quinone sits in its pocket
+      gShuttles.push({ mi:h.mi, R, pq, A, B, hostA, hostB, offA, offB, speed: pq ? 26 : 38, phase: (m.shuttleK % 2) ? 'toA' : 'toB', t: (m.shuttleK/10)*0.9, dock: 2.5 + (m.shuttleK % 4)*0.8, cur:[0,0,0] });
+    }
+    { const src = mols.find(x => x.cfg && x.cfg.match === 'plastoquinone'); if(src){ const si = mols.indexOf(src); for(const sh of gShuttles) if(sh.pq){ gModelCol[sh.mi*3]=gModelCol[si*3]; gModelCol[sh.mi*3+1]=gModelCol[si*3+1]; gModelCol[sh.mi*3+2]=gModelCol[si*3+2]; } } }
+    { const src = mols.find(x => x.cfg && x.cfg.match === '1ag6'); if(src){ const si = mols.indexOf(src); for(const sh of gShuttles) if(!sh.pq){ gModelCol[sh.mi*3]=gModelCol[si*3]; gModelCol[sh.mi*3+1]=gModelCol[si*3+1]; gModelCol[sh.mi*3+2]=gModelCol[si*3+2]; } } }
+    window.__sites = () => { const byType = {}; for(const g of etcGroups){ if(!g.n) continue; const mi = modelOf(g.cx, g.cy, g.cz); const k = mi+':'+g.type; byType[k] = (byType[k]||0)+1; }
+      return { psiiMi, b6fMi, psiMi, pqA, pqB, pcA, pcB, byType, labels: mols.map(m => m.cfg && m.cfg.label), gSpeed, shuttleModels: mols.filter(m=>m.shuttle).length }; };
+    const siteW = (mi, site, off, out) => { const m = gModelXform, o = mi*16, x = site[0], y = site[1], z = site[2];   // a baked site through its host's transform
+      out[0] = m[o]*x + m[o+4]*y + m[o+8]*z + m[o+12] + off[0]; out[1] = m[o+1]*x + m[o+5]*y + m[o+9]*z + m[o+13] + off[1]; out[2] = m[o+2]*x + m[o+6]*y + m[o+10]*z + m[o+14] + off[2]; };
+    const _a = [0,0,0], _b = [0,0,0], _q = new BABYLON.Quaternion(), _dq = new BABYLON.Quaternion(), _axv = new BABYLON.Vector3(0.3,1,0.2).normalize();
+    for(const sh of gShuttles){ siteW(sh.hostA, sh.A, sh.offA, _a); siteW(sh.hostB, sh.B, sh.offB, _b);   // start somewhere along the way
+      const t = sh.t; sh.cur = [_a[0]+(_b[0]-_a[0])*t, _a[1]+(_b[1]-_a[1])*t, _a[2]+(_b[2]-_a[2])*t]; sh.t = 0; }
+    scene.onBeforeRenderObservable.add(() => {
+      if(!gShuttles.length || gizmoDragging) return;
+      const dt = Math.min(engine.getDeltaTime(), 50)*0.001*gSpeed; if(dt <= 0) return;
+      for(const sh of gShuttles){ const c = mInfo[sh.mi];
+        siteW(sh.hostA, sh.A, sh.offA, _a); siteW(sh.hostB, sh.B, sh.offB, _b);
+        const from = sh.phase === 'toB' || sh.phase === 'dockA' ? _a : _b, to = sh.phase === 'toB' || sh.phase === 'dockA' ? _b : _a;
+        if(sh.phase === 'dockA' || sh.phase === 'dockB'){ sh.t += dt; const at = sh.phase === 'dockA' ? _a : _b; sh.cur[0]=at[0]; sh.cur[1]=at[1]; sh.cur[2]=at[2];
+          if(sh.t >= sh.dock){ sh.t = 0; sh.phase = sh.phase === 'dockA' ? 'toB' : 'toA'; } }
+        else { const dx = to[0]-sh.cur[0], dy = to[1]-sh.cur[1], dz = to[2]-sh.cur[2], d = Math.hypot(dx,dy,dz), step = sh.speed*dt;
+          if(d <= step){ sh.cur[0]=to[0]; sh.cur[1]=to[1]; sh.cur[2]=to[2]; sh.phase = sh.phase === 'toB' ? 'dockB' : 'dockA'; sh.t = 0; }
+          else { const k = step/d; sh.cur[0]+=dx*k; sh.cur[1]+=dy*k; sh.cur[2]+=dz*k;
+            if(!sh.pq){ _q.set(gModelQuat[sh.mi*4], gModelQuat[sh.mi*4+1], gModelQuat[sh.mi*4+2], gModelQuat[sh.mi*4+3]);   // a protein tumbles a little as it goes
+              BABYLON.Quaternion.RotationAxisToRef(_axv, 0.25*dt, _dq); _dq.multiplyToRef(_q, _q); _q.normalize();
+              gModelQuat[sh.mi*4]=_q.x; gModelQuat[sh.mi*4+1]=_q.y; gModelQuat[sh.mi*4+2]=_q.z; gModelQuat[sh.mi*4+3]=_q.w; } } }
+        gModelOff[sh.mi*3] = sh.cur[0]-c.cx; gModelOff[sh.mi*3+1] = sh.cur[1]-c.cy; gModelOff[sh.mi*3+2] = sh.cur[2]-c.cz;
+        rebuildModelXform(sh.mi);
+      }
+    }, -1, true);
+  }
+
+  /* ── Photons and glowing chlorophylls ────────────────────────────────────────────────────────
+     A pool of photons enters the box from random points on its faces, flies straight and fast, and
+     vanishes on the far side - unless its path comes within reach of a chlorophyll (the CLA cofactor
+     groups' centres), in which case it is absorbed and that chlorophyll glows for five seconds: an
+     additive halo that fades and shrinks. */
+  { const chl = etcGroups.map((g, gi) => ({ gi, g })).filter(o => o.g.type === 7 && o.g.n);
+    const N_CH = chl.length, chB = new Float32Array(N_CH*3), chMi = new Int32Array(N_CH), chW = new Float32Array(N_CH*3);
+    chl.forEach((o, k) => { const g = o.g; chB[k*3]=g.cx; chB[k*3+1]=g.cy; chB[k*3+2]=g.cz; chMi[k] = modelOf(chB[k*3], chB[k*3+1], chB[k*3+2]); });
+    const N_PH = 90, PH_SPEED = 420, HIT_R = 7, GLOW_S = 5, HALO_MAX = 48;
+    const px = new Float32Array(N_PH*3), pd = new Float32Array(N_PH*3), alive = new Uint8Array(N_PH);
+    const phMesh = BABYLON.MeshBuilder.CreateSphere('photons', {diameter:1, segments:6}, scene);
+    const phMat = new BABYLON.StandardMaterial('photonMat', scene); phMat.emissiveColor = new BABYLON.Color3(1.0, 0.96, 0.62); phMat.disableLighting = true; phMat.alpha = 0.9; phMat.alphaMode = BABYLON.Constants.ALPHA_ADD; phMat.disableDepthWrite = true;
+    phMesh.material = phMat; phMesh.isPickable = false; phMesh.alwaysSelectAsActiveMesh = true; phMesh.renderingGroupId = 2;
+    const phM = new Float32Array(N_PH*16); phMesh.thinInstanceSetBuffer('matrix', phM, 16, false); phMesh.thinInstanceCount = 0;
+    const haloMesh = BABYLON.MeshBuilder.CreateSphere('chlHalo', {diameter:1, segments:10}, scene);
+    const haloMat = new BABYLON.StandardMaterial('chlHaloMat', scene); haloMat.emissiveColor = new BABYLON.Color3(0.62, 1.0, 0.36); haloMat.disableLighting = true; haloMat.alpha = 0.32; haloMat.alphaMode = BABYLON.Constants.ALPHA_ADD; haloMat.disableDepthWrite = true; haloMat.backFaceCulling = false;
+    haloMesh.material = haloMat; haloMesh.isPickable = false; haloMesh.alwaysSelectAsActiveMesh = true; haloMesh.renderingGroupId = 2;
+    const haloM = new Float32Array(HALO_MAX*16); haloMesh.thinInstanceSetBuffer('matrix', haloM, 16, false); haloMesh.thinInstanceCount = 0;
+    const glows = new Map();   // chlorophyll k -> time left
+    const spawn = i => { const lo = gBoxLo, hi = gBoxHi; if(!lo) return; const o = i*3;
+      const face = Math.random(); let x, y, z, dx, dy, dz;
+      if(face < 0.6){ x = lo.x + Math.random()*(hi.x-lo.x); y = hi.y; z = lo.z + Math.random()*(hi.z-lo.z); dx = (Math.random()-0.5)*0.8; dy = -1; dz = (Math.random()-0.5)*0.8; }   // mostly from above
+      else if(face < 0.8){ x = lo.x; y = lo.y + Math.random()*(hi.y-lo.y); z = lo.z + Math.random()*(hi.z-lo.z); dx = 1; dy = (Math.random()-0.5)*0.6; dz = (Math.random()-0.5)*0.8; }
+      else { x = hi.x; y = lo.y + Math.random()*(hi.y-lo.y); z = lo.z + Math.random()*(hi.z-lo.z); dx = -1; dy = (Math.random()-0.5)*0.6; dz = (Math.random()-0.5)*0.8; }
+      const l = Math.hypot(dx,dy,dz); px[o]=x; px[o+1]=y; px[o+2]=z; pd[o]=dx/l; pd[o+1]=dy/l; pd[o+2]=dz/l; alive[i] = 1; };
+    let seeded = false;
+    scene.onBeforeRenderObservable.add(() => {
+      if(!gBoxLo) return;
+      const dt = Math.min(engine.getDeltaTime(), 50)*0.001*gSpeed;
+      if(!seeded){ seeded = true; for(let i=0;i<N_PH;i++){ spawn(i); const o=i*3, t=Math.random()*1.5; px[o]+=pd[o]*PH_SPEED*t; px[o+1]+=pd[o+1]*PH_SPEED*t; px[o+2]+=pd[o+2]*PH_SPEED*t; } }
+      // chlorophyll centres through their models' transforms (cheap: a few hundred)
+      for(let k=0;k<N_CH;k++){ const m = gModelXform, o = chMi[k]*16, x=chB[k*3], y=chB[k*3+1], z=chB[k*3+2];
+        chW[k*3] = m[o]*x + m[o+4]*y + m[o+8]*z + m[o+12]; chW[k*3+1] = m[o+1]*x + m[o+5]*y + m[o+9]*z + m[o+13]; chW[k*3+2] = m[o+2]*x + m[o+6]*y + m[o+10]*z + m[o+14]; }
+      const lo = gBoxLo, hi = gBoxHi, step = PH_SPEED*dt; let n = 0;
+      for(let i=0;i<N_PH;i++){ const o=i*3; if(!alive[i]) spawn(i);
+        const x0=px[o], y0=px[o+1], z0=px[o+2], dx=pd[o], dy=pd[o+1], dz=pd[o+2];
+        // absorbed if the step passes within HIT_R of a chlorophyll centre
+        let hit = -1;
+        if(step > 0) for(let k=0;k<N_CH;k++){ const cx=chW[k*3]-x0, cy=chW[k*3+1]-y0, cz=chW[k*3+2]-z0; const t = cx*dx+cy*dy+cz*dz; if(t < -HIT_R || t > step + HIT_R) continue;
+          const tc = Math.max(0, Math.min(step, t)), ex = cx-dx*tc, ey = cy-dy*tc, ez = cz-dz*tc; if(ex*ex+ey*ey+ez*ez < HIT_R*HIT_R){ hit = k; break; } }
+        if(hit >= 0){ glows.set(hit, GLOW_S); alive[i] = 0; continue; }
+        const x=x0+dx*step, y=y0+dy*step, z=z0+dz*step;
+        if(x < lo.x-2 || x > hi.x+2 || y < lo.y-2 || y > hi.y+2 || z < lo.z-2 || z > hi.z+2){ alive[i] = 0; continue; }
+        px[o]=x; px[o+1]=y; px[o+2]=z;
+        // a streak: a 1.4-unit bead stretched 5x along its direction
+        const m = n*16; let ux=0, uy=1, uz=0; if(Math.abs(dy) > 0.9){ ux=1; uy=0; } let vx=uy*dz-uz*dy, vy=uz*dx-ux*dz, vz=ux*dy-uy*dx; const vl=Math.hypot(vx,vy,vz)||1; vx/=vl; vy/=vl; vz/=vl; const wx=dy*vz-dz*vy, wy=dz*vx-dx*vz, wz=dx*vy-dy*vx;
+        phM[m]=vx*1.4; phM[m+1]=vy*1.4; phM[m+2]=vz*1.4; phM[m+3]=0; phM[m+4]=wx*1.4; phM[m+5]=wy*1.4; phM[m+6]=wz*1.4; phM[m+7]=0; phM[m+8]=dx*7; phM[m+9]=dy*7; phM[m+10]=dz*7; phM[m+11]=0; phM[m+12]=x; phM[m+13]=y; phM[m+14]=z; phM[m+15]=1; n++;
+      }
+      if(n){ phMesh.thinInstancePartialBufferUpdate('matrix', phM.subarray(0, n*16), 0); } phMesh.thinInstanceCount = n; phMesh.setEnabled(n > 0);
+      // the halos: shrink and fade out over GLOW_S seconds
+      let hn = 0; for(const [k, left] of glows){ const nl = left - dt; if(nl <= 0){ glows.delete(k); continue; } glows.set(k, nl);
+        if(hn >= HALO_MAX) continue; const f = nl/GLOW_S, r = 9 + 10*Math.sqrt(f), m = hn*16;
+        haloM[m]=r; haloM[m+1]=0; haloM[m+2]=0; haloM[m+3]=0; haloM[m+4]=0; haloM[m+5]=r; haloM[m+6]=0; haloM[m+7]=0; haloM[m+8]=0; haloM[m+9]=0; haloM[m+10]=r; haloM[m+11]=0; haloM[m+12]=chW[k*3]; haloM[m+13]=chW[k*3+1]; haloM[m+14]=chW[k*3+2]; haloM[m+15]=1; hn++; }
+      if(hn){ haloMesh.thinInstancePartialBufferUpdate('matrix', haloM.subarray(0, hn*16), 0); } haloMesh.thinInstanceCount = hn; haloMesh.setEnabled(hn > 0);
+    });
+    window.__photons = () => ({ chlorophylls: N_CH, photons: N_PH, glowing: glows.size, gSpeed, chlSample: [0, (N_CH/2)|0, N_CH-1].map(k => [chW[k*3]|0, chW[k*3+1]|0, chW[k*3+2]|0]), photonSample: [0,1].map(i => [px[i*3]|0, px[i*3+1]|0, px[i*3+2]|0]), shuttles: gShuttles.map(s => ({mi:s.mi, pq:s.pq, phase:s.phase, at:s.cur.map(v=>v|0)})) });
   }
   /* ── RTS floor ── flatten every model onto ONE plane (perpendicular to the membrane, at the models'
      level) and lay a 90%-transparent white sheet there, so the scene reads as a flat RTS battlefield. */
