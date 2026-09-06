@@ -28,6 +28,9 @@ body.dark-mode{
   transform:scaleX(0);transform-origin:left center;transition:transform .3s linear}
 /* ── Loading screen: sleeping Mona (from the Solukko project) + real progress label + bar ── */
 .loading-inner{display:flex;flex-direction:column;align-items:center;gap:18px}
+.load-enter{font:15px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#4a3320;background:#e7d4ac;
+  border:2.5px solid #4a3320;border-radius:999px;padding:9px 22px;cursor:pointer;margin-top:4px}
+.load-enter:hover{background:#82a058;color:#f2e6c9}
 .loading-mona-wrap{position:relative;width:120px;height:120px}
 .loading-mona{width:120px;height:120px;object-fit:contain;image-rendering:auto;
   animation:loadingSleep 3.2s ease-in-out infinite}
@@ -259,6 +262,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
     </div>
     <div class="loading-text" id="load-lbl">Ladataan…</div>
     <div class="ptr"><div class="pfil" id="load-bar"></div></div>
+    <button id="load-enter" class="load-enter" hidden>Astu sisään</button>
   </div>
 </div>
 <button id="darkmode-btn" title="Vaihda tummatila"><span id="darkmode-icon">☀️</span>Teema</button>
@@ -3713,7 +3717,7 @@ void main(void){
         pb.classList.toggle('on', !gFreeOn);   // highlighted while they are HIDDEN, like the Kalvo button
         const lab=document.getElementById('particles-label'); if(lab) lab.textContent = gFreeOn ? 'Hiukkaset' : 'Hiukkaset pois';
         for(const m of gFreeMeshes) m.setEnabled(gFreeOn); }); }
-  let gMembrane = false;   // membrane HIDDEN by default — it is much the heaviest thing in the scene; the Kalvo button brings it back instantly (it is still built during loading, just not drawn)
+  let gMembrane = true;    // membrane SHOWN by default (it used to start hidden as the heaviest thing in the scene, but the slab and the density ramp made it cheap enough); the Kalvo button hides it
   { const mb = document.getElementById('membrane-btn');
     if(mb){ mb.addEventListener('click', () => { gMembrane = !gMembrane;
         mb.classList.toggle('on', !gMembrane);   // highlight the button when the membrane is HIDDEN
@@ -4457,21 +4461,27 @@ void main(void){
           }
         }
       }
-      // fill bearings no atom landed on, from whatever neighbours do have a value
-      for(let pass=0; pass<6; pass++){
-        let holes=0;
+      /* Close PINHOLES only - a bearing with no atom that is surrounded by bearings that have one -
+         and never bridge a real gap. The old fill ran six passes taking the MAX of any neighbour, so a
+         bearing that genuinely pointed through empty space (a crescent's hollow, the gap between two
+         lobes) inherited the reach of whatever was next to it, pass after pass, until the whole complex
+         was wrapped in a ball. One complex came out with a minimum radius of 26 units where the others
+         reach 0-7, and its slab drew as a sphere beside the atoms. Now a bearing is filled only when at
+         least six of its eight neighbours are, with the SMALLEST of them, in a single pass. Bearings that
+         still miss stay at zero: the shell is simply open there, which is the truth of it. */
+      { const F = new Float32Array(R);
         for(let li=0; li<NLAT; li++) for(let lo=0; lo<NLON; lo++){
           const q=li*NLON+lo; if(R[q]>0) continue;
-          let best=0;
+          let cnt=0, small=Infinity;
           for(let dl=-1; dl<=1; dl++) for(let dn=-1; dn<=1; dn++){
+            if(!dl && !dn) continue;
             const a=li+dl; if(a<0||a>=NLAT) continue;
             const b=((lo+dn)%NLON+NLON)%NLON;
-            const v=R[a*NLON+b]; if(v>best) best=v;
+            const v=R[a*NLON+b]; if(v>0){ cnt++; if(v<small) small=v; }
           }
-          if(best>0) R[q]=best; else holes++;
+          if(cnt>=6) F[q]=small;
         }
-        if(!holes) break;
-      }
+        R.set(F); }
       // The mesh interpolates linearly BETWEEN bearings, so its surface sags a little inside the true
       // hull in the gaps. Half a bearing step is 2.8 degrees, worth about 0.1% - 1.5% covers it with
       // room to spare, against the several hundred percent the old 5x5 dilate cost.
@@ -4925,7 +4935,7 @@ void main(void){
        lipid spheres look like anyway.
        It is deliberately much THINNER than the bilayer (25%), so seen edge-on it hides inside the lipid
        band instead of occluding the middle of it. */
-    const MEGA_SCALE = 30;                     // how much further the slab reaches than the detailed sheet
+    const MEGA_SCALE = 10;                     // how much further the slab reaches than the detailed sheet
     { const slab = BABYLON.MeshBuilder.CreateBox('memSlab', {
         width: 2*memHalfX*MEGA_SCALE, height: Math.max(1, ySpan*0.25), depth: 2*memHalfZ*MEGA_SCALE }, scene);
       slab.position.copyFrom(bilayerCen);
@@ -9435,6 +9445,13 @@ void main(void){
      and doing that across live frames is what made the scene stutter while flying — the frame itself
      renders in under 3 ms, so the hitching was never the renderer, it was the build competing with it.
      Waiting here is the deliberate trade: a longer load for a scene that is smooth once you are in it. */
+  /* From here on the complexes are built and drawable - only the membrane and the atom detail remain,
+     and both fill in while the scene is running. So let people in. The build competes with the frame
+     for the main thread, so it is choppier this way than waiting, but that is a choice to offer rather
+     than make for them. */
+  { const eb = document.getElementById('load-enter');
+    if(eb){ eb.hidden = false;
+      eb.addEventListener('click', () => { document.getElementById('overlay').classList.add('gone'); }, {once:true}); } }
   try {
     if(buildMembrane){ setLbl('Rakennetaan kalvoa…'); setBar(0.55); await buildMembrane(); }
     if(buildDetail){ setLbl('Rakennetaan atomeja…'); setBar(0.75); await buildDetail(); }
@@ -9464,7 +9481,9 @@ void main(void){
     setLbl('Lämmitetään puskureita…'); setBar(0.95);
     const wasOn = scene.meshes.map(m => m.isEnabled());
     for(const m of scene.meshes){ try { m.setEnabled(true); } catch(_){} }
+    engine.setColorWrite(false);   // the bindings get created either way - this just keeps the frame from flashing everything if someone is already in
     for(let i=0;i<2;i++){ try { scene.render(); } catch(_){} }
+    engine.setColorWrite(true);
     scene.meshes.forEach((m, i) => { try { m.setEnabled(wasOn[i]); } catch(_){} });
     try { scene.render(); } catch(_){}
   }
