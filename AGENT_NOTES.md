@@ -89,3 +89,24 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 Simplest thing that works. No abstractions they did not ask for. Do not touch unrelated code.
 Visuals: Hollywood-grade, soft, no hard edges, no "childish" arcs; they will say when something
 looks flat or jagged. When they say "all good?" check again - twice it was a real bug.
+
+## Where things stand (2026-09-06, late evening)
+
+Last commits, in order: a8d37e2 (video sky + zoom-out-from-centre), then the one carrying this note:
+video sky REMOVED again, `Comp 1_1.mp4` deleted (still in git history), the flat dark-green quad is the
+background, zoom-out-from-centre kept, and the nucleus fix below.
+
+**Nuclei missing at certain angles - fixed, verify with the owner.** All-atom nuclei (`nucMatG`,
+rendering group 1) do not write depth and are depth-TESTED with a bias toward the camera (`NUC_BIAS`
+2 units) so they beat their own orbital lobes. The bias was clamped to HALF the view depth, so any atom
+nearer than 4 units got less than the full bias and at 2 units only half - less than its own lobes
+reach - and its nucleus vanished. Which atoms are that close changes as you turn, hence "at certain
+angles". The clamp now stops at the near plane instead (read off the projection matrix in the imp
+fragment shader). A remaining, smaller effect: a NEIGHBOUR's lobe or glass shell more than 2 units in
+front of a nucleus still hides it, because every lobe and shell writes depth (`realAlpha()` sets
+`forceDepthWrite`). If the owner still sees missing nuclei, raise `NUC_BIAS` toward 4-5 and check.
+
+**Lag "a couple of commits ago" - two suspects, not yet confirmed with the owner:** the 1080p video
+texture uploaded every frame (gone now), and the adaptive supersample back-off removed on request in
+8c83dcf - the page used to lower its render scale quietly when slow, now it stays at the 2.01x quality
+setting whatever happens. If it still lags after this commit, the quality slider is the lever.
