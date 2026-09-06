@@ -280,6 +280,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
+<img id="padimg" src="controls.png" alt="" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; display:none; z-index:9; pointer-events:none; opacity:0.92; user-select:none;">
 <div id="speedbox" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); text-align:center; z-index:10; font:11px ui-monospace,monospace; color:#6a6a5a; user-select:none;">
   <div style="margin-bottom:4px; letter-spacing:.5px;">nopeus <span id="speedval">0.1×</span></div>
   <input id="speed" type="range" min="0" max="30" value="1" style="width:130px; cursor:pointer;">
@@ -2559,7 +2560,11 @@ async function run(){
        shuttles): it renders, picks, casts a shell, cuts the lipids under it, and the loose ones bounce.
        Only the first of each label drives the special cases (the ATP synthase rotor, the shuttle sites,
        the PSII gizmo). The labels are kept, so the info panels work on the copies too. (2026-09-06) */
-    { const DUP = ['Photosystem II','Cytochrome b6f','Photosystem I','NDH-1','ATP synthase','Violaxanthin de-epoxidase','Ferredoxin','FNR','RuBisCO','PGR5','PGRL1','STN7','PPH1','Zeaxanthin epoxidase'];
+    /* The four heaviest models (PSII, PSI, NDH-1, RuBisCO - together most of the atoms) are NOT repeated:
+       with them the second row put the heap at 3.3 GB steady and the owner's browser died 'Out of
+       Memory' during the build (2026-09-06). The lighter ten are, which still doubles the membrane's
+       b6f and ATP synthase and every loose protein at a fraction of the cost. */
+    { const DUP = ['Cytochrome b6f','ATP synthase','Violaxanthin de-epoxidase','Ferredoxin','FNR','PGR5','PGRL1','STN7','PPH1','Zeaxanthin epoxidase'];
       /* MEMORY. Every atom instance carries CPU-side buffers (matrices, colours, orbital lobes, nucleons),
          so a full extra set of complexes costs on the order of a gigabyte of JS heap. Two extra rows put
          the heap at 4.6 GB against Chrome's 4 GB limit and the renderer died. DUP_ROWS is therefore what
@@ -3437,6 +3442,40 @@ void main(void){
   window.addEventListener('keydown', e => { if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     const k = e.key.toLowerCase(); if(k==='w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='r'||k==='f'){ if(!wasdKeys[k]) scene.stopAnimation(cam); wasdKeys[k]=true; } });
   window.addEventListener('keyup', e => { const k=e.key.toLowerCase(); if(k==='w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='r'||k==='f') wasdKeys[k]=false; });
+  /* ── Gamepad (DualShock layout, standard mapping) ────────────────────────────────────────────────
+     The pad drives the SAME key flags the keyboard does, edge-triggered (a flag is written only when
+     the pad's state for it changes), so the keyboard keeps working with a pad idle beside it.
+       left stick   LIIKU    → A/D strafe, W/S up/down on screen
+       right stick  KATSO    → arrow keys, yaw / pitch
+       L1 / R1      LOITONNA / LÄHENNÄ → Q / E, out / in along the view
+       L2 / R2      KALLISTA → F / R, roll
+     The picture bottom-left (controls.png) appears while a pad is connected and switches to the
+     variant that highlights whatever is being used - the most recently pressed control wins. */
+  { const PAD_IMG = { base:'controls.png', left:'left.png', right:'right.png', L1:'L1.png', L2:'L2.png', R1:'R1.png', R2:'R2.png' };   // the owner's own PNGs (kontrollit.psd is the source)
+    for(const k in PAD_IMG){ const im = new Image(); im.src = PAD_IMG[k]; }   // preloaded → the switch is instant
+    const padEl = document.getElementById('padimg'), DZ = 0.3, padPrev = Object.create(null);
+    let padShown = null, padActive = null;
+    const setKey = (k, on) => { if(!!padPrev[k] === on) return; padPrev[k] = on;
+      if(/^Arrow/.test(k)) arrowKeys[k] = on; else { if(on) scene.stopAnimation(cam); wasdKeys[k] = on; } };
+    const pollPad = () => {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : null; let gp = null;
+      if(pads) for(const g of pads) if(g && g.connected){ gp = g; break; }
+      if(!gp){ if(padEl && padEl.style.display !== 'none') padEl.style.display = 'none';
+        for(const k in padPrev) if(padPrev[k]) setKey(k, false); padActive = null; return; }
+      if(padEl && padEl.style.display === 'none') padEl.style.display = 'block';
+      const ax = gp.axes || [], bt = gp.buttons || [], b = i => !!(bt[i] && (bt[i].pressed || bt[i].value > 0.5));
+      const lx = ax[0]||0, ly = ax[1]||0, rx = ax[2]||0, ry = ax[3]||0;
+      setKey('a', lx < -DZ); setKey('d', lx > DZ); setKey('w', ly < -DZ); setKey('s', ly > DZ);
+      setKey('ArrowLeft', rx < -DZ); setKey('ArrowRight', rx > DZ); setKey('ArrowUp', ry < -DZ); setKey('ArrowDown', ry > DZ);
+      setKey('q', b(4)); setKey('e', b(5)); setKey('f', b(6)); setKey('r', b(7));
+      const act = { left: Math.hypot(lx,ly) > DZ, right: Math.hypot(rx,ry) > DZ, L1: b(4), R1: b(5), L2: b(6), R2: b(7) };
+      if(!padActive || !act[padActive]){ padActive = null; for(const k in act) if(act[k]){ padActive = k; break; } }
+      const want = padActive ? PAD_IMG[padActive] : PAD_IMG.base;
+      if(want !== padShown){ padShown = want; if(padEl) padEl.src = want; }
+    };
+    window.__pollPad = pollPad;   // debug hook
+    scene.onBeforeRenderObservable.add(pollPad);
+  }
   // The ARROW KEYS are a TRULY FREE look: the camera stays put and its orientation rotates with no limit.
   // This is a VR HEADSET head-turn, not an FPS body-spin. Left/right yaw about the camera's OWN up and up/down
   // pitch about its OWN right, so the gaze always sweeps along the screen's own axes: whatever sits at
@@ -10562,7 +10601,7 @@ void main(void){
     document.head.appendChild(st);
     let idleTimer = null, fsTimer = null;
     // the floating chrome that steps aside when the mouse is still
-    const chrome = () => ['fs-btn','settings-btn','speedbox'].map(i=>document.getElementById(i)).filter(Boolean);
+    const chrome = () => ['fs-btn','settings-btn','speedbox','padimg'].map(i=>document.getElementById(i)).filter(Boolean);
     const wake = () => {
       document.documentElement.classList.remove('cursor-idle');
       clearTimeout(idleTimer);

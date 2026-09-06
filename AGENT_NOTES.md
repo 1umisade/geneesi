@@ -87,6 +87,10 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   bases (MOLBASE) and the id texture size follow the counts. Build time 20-30 s, so a probe must wait.
 - The membrane slab tier is OFF by default (`gSlabLod`, dev button 'laatta-LoD'): lipids at every
   distance, no sheet wrap, slab hidden. The protein hull handover still uses memR.
+- Gamepad (DualShock, standard mapping): polled every frame, drives the keyboard's own flags edge-
+  triggered (left stick A/D + W/S, right stick arrows, L1/R1 = Q/E zoom, L2/R2 = F/R roll). The picture
+  bottom-left (controls.png, and left/right/L1/L2/R1/R2.png for the highlighted variants - the owner's
+  files, source kontrollit.psd) shows only while a pad is connected. `window.__pollPad` is the poll.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a
