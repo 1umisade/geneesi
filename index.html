@@ -656,6 +656,8 @@ attribute vec3 wOrig;
 attribute vec3 wVel;
 uniform vec3 boxLo;
 uniform vec3 boxHi;
+uniform float memY;
+uniform float memHalf;
 /* Molecule-vs-molecule collisions ride ON TOP of that analytic path as a DISPLACEMENT, looked up per
    molecule from a texture. The analytic wave stays the reference trajectory and costs nothing, while
    the CPU simulates only the molecules near the camera and writes their deviation here. Everything
@@ -683,8 +685,10 @@ uniform sampler2D shellTex;
 uniform vec3 shellCen[NSHELL];
 uniform mat3 shellRot[NSHELL];
 uniform float shellR2[NSHELL];
+uniform float shellSkip;   // one shell this species is not pushed out of (the protons and the ATP synthase channel) - -1 for none
 vec3 repelShells(vec3 p){
   for(int i=0; i<NSHELL; i++){
+    if(float(i) == shellSkip) continue;
     vec3 d = p - shellCen[i];
     float r2 = dot(d, d);
     if(r2 >= shellR2[i] || r2 < 1e-8) continue;
@@ -732,8 +736,13 @@ void main(void){
 #ifdef WATERBOX
   // Repel the molecule CENTRE, then add this atom's rigid offset - so the whole molecule is displaced as
   // one body and is not torn apart at a shell surface.
+  /* The membrane is a wall: a molecule keeps to the half of the box it started in, folded at the lipid
+     layer's face (memY plus or minus memHalf) instead of at the box wall. memHalf 0 = no membrane. */
+  float yLo = boxLo.y, yHi = boxHi.y;
+  if(memHalf > 0.0){ if(wOrig.y >= memY) yLo = max(yLo, memY + memHalf); else yHi = min(yHi, memY - memHalf); }
+  float yO = clamp(wOrig.y, yLo, yHi);
   vec3 wCen = vec3(bnc(wOrig.x + wVel.x*uT, boxLo.x, boxHi.x),
-                   bnc(wOrig.y + wVel.y*uT, boxLo.y, boxHi.y),
+                   bnc(yO + wVel.y*uT, yLo, yHi),
                    bnc(wOrig.z + wVel.z*uT, boxLo.z, boxHi.z));
   wCen += molDisp();          // collision deviation, zero for anything the CPU is not simulating
 #ifdef NSHELL
@@ -3817,12 +3826,19 @@ void main(void){
   // runs earlier, so a later let would be in the temporal dead zone when that assignment happens.
   let gSimStat = () => '0 sim';   // molecules in the collision simulation, and what that pass costs
   let gDev = false;
+  let gDevBox = null;                 // dev: the container box the free molecules and the loose proteins bounce in
+  let gBoxLo = null, gBoxHi = null;   // the box bounds, published by the free-molecule block for the protein bouncer
+  let gProtSpeed = 1;                 // dev slider: speed of the loose (non-membrane) proteins
+  let gMemHalfT = 0;                  // half-thickness of the lipid layer (0 = no membrane) - nothing free crosses it
+  let gRotorTheta = 0, gRotorTarget = 0, gProtonPasses = 0;   // ATP synthase rotor: eased angle, target angle, protons passed
+  let ROTOR_SLOT = -1, gAtpMid = -1, gAtpAxisX = 0, gAtpAxisZ = 0, gRotorHeadMid = 0;   // the rotor's own transform slot and the axis it turns about (rest frame)
   let gDevPanelEl = null, gDevTopSet = false;   // the slider panel, and whether its top has been dropped below the camera readout yet
   let applyDevMode = () => {};   // real implementation installed once deselectModel + labels exist
   { const devBtn = document.getElementById('dev-btn');
     if(devBtn) devBtn.addEventListener('click', () => { gDev = !gDev;
       devBtn.classList.toggle('on', gDev);
       const lab=document.getElementById('dev-label'); if(lab) lab.textContent = gDev ? 'Dev päällä' : 'Dev';
+      if(gDevBox) gDevBox.setEnabled(gDev);
       applyDevMode(); }); }
   { const etcBtn = document.getElementById('etc-btn');   // highlight the electron-transport cofactors on top of everything
     if(etcBtn) etcBtn.addEventListener('click', () => { gEtc = !gEtc;
@@ -4174,8 +4190,38 @@ void main(void){
   }
   // Per-instance model tag (from each instance's world position) → the movable materials add
   // modelOff[modelId], so a whole complex drags as a unit while others stay put.
+  /* ── ATP synthase rotor ── the c-ring in the membrane and the central stalk get their OWN transform
+     slot, ROTOR_SLOT: the whole model's transform with a turn about the rotor axis composed in. mdlBuf
+     hands rotor atoms that slot, so every shader that reads modelXform[modelId] turns them. The model
+     carries no chain data, so the split is geometric: the axis is the vertical through the F1 head's
+     centroid, the rotor is everything within 34 units of it up to just above the lipid layer (the
+     c-ring) plus everything within 13 units of it below the head's middle (the central stalk). */
+  { const ai = mols.findIndex(m => m.cfg && m.cfg.match === '6vm1');
+    if(ai >= 0 && mols.length < MAX_MODELS){ const m = mols[ai]; gAtpMid = ai; ROTOR_SLOT = mols.length;
+      let yMin=1e9, yMax=-1e9; for(let k=0;k<m.na;k++){ const y=m.y[k]+m.oy; if(y<yMin) yMin=y; if(y>yMax) yMax=y; }
+      gRotorHeadMid = yMin + (yMax-yMin)*0.55;
+      let sx=0, sz=0, n=0; for(let k=0;k<m.na;k++){ if(m.y[k]+m.oy < gRotorHeadMid) continue; sx += m.x[k]+m.ox; sz += m.z[k]+m.oz; n++; }
+      gAtpAxisX = n ? sx/n : mInfo[ai].cx; gAtpAxisZ = n ? sz/n : mInfo[ai].cz;
+      gModelCol[ROTOR_SLOT*3]=gModelCol[ai*3]; gModelCol[ROTOR_SLOT*3+1]=gModelCol[ai*3+1]; gModelCol[ROTOR_SLOT*3+2]=gModelCol[ai*3+2];
+      gMemBound[ROTOR_SLOT] = true; } }
+  const inRotor = (x,y,z) => { if(ROTOR_SLOT < 0) return false; const mi = mInfo[gAtpMid];
+    if(x<mi.x0 || x>mi.x1 || y<mi.y0 || y>mi.y1 || z<mi.z0 || z>mi.z1) return false;
+    const r2 = (x-gAtpAxisX)*(x-gAtpAxisX) + (z-gAtpAxisZ)*(z-gAtpAxisZ);
+    return (y < MEMBRANE_Y + 30 && r2 < 34*34) || (y < gRotorHeadMid && r2 < 13*13); };
   const mdlBuf = mm => { const n=mm.length/16, a=new Float32Array(n);
-    for(let i=0;i<n;i++) a[i] = modelOf(mm[i*16+12], mm[i*16+13], mm[i*16+14]); return a; };
+    for(let i=0;i<n;i++){ const x=mm[i*16+12], y=mm[i*16+13], z=mm[i*16+14]; a[i] = inRotor(x,y,z) ? ROTOR_SLOT : modelOf(x,y,z); } return a; };
+  { const _rm = new BABYLON.Matrix(), _ra = new BABYLON.Matrix(); let _ppShown = -1;
+    scene.onBeforeRenderObservable.add(() => {   // the rotor's transform: the model's, with the eased turn about the axis in front of it
+      if(ROTOR_SLOT < 0) return;
+      const dt = Math.min(engine.getDeltaTime(), 50)*0.001;
+      gRotorTheta += (gRotorTarget - gRotorTheta) * Math.min(1, dt*6);
+      BABYLON.Matrix.FromArrayToRef(gModelXform, gAtpMid*16, _ra);
+      BABYLON.Matrix.Translation(-gAtpAxisX, 0, -gAtpAxisZ).multiplyToRef(BABYLON.Matrix.RotationY(gRotorTheta), _rm);
+      _rm.multiplyToRef(BABYLON.Matrix.Translation(gAtpAxisX, 0, gAtpAxisZ), _rm);
+      _rm.multiplyToRef(_ra, _rm);
+      _rm.copyToArray(gModelXform, ROTOR_SLOT*16);
+      if(gDev && _ppShown !== gProtonPasses){ _ppShown = gProtonPasses; const el = document.getElementById('dev-pp-row'); if(el) el.textContent = 'protoneja ATP-syntaasin läpi: ' + gProtonPasses; }
+    }); }
 
   // vdW space-filling sphere materials (shown when the graphics toggle is in "vdW" mode). One
   // sphere per atom, per-instance radius via IMPRAD. Movable (per-model drag + PSII gizmo).
@@ -4743,6 +4789,22 @@ void main(void){
     let lo=Math.floor((Math.atan2(ly,lx)+Math.PI)/(2*Math.PI)*SH_LON); lo=((lo%SH_LON)+SH_LON)%SH_LON;
     return r < gHulls[sIdx].D[li*SH_LON+lo];
   };
+  /* One shell of repelShells - returns true if p was pushed out. The proton simulation uses it so it can
+     leave the ATP synthase shell out inside the channel. */
+  const repelShell = (s, p) => {
+    const dx=p[0]-gShellCen[s*3], dy=p[1]-gShellCen[s*3+1], dz=p[2]-gShellCen[s*3+2];
+    const r2=dx*dx+dy*dy+dz*dz;
+    if(r2 >= gShellR2[s] || r2 < 1e-8) return false;
+    const r=Math.sqrt(r2), o=s*9;
+    const lx=gShellRot[o]*dx+gShellRot[o+3]*dy+gShellRot[o+6]*dz;
+    const ly=gShellRot[o+1]*dx+gShellRot[o+4]*dy+gShellRot[o+7]*dz;
+    const lz=gShellRot[o+2]*dx+gShellRot[o+5]*dy+gShellRot[o+8]*dz;
+    const li=Math.min(SH_LAT-1, Math.max(0, Math.round(Math.acos(Math.max(-1,Math.min(1,lz/r)))/Math.PI*(SH_LAT-1))));
+    let lo=Math.floor((Math.atan2(ly,lx)+Math.PI)/(2*Math.PI)*SH_LON); lo=((lo%SH_LON)+SH_LON)%SH_LON;
+    const Rs=gHulls[s].D[li*SH_LON+lo];
+    if(r < Rs){ const k=Rs/r - 1.0; p[0]+=dx*k; p[1]+=dy*k; p[2]+=dz*k; return true; }
+    return false;
+  };
   /* CPU mirror of the shader's repel(): same bearing rounding, same push. Mutates p in place. */
   const repelShells = p => {
     for(let s=0;s<NSH;s++){
@@ -5065,6 +5127,7 @@ void main(void){
     // Grid pitch and block size must fit the BIGGEST species, so no lipid overflows its tile.
     const xr = Math.max(...prep.map(P=>P.xr)), zr = Math.max(...prep.map(P=>P.zr));
     const ySpan = Math.max(...prep.map(P=>P.yMax-P.yMin));
+    gMemHalfT = ySpan + 2;   // a lipid reaches this far from the midplane - the free molecules fold at it, the loose proteins bounce off it
     // RECTANGULAR bilayer that ALWAYS spans the FULL embedded-complex extent (wide in X, shallow in Z).
     // The whole sheet's instance buffers are uploaded up front (~75 KB per lipid), so TARGET_LIPIDS is a
     // hard memory ceiling. Rather than shrink the sheet to hit that ceiling (which collapsed it into a
@@ -5532,7 +5595,7 @@ void main(void){
             if(w0 >= -0.02 && w1 >= -0.02 && w2 >= -0.02) g[j*footW+i] = 1; } }
       };
       const wv = new Float32Array(SH_LAT*SH_LON*3);
-      for(const h of gHulls){
+      for(const h of gHulls){ if(!gMemBound[h.mi]) continue;   // a loose protein drifting past never cuts the membrane
         BABYLON.Matrix.FromArrayToRef(gModelXform, h.mi*16, _m);
         for(let li=0;li<SH_LAT;li++){ const phi = li/(SH_LAT-1)*Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
           for(let lo=0;lo<SH_LON;lo++){ const th = lo/SH_LON*2*Math.PI - Math.PI, rr = h.D[li*SH_LON+lo];
@@ -5559,7 +5622,7 @@ void main(void){
       }
     };
     const xformSig = () => { let t = 0;   // hull models only, quantised to 0.01 - anything else changing must not rebuild the grid
-      for(const h of gHulls){ const o = h.mi*16; for(let i=0;i<16;i++) t += Math.round(gModelXform[o+i]*100)*(1 + i*0.37); } return t; };
+      for(const h of gHulls){ if(!gMemBound[h.mi]) continue; const o = h.mi*16; for(let i=0;i<16;i++) t += Math.round(gModelXform[o+i]*100)*(1 + i*0.37); } return t; };
     window.__foot = () => ({ footW, footH, footX0, footZ0, cell: FOOT_CELL, grid: footUp, sig: footSig, lipH: LIP_H, memFoot:[gMemFootX, gMemFootZ], cen:[bilayerCen.x, bilayerCen.y, bilayerCen.z], hulls: gHulls.map(h=>({mi:h.mi, c:[h.c.x,h.c.y,h.c.z], maxR:h.maxR})) });   // dev: inspect the footprint from the console
     scene.onBeforeRenderObservable.add(()=>{
       const ov = document.getElementById('overlay');
@@ -5901,6 +5964,15 @@ void main(void){
        60000 matrices every frame cost ~8 ms per frame, which is most of the frame budget. */
     const oR = info(codeO).vr*FILL_SCALE;
     const bLo = new BABYLON.Vector3(x0+oR, y0+oR, z0+oR), bHi = new BABYLON.Vector3(x1-oR, y1-oR, z1-oR);
+    gBoxLo = bLo; gBoxHi = bHi;   // published for the loose-protein bouncer
+    /* The y fold mirrors the shader exactly: a molecule keeps to its own side of the membrane. */
+    const bncY = (y0, vy, T) => { let lo = bLo.y, hi = bHi.y;
+      if(gMemHalfT > 0){ if(y0 >= MEMBRANE_Y) lo = Math.max(lo, MEMBRANE_Y + gMemHalfT); else hi = Math.min(hi, MEMBRANE_Y - gMemHalfT); }
+      const o = Math.min(hi, Math.max(lo, y0)); return bnc(o + vy*T, lo, hi); };
+    { const bx = BABYLON.MeshBuilder.CreateBox('devBox', {width:bHi.x-bLo.x, height:bHi.y-bLo.y, depth:bHi.z-bLo.z}, scene);   // dev only: the container
+      bx.position.set((bLo.x+bHi.x)/2, (bLo.y+bHi.y)/2, (bLo.z+bHi.z)/2);
+      const bm = new BABYLON.StandardMaterial('devBoxMat', scene); bm.wireframe = true; bm.emissiveColor = new BABYLON.Color3(0.9,0.85,0.4); bm.disableLighting = true;
+      bx.material = bm; bx.isPickable = false; bx.setEnabled(gDev); gDevBox = bx; }
     // solid = never turn to glass. The reveal bubble is what makes a molecule go clear inside the crisp
     // zone so its orbitals show through. Only species that HAVE orbitals want it: water, CO2 and O2.
     // Free protons stay solid because a bare nucleus has no electron cloud to reveal.
@@ -5909,21 +5981,21 @@ void main(void){
     // glow = the proton corona: same stateless positioning, but the fragment draws a soft additive red disc
     const wMat=(rad, solid, glow, bias, outline)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':'')+(bias?'b':''),scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
-        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias'],
+        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','memY','memHalf','shellSkip','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias'],
         samplers:['shellTex','molTex'],
         defines: (NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
                       : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']) });
       // isShell = 1 so the sphere turns to GLASS inside the reveal radius, exactly as the protein vdW does
       // — otherwise the orbitals built below are drawn correctly but sit hidden inside an opaque ball.
       m.setFloat('radius',rad);m.setFloat('isShell',1);m.setFloat('shellMin',0.18);m.setFloat('revealFade',0.95);
-      m.setFloat('bubbleR',1e9);m.setFloat('protonOutline',outline?1:0);m.setFloat('depthBias',bias||0);m.setFloat('coneCos',-1.0);m.backFaceCulling=false;
+      m.setFloat('bubbleR',1e9);m.setFloat('protonOutline',outline?1:0);m.setFloat('depthBias',bias||0);m.setFloat('coneCos',-1.0);m.setFloat('shellSkip',-1);m.backFaceCulling=false;
       realAlpha(m);
       // AFTER realAlpha, which sets the blend mode to COMBINE - the corona has to be additive to read as light
       if(glow){ m.alphaMode = BABYLON.Constants.ALPHA_ADD; m.disableDepthWrite = true; }
       m.onBindObservable.add(()=>{const eff=m.getEffect();if(!eff)return; eff.setFloat('uT',gWaveT);
         eff.setFloat('bubbleR', solid ? 0 : gCrisp);   // glass only where the orbitals are actually drawn
         if(!glow) bindPLight(eff);
-        eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi);
+        eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi); eff.setFloat('memY', MEMBRANE_Y); eff.setFloat('memHalf', gMemHalfT);
         eff.setFloat('molTexDim', MOLTEX_DIM); eff.setTexture('molTex', gMolTex);
         if(NSH){ eff.setTexture('shellTex', gShellTex); eff.setArray3('shellCen', gShellCen);
                  eff.setMatrix3x3('shellRot', gShellRot); eff.setFloatArray('shellR2', gShellR2); }
@@ -6127,7 +6199,7 @@ void main(void){
       for(let i=0;i<NW;i++){
         const px=bnc(wc[i*3]  +wv[i*3]  *T, bLo.x, bHi.x);
         const dx=px-cp.x; if(dx*dx>R2) continue;                       // cheap axis reject before the rest
-        const py=bnc(wc[i*3+1]+wv[i*3+1]*T, bLo.y, bHi.y);
+        const py=bncY(wc[i*3+1], wv[i*3+1], T);
         const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
         const pz=bnc(wc[i*3+2]+wv[i*3+2]*T, bLo.z, bHi.z);
         const dz=pz-cp.z; const d2=dx*dx+dy*dy+dz*dz; if(d2>R2) continue;
@@ -6238,6 +6310,80 @@ void main(void){
       { c: FREE_CO2.c,  v: FREE_CO2.v,  base: MOLBASE.co2, n: FREE_CO2.n },
       { c: FREE_O2.c,   v: FREE_O2.v,   base: MOLBASE.o2,  n: FREE_O2.n }];
     const gDVel = new Float32Array(MOL_N*3);   // velocity DELTA from collisions (added to the analytic one)
+
+    /* ── Free protons are SIMULATED, not analytic ────────────────────────────────────────────────
+       Directional passage through ATP synthase (lumen to stroma only) and the rotor step it drives need
+       real state, so the 20000 protons are integrated on the CPU. They still render through the analytic
+       path: their wVel is zeroed (so the shader's analytic point is a fixed origin) and simulated minus
+       origin is written as their molTex displacement - every mirror that reads a proton's position (the
+       pick, the light gather) adds that displacement and is right for free. The shader's own shell
+       repel skips the ATP synthase shell for them (shellSkip), so the channel is open on the GPU side too. */
+    const P_N = FREE_P.n, pPos = new Float32Array(P_N*3), pVel = Float32Array.from(FREE_P.v), pOrg = new Float32Array(P_N*3);
+    const pIn = new Uint8Array(P_N);   // 1 = currently on its way up through the ATP synthase channel
+    for(let i=0;i<P_N;i++){ const o=i*3; pOrg[o]=FREE_P.c[o]; pOrg[o+1]=bncY(FREE_P.c[o+1], 0, 0); pOrg[o+2]=FREE_P.c[o+2]; pPos[o]=pOrg[o]; pPos[o+1]=pOrg[o+1]; pPos[o+2]=pOrg[o+2]; }
+    FREE_P.v.fill(0);
+    { const z = new Float32Array(P_N*3); for(const nm of ['pH','pN','pG']){ const m=scene.getMeshByName(nm); if(m) m.thinInstanceSetBuffer('wVel', z, 3, true); } }
+    const gAtpShell = gHulls.findIndex(h => h.mi === gAtpMid);
+    if(gAtpShell >= 0) for(const nm of ['pH','pN','pG']){ const m=scene.getMeshByName(nm); if(m && m.material) m.material.setFloat('shellSkip', gAtpShell); }
+    const CH_R = 24, ROTOR_STEP = 2*Math.PI/14;   // channel radius about the rotor axis, and one c-subunit of turn per proton
+    const _pp = [0,0,0];
+    /* Shell lookup grid: testing every proton against every shell was 360000 calls a frame (43 ms). A
+       64-unit grid over the box lists the shells overlapping each cell, rebuilt each frame (the loose
+       proteins move), and a proton tests only the shells in its own cell - usually none. */
+    const SG = 64, SG_MAX = 6;
+    const sgNx = Math.ceil((bHi.x-bLo.x)/SG)+1, sgNy = Math.ceil((bHi.y-bLo.y)/SG)+1, sgNz = Math.ceil((bHi.z-bLo.z)/SG)+1;
+    const sgCnt = new Uint8Array(sgNx*sgNy*sgNz), sgList = new Uint8Array(sgNx*sgNy*sgNz*SG_MAX);
+    const sgBuild = () => { sgCnt.fill(0);
+      for(let sI=0;sI<NSH;sI++){ const cx=gShellCen[sI*3], cy=gShellCen[sI*3+1], cz=gShellCen[sI*3+2], R=gHulls[sI].maxR;
+        const i0=Math.max(0, Math.floor((cx-R-bLo.x)/SG)), i1=Math.min(sgNx-1, Math.floor((cx+R-bLo.x)/SG));
+        const j0=Math.max(0, Math.floor((cy-R-bLo.y)/SG)), j1=Math.min(sgNy-1, Math.floor((cy+R-bLo.y)/SG));
+        const k0=Math.max(0, Math.floor((cz-R-bLo.z)/SG)), k1=Math.min(sgNz-1, Math.floor((cz+R-bLo.z)/SG));
+        for(let k=k0;k<=k1;k++) for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++){ const c=(k*sgNy+j)*sgNx+i, n=sgCnt[c]; if(n<SG_MAX){ sgList[c*SG_MAX+n]=sI; sgCnt[c]=n+1; } } } };
+    scene.onBeforeRenderObservable.add(()=>{
+      { const ov = document.getElementById('overlay'); if(ov && !ov.classList.contains('gone')) return; }
+      const dt = Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed; if(!gFreeOn || dt <= 0) return;
+      const memY = MEMBRANE_Y, hT = gMemHalfT, top = memY + hT, bot = memY - hT;
+      // the channel: the rotor axis at membrane height, carried by the ATP model's transform
+      let axX = 0, axZ = 0; const chOn = gAtpMid >= 0 && hT > 0;
+      if(chOn){ const m = gModelXform, o = gAtpMid*16;
+        axX = m[o]*gAtpAxisX + m[o+4]*memY + m[o+8]*gAtpAxisZ + m[o+12];
+        axZ = m[o+2]*gAtpAxisX + m[o+6]*memY + m[o+10]*gAtpAxisZ + m[o+14]; }
+      let passes = 0; sgBuild();
+      /* The shell test only for protons within the megacheap radius of the camera: past it a protein
+         is a slab or a solid mass of atoms, and a proton inside it is hidden. That is most of the 20000
+         most of the time, and the bearing math is the expensive part. */
+      const cpx = cam.position.x, cpy = cam.position.y, cpz = cam.position.z, nearR2 = (gMega + 60)*(gMega + 60);
+      for(let i=0;i<P_N;i++){ const o=i*3;
+        let x=pPos[o]+pVel[o]*dt, y=pPos[o+1]+pVel[o+1]*dt, z=pPos[o+2]+pVel[o+2]*dt;
+        if(x<bLo.x){ x=bLo.x; pVel[o]=Math.abs(pVel[o]); } else if(x>bHi.x){ x=bHi.x; pVel[o]=-Math.abs(pVel[o]); }
+        if(y<bLo.y){ y=bLo.y; pVel[o+1]=Math.abs(pVel[o+1]); } else if(y>bHi.y){ y=bHi.y; pVel[o+1]=-Math.abs(pVel[o+1]); }
+        if(z<bLo.z){ z=bLo.z; pVel[o+2]=Math.abs(pVel[o+2]); } else if(z>bHi.z){ z=bHi.z; pVel[o+2]=-Math.abs(pVel[o+2]); }
+        let inCh = false;
+        if(chOn){ const dxa=x-axX, dza=z-axZ; inCh = dxa*dxa+dza*dza < CH_R*CH_R; }
+        if(hT > 0 && y > bot && y < top){                        // in the lipid layer
+          if(pIn[i]){                                              // passing: keep climbing, funnelled onto the axis
+            if(pVel[o+1] < 8) pVel[o+1] = 8;
+            const k = 1 - Math.min(1, dt*3); x = axX + (x-axX)*k; z = axZ + (z-axZ)*k;
+          } else if(inCh && pVel[o+1] > 0 && pPos[o+1] <= bot){ pIn[i] = 1; }   // came up from the lumen side into the channel
+          else if(pPos[o+1] >= top){ y = top; pVel[o+1] = Math.abs(pVel[o+1]); }   // blocked from the stroma side (or outside the channel)
+          else { y = bot; pVel[o+1] = -Math.abs(pVel[o+1]); }
+        } else if(pIn[i]){ pIn[i] = 0; if(y >= top) passes++; }   // out on the stroma side: one proton through, one rotor step
+        // protein shells: pushed out and reflected - except the ATP synthase shell inside its channel
+        _pp[0]=x; _pp[1]=y; _pp[2]=z; let pushed = false;
+        const cdx=x-cpx, cdy=y-cpy, cdz=z-cpz;
+        if(cdx*cdx+cdy*cdy+cdz*cdz < nearR2){ const c=((((z-bLo.z)/SG)|0)*sgNy + (((y-bLo.y)/SG)|0))*sgNx + (((x-bLo.x)/SG)|0), cn=sgCnt[c];
+          for(let q=0;q<cn;q++){ const sI=sgList[c*SG_MAX+q]; if(sI === gAtpShell && (inCh || pIn[i])) continue;
+            const ddx=x-gShellCen[sI*3], ddy=y-gShellCen[sI*3+1], ddz=z-gShellCen[sI*3+2]; if(ddx*ddx+ddy*ddy+ddz*ddz >= gShellR2[sI]) continue;
+            if(repelShell(sI, _pp)) pushed = true; } }
+        if(pushed){ const nx=_pp[0]-x, ny=_pp[1]-y, nz=_pp[2]-z, nl=Math.hypot(nx,ny,nz);
+          if(nl > 1e-6){ const d=(pVel[o]*nx+pVel[o+1]*ny+pVel[o+2]*nz)/nl; if(d < 0){ pVel[o]-=2*d*nx/nl; pVel[o+1]-=2*d*ny/nl; pVel[o+2]-=2*d*nz/nl; } }
+          x=_pp[0]; y=_pp[1]; z=_pp[2]; }
+        pPos[o]=x; pPos[o+1]=y; pPos[o+2]=z;
+        const md=(MOLBASE.p+i)*4; gMolDisp[md]=x-pOrg[o]; gMolDisp[md+1]=y-pOrg[o+1]; gMolDisp[md+2]=z-pOrg[o+2];
+      }
+      if(passes){ gProtonPasses += passes; gRotorTarget += passes*ROTOR_STEP; }
+      gMolTex.update(gMolDisp);
+    }, -1, true);   // first in the frame, so every mirror this frame sees the new positions
     let gCollideOn = true;
     let gSimActive = 0;   // how many molecules were simulated this frame (shown in the dev readout)
     let gSimMs = 0;       // smoothed cost of the collision pass, so a regression shows up in the readout
@@ -6284,10 +6430,11 @@ void main(void){
           nAct = 0;
           for(let spi=0; spi<gSpecies.length; spi++){
             const sp = gSpecies[spi], c = sp.c, v = sp.v, base = sp.base, cnt = sp.n;
+            if(base === MOLBASE.p) continue;   // protons are simulated outright (below) - their displacement is not this pass's to write
             for(let i=0; i<cnt && nAct<SIM_CAP; i++){
               const px = bnc(c[i*3]   + v[i*3]  *T, bLo.x, bHi.x);
               const dx = px - cp.x; if(dx*dx > R2) continue;
-              const py = bnc(c[i*3+1] + v[i*3+1]*T, bLo.y, bHi.y);
+              const py = bncY(c[i*3+1], v[i*3+1], T);
               const dy = py - cp.y; if(dx*dx + dy*dy > R2) continue;
               const pz = bnc(c[i*3+2] + v[i*3+2]*T, bLo.z, bHi.z);
               const dz = pz - cp.z; if(dx*dx + dy*dy + dz*dz > R2) continue;
@@ -6299,7 +6446,7 @@ void main(void){
         for(let k=0;k<n;k++){
           const sp = gSpecies[spk[k]], i = mi_[k], id = idx[k], c = sp.c, v = sp.v;
           const px = bnc(c[i*3]   + v[i*3]  *T, bLo.x, bHi.x);
-          const py = bnc(c[i*3+1] + v[i*3+1]*T, bLo.y, bHi.y);
+          const py = bncY(c[i*3+1], v[i*3+1], T);
           const pz = bnc(c[i*3+2] + v[i*3+2]*T, bLo.z, bHi.z);
           ax_[k] = px; ay_[k] = py; az_[k] = pz;
           bx_[k] = v[i*3]; by_[k] = v[i*3+1]; bz_[k] = v[i*3+2];
@@ -6387,7 +6534,7 @@ void main(void){
         let n=0, worst=Infinity, wi=-1;
         for(let i=0;i<F.n;i++){
           const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x); const dx=px-cp.x; if(dx*dx>R2) continue;
-          const py=bnc(F.c[i*3+1]+F.v[i*3+1]*T, bLo.y, bHi.y); const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
+          const py=bncY(F.c[i*3+1], F.v[i*3+1], T); const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
           const pz=bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z); const dz=pz-cp.z; const d2=dx*dx+dy*dy+dz*dz; if(d2>R2) continue;
           if(n<PL_N){ cand[n*4]=px; cand[n*4+1]=py; cand[n*4+2]=pz; cand[n*4+3]=d2; n++;
             if(n===PL_N){ worst=-1; for(let k=0;k<PL_N;k++) if(cand[k*4+3]>worst){ worst=cand[k*4+3]; wi=k; } } }
@@ -6429,11 +6576,11 @@ void main(void){
         const d2=px*px+py*py+pz*pz-tca*tca; if(d2>r*r) return;
         const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e}; src=s; } };
       const centre = (c,v,i,base) => {
-        _p[0]=bnc(c[i*3]  +v[i*3]  *T, bLo.x, bHi.x); _p[1]=bnc(c[i*3+1]+v[i*3+1]*T, bLo.y, bHi.y); _p[2]=bnc(c[i*3+2]+v[i*3+2]*T, bLo.z, bHi.z);
+        _p[0]=bnc(c[i*3]  +v[i*3]  *T, bLo.x, bHi.x); _p[1]=bncY(c[i*3+1], v[i*3+1], T); _p[2]=bnc(c[i*3+2]+v[i*3+2]*T, bLo.z, bHi.z);
         const md=(base+i)*4; _p[0]+=gMolDisp[md]; _p[1]+=gMolDisp[md+1]; _p[2]+=gMolDisp[md+2];
         repelShells(_p); return _p; };
       const near = (c,v,i) => { const px=bnc(c[i*3]+v[i*3]*T,bLo.x,bHi.x)-cp.x; if(px*px>R2) return false;
-        const py=bnc(c[i*3+1]+v[i*3+1]*T,bLo.y,bHi.y)-cp.y; if(px*px+py*py>R2) return false;
+        const py=bncY(c[i*3+1], v[i*3+1], T)-cp.y; if(px*px+py*py>R2) return false;
         const pz=bnc(c[i*3+2]+v[i*3+2]*T,bLo.z,bHi.z)-cp.z; return px*px+py*py+pz*pz<=R2; };
       const hRad = info(codeH).vr*FILL_SCALE, oRad = info(codeO).vr*FILL_SCALE, cRad = info(codeC).vr*FILL_SCALE;
       for(let i=0;i<NW;i++){ if(!near(wc,wv,i)) continue; const q=centre(wc,wv,i,MOLBASE.w);
@@ -6605,7 +6752,7 @@ void main(void){
         for(let i=0;i<F.n;i++){
           const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x);
           const dx=px-cp.x; if(dx*dx>R2) continue;
-          const py=bnc(F.c[i*3+1]+F.v[i*3+1]*T, bLo.y, bHi.y);
+          const py=bncY(F.c[i*3+1], F.v[i*3+1], T);
           const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
           const pz=bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z);
           const dz=pz-cp.z; if(dx*dx+dy*dy+dz*dz>R2) continue;
@@ -7436,6 +7583,44 @@ void main(void){
     q.toRotationMatrix(_tmpR);
     const nx=mi.cx+gModelOff[mid*3], ny=mi.cy+gModelOff[mid*3+1], nz=mi.cz+gModelOff[mid*3+2];
     BABYLON.Matrix.Translation(-mi.cx,-mi.cy,-mi.cz).multiply(_tmpR).multiply(BABYLON.Matrix.Translation(nx,ny,nz)).copyToArray(gModelXform, mid*16); };
+  /* ── Loose proteins drift and bounce ─────────────────────────────────────────────────────────
+     The proteins that are not in the membrane (plastocyanin, ferredoxin, FNR, RuBisCO) move like the free
+     molecules: constant velocity plus a slow tumble, reflected off the box walls, the lipid layer, the
+     membrane proteins' shells and each other (spheres of their shells' reach). They move through the
+     same gModelOff / gModelQuat / rebuildModelXform path the gizmo uses, so everything that follows a
+     model - atoms, hull, collision shell - follows. The showcase molecules stay put. */
+  const gBouncers = [];
+  for(const h of gHulls){ const mi = h.mi, m = mols[mi]; if(gMemBound[mi] || !m || !m.cfg) continue;
+    if(/chlorophyll|plastoquinone|nadph/i.test(m.cfg.label || '')) continue;
+    const th=Math.random()*6.283, ph=Math.acos(2*Math.random()-1), sp=10+Math.random()*8;
+    gBouncers.push({ mi, R:h.maxR, vx:sp*Math.sin(ph)*Math.cos(th), vy:sp*Math.cos(ph), vz:sp*Math.sin(ph)*Math.sin(th),
+      ax:new BABYLON.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize(), w:0.15+Math.random()*0.2 }); }
+  { const _q=new BABYLON.Quaternion(), _dq=new BABYLON.Quaternion();
+    scene.onBeforeRenderObservable.add(() => {
+      if(!gBouncers.length || !gBoxLo || gizmoDragging) return;
+      const dt = Math.min(engine.getDeltaTime(), 50)*0.001*gSpeed*gProtSpeed; if(dt <= 0) return;
+      const lo=gBoxLo, hi=gBoxHi, hT=gMemHalfT;
+      for(const b of gBouncers){ const mi=b.mi, c=mInfo[mi], R=b.R;
+        let x=c.cx+gModelOff[mi*3]+b.vx*dt, y=c.cy+gModelOff[mi*3+1]+b.vy*dt, z=c.cz+gModelOff[mi*3+2]+b.vz*dt;
+        if(x<lo.x+R){ x=lo.x+R; b.vx=Math.abs(b.vx); } else if(x>hi.x-R){ x=hi.x-R; b.vx=-Math.abs(b.vx); }
+        if(y<lo.y+R){ y=lo.y+R; b.vy=Math.abs(b.vy); } else if(y>hi.y-R){ y=hi.y-R; b.vy=-Math.abs(b.vy); }
+        if(z<lo.z+R){ z=lo.z+R; b.vz=Math.abs(b.vz); } else if(z>hi.z-R){ z=hi.z-R; b.vz=-Math.abs(b.vz); }
+        if(hT > 0){ const top=MEMBRANE_Y+hT+R, bot=MEMBRANE_Y-hT-R;   // the lipid layer is a wall
+          if(y < top && y > bot){ if(y >= MEMBRANE_Y){ y=top; b.vy=Math.abs(b.vy); } else { y=bot; b.vy=-Math.abs(b.vy); } } }
+        for(let sI=0;sI<gHulls.length;sI++){ const h=gHulls[sI]; if(h.mi===mi) continue;   // membrane proteins and the other bouncers alike
+          const ox=gShellCen[sI*3], oy=gShellCen[sI*3+1], oz=gShellCen[sI*3+2];
+          const dx=x-ox, dy=y-oy, dz=z-oz, d=Math.hypot(dx,dy,dz), minD=R+h.maxR; if(d >= minD || d < 1e-6) continue;
+          const nx=dx/d, ny=dy/d, nz=dz/d; x=ox+nx*minD; y=oy+ny*minD; z=oz+nz*minD;
+          const vn=b.vx*nx+b.vy*ny+b.vz*nz; if(vn < 0){ b.vx-=2*vn*nx; b.vy-=2*vn*ny; b.vz-=2*vn*nz; }
+          const hb = gBouncers.find(q => q.mi === h.mi); if(hb){ const wn=hb.vx*nx+hb.vy*ny+hb.vz*nz; if(wn > 0){ hb.vx-=2*wn*nx; hb.vy-=2*wn*ny; hb.vz-=2*wn*nz; } } }
+        gModelOff[mi*3]=x-c.cx; gModelOff[mi*3+1]=y-c.cy; gModelOff[mi*3+2]=z-c.cz;
+        _q.set(gModelQuat[mi*4], gModelQuat[mi*4+1], gModelQuat[mi*4+2], gModelQuat[mi*4+3]);
+        BABYLON.Quaternion.RotationAxisToRef(b.ax, b.w*dt, _dq); _dq.multiplyToRef(_q, _q); _q.normalize();
+        gModelQuat[mi*4]=_q.x; gModelQuat[mi*4+1]=_q.y; gModelQuat[mi*4+2]=_q.z; gModelQuat[mi*4+3]=_q.w;
+        rebuildModelXform(mi);
+      }
+    }, -1, true);   // first in the frame, so the shells, hulls and footprint that follow a model see this frame's pose
+  }
   /* ── RTS floor ── flatten every model onto ONE plane (perpendicular to the membrane, at the models'
      level) and lay a 90%-transparent white sheet there, so the scene reads as a flat RTS battlefield. */
   for(let mi=0; mi<mols.length; mi++){ gModelOff[mi*3+2] = FLOOR_Z - mInfo[mi].cz; rebuildModelXform(mi); }   // all model centres → Z = FLOOR_Z (declared with the RTS state above)
@@ -7728,6 +7913,14 @@ void main(void){
   const blValEl = blRow.querySelector('#dev-bl-val');
   blSld.oninput = () => { gMemBlend = Math.max(1, +blSld.value); blValEl.textContent = String(+blSld.value); };
   blSld.value = String(Math.round(gMemBlend)); blValEl.textContent = String(Math.round(gMemBlend));
+  // Speed of the loose proteins drifting in the box, and how many protons have gone through ATP synthase
+  const psRow = document.createElement('div');
+  psRow.innerHTML = 'irtoproteiinien nopeus: <b id="dev-ps-val">100</b> %';
+  const psSld = document.createElement('input'); psSld.type='range'; psSld.min='0'; psSld.max='400'; psSld.style.cssText='width:100%;cursor:pointer;';
+  const psValEl = psRow.querySelector('#dev-ps-val');
+  psSld.oninput = () => { gProtSpeed = (+psSld.value)/100; psValEl.textContent = String(+psSld.value); };
+  psSld.value = String(Math.round(gProtSpeed*100)); psValEl.textContent = String(Math.round(gProtSpeed*100));
+  const ppRow = document.createElement('div'); ppRow.id = 'dev-pp-row'; ppRow.textContent = 'protoneja ATP-syntaasin läpi: 0';
 
   // Show ONLY the immediate neighbourhood: every cell whose near edge is further than CULL_CLOSE from the
   // camera is hidden outright, leaving just what you are practically standing in.
@@ -7760,6 +7953,7 @@ void main(void){
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
   devPanel.appendChild(blRow); devPanel.appendChild(blSld);
+  devPanel.appendChild(psRow); devPanel.appendChild(psSld); devPanel.appendChild(ppRow);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
   devPanel.appendChild(zmRow); devPanel.appendChild(zmSld);
   devPanel.appendChild(rtRow); devPanel.appendChild(rtSld);
