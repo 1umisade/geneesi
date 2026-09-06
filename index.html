@@ -862,6 +862,22 @@ uniform float focusR;      // point-selection radius
 uniform float focusSet[24];// per-model keep-colour flags (mode 2)
 uniform float focusGroup;  // cofactor group to keep coloured (mode 3, ETCHL overlay only)
 uniform float focusDark;   // darken the grayscale (non-selection) environment: 0 = plain grey, 1 = to black
+#ifdef PLIGHT
+/* Free protons as red LIGHT SOURCES. The nearest PL_N of them are uploaded each frame and every lit
+   atom sums a soft inverse-square red term from them, evaluated at the atom centre. This is what the
+   lantern electron cannot do - that one is a screen-space spotlight around a single point - and it is
+   the part that makes the glow land ON neighbouring atoms rather than only hang in the air around
+   the proton. */
+#define PL_N 16
+uniform vec3 pLight[PL_N];
+uniform float pLightN;
+uniform float pLightR;     // falloff radius - the distance at which the light has dropped to a fifth
+vec3 protonLight(vec3 p){ vec3 acc = vec3(0.0);
+  for(int i=0; i<PL_N; i++){ if(float(i) >= pLightN) break;
+    float d = distance(p, pLight[i]) / pLightR;
+    acc += vec3(1.0, 0.24, 0.12) / (1.0 + 4.0*d*d); }
+  return acc * 0.7; }
+#endif
 varying vec2 vUV;
 varying vec3 vCenterV;
 varying vec3 vColor;
@@ -874,6 +890,16 @@ varying vec3 vWB1;
 varying vec3 vWB2;
 uniform float boil;      // line-boil amount (0 = off) → warps the silhouette, object-locked
 void main(void){
+#ifdef PGLOW
+  /* Proton corona: a soft additive red disc, bigger than the vdW shell, drawn with the same stateless
+     positioning as the proton itself so it can never drift off it. Alpha only feeds the ADD blend. */
+  { float r2g = dot(vUV, vUV);
+    if(r2g > 1.0) discard;
+    float g = pow(1.0 - r2g, 2.4);
+    gl_FragDepthEXT = gl_FragCoord.z;
+    gl_FragColor = vec4(vec3(1.0, 0.26, 0.13) * g * 0.8, g * 0.8);
+    return; }
+#endif
   float r2 = dot(vUV, vUV);
 #ifdef CHEAP
   // FAR LOD - a flat shaded disc, written OPAQUE. Two separate wins. It skips the boil warp, the
@@ -907,6 +933,9 @@ void main(void){
   if(selModel >= 0.0 && abs(vMid - selModel) < 0.5) colF = mix(colF, selCol, 0.35);   // keep selection readable
 #endif
   float fogF = clamp((fogEnd - vCenterV.z) / (fogEnd - fogStart), 0.0, 1.0);
+#ifdef PLIGHT
+  colF += protonLight(vWCen);
+#endif
   gl_FragColor = vec4(mix(fogColor, colF, fogF), 1.0);
   return;
 #endif
@@ -1029,6 +1058,9 @@ void main(void){
   col *= mix(1.0, depthLo, dt * depthK);
 #endif
   float fog = clamp((fogEnd - posV.z) / (fogEnd - fogStart), 0.0, 1.0);
+#ifdef PLIGHT
+  col += protonLight(vWCen);
+#endif
   gl_FragColor = vec4(mix(fogColor, col, fog), alpha);
 }`;
 
@@ -2692,6 +2724,10 @@ void main(void){
   let gFocusDark = 0.0;         // O: how much the grayscale (non-selection) environment darkens (0 = just grey, 1 = to black). Dev slider.
   let gFVigStr = 0.55;          // O: vignette edge darkness (0 = off, 1 = black corners). Dev slider.
   let gFVigReach = 45;          // O: how far the vignette reaches inward from the edges, % of the radius. Dev slider.
+  // Free-proton light sources: the nearest PL_N proton positions, refreshed each frame by the gather below.
+  const PL_N = 16;
+  const gPL = new Float32Array(PL_N*3); let gPLN = 0, gPLR = 11.0;
+  const bindPLight = eff => { eff.setArray3('pLight', gPL); eff.setFloat('pLightN', gPLN); eff.setFloat('pLightR', gPLR); };
   const bindFocus = eff => { eff.setFloat('focusAmt', gFocusDimAmt); eff.setFloat('focusMode', gFocusMode); eff.setVector3('focusCenterV', gFocusCenterV); eff.setFloat('focusR', gDimRadius); eff.setArray('focusSet', gFocusSet); eff.setFloat('focusGroup', gFocusGroup); eff.setFloat('focusDark', gFocusDark); };
   let gShortcuts = null;        // dev-mode keyboard-shortcut cheatsheet panel
   let gZoomP = null;  // world point under the cursor to zoom TOWARD (null → zoom to the viewport centre)
@@ -4022,9 +4058,9 @@ void main(void){
   // sphere per atom, per-instance radius via IMPRAD. Movable (per-model drag + PSII gizmo).
   const vdwMat = new BABYLON.ShaderMaterial('vdwLOD', scene, 'imp', {
     attributes:['position','instanceColor','instR','modelId','world0','world1','world2','world3'],
-    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'],
+    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR'],
     samplers:['cofDepth'],
-    defines:['#define IMPRAD','#define MACROMOVE','#define MODELMOVE','#define COFHIDE','#define DEPTHSHADE'] });
+    defines:['#define IMPRAD','#define MACROMOVE','#define MODELMOVE','#define COFHIDE','#define DEPTHSHADE','#define PLIGHT'] });
   vdwMat.setFloat('radius',1.0); vdwMat.setFloat('isShell',0); vdwMat.setFloat('shellMin',0); vdwMat.setFloat('bubbleR',1e9);
   vdwMat.setFloat('protonOutline',0); vdwMat.setFloat('depthBias',0); vdwMat.setFloat('coneCos',-1.0);
   vdwMat.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); vdwMat.backFaceCulling=false; realAlpha(vdwMat);
@@ -4032,12 +4068,12 @@ void main(void){
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → vdW goes 50% transparent where its atom reveals orbitals
     eff.setFloat('uT',gWaveT); eff.setMatrices('modelXform', gModelXform); eff.setArray3('modelCol', gModelCol); eff.setFloat('colorMode', gColorMode?1:0); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
     eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE); eff.setFloat('boil', gBoil);
-    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); });
+    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
     attributes:['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'],
+    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR'],
     samplers:['cofDepth'],
-    defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPWRAP'] });   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
+    defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPWRAP','#define PLIGHT'] });   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
   vdwMatStatic.setFloat('radius',1.0); vdwMatStatic.setFloat('isShell',0); vdwMatStatic.setFloat('shellMin',0); vdwMatStatic.setFloat('bubbleR',1e9);
   vdwMatStatic.setFloat('protonOutline',0); vdwMatStatic.setFloat('depthBias',0); vdwMatStatic.setFloat('coneCos',-1.0);
   vdwMatStatic.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); vdwMatStatic.backFaceCulling=false; realAlpha(vdwMatStatic); vdwMatStatic.setFloat('selModel', -1);
@@ -4046,7 +4082,7 @@ void main(void){
     eff.setFloat('memDrift', gMemDrift);
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → membrane vdW goes 50% transparent where revealed
     eff.setFloat('uT',gWaveT); eff.setFloat('boil', gBoil); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
-    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); });
+    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
 
   /* FAR twins of the two vdW materials. Same shader, same instance buffers — but compiled with CHEAP, and
      crucially left OPAQUE (no realAlpha, depth write on, no gl_FragDepthEXT). The normal materials are
@@ -4067,8 +4103,8 @@ void main(void){
   };
   const vdwFarMat = mkFar('vdwLODfar',
     ['position','instanceColor','instR','modelId','world0','world1','world2','world3'],
-    ['macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','focalD','depthK','depthLo','startOff','spread'],
-    ['#define IMPRAD','#define MACROMOVE','#define MODELMOVE','#define CHEAP','#define DEPTHSHADE']);
+    ['macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR'],
+    ['#define IMPRAD','#define MACROMOVE','#define MODELMOVE','#define CHEAP','#define DEPTHSHADE','#define PLIGHT']);
   vdwFarMat.setFloat('selModel', -1);
   vdwFarMat.onBindObservable.add(()=>{ const eff=vdwFarMat.getEffect(); if(!eff)return;
     eff.setFloat('uT',gWaveT); eff.setMatrices('modelXform', gModelXform); eff.setArray3('modelCol', gModelCol); eff.setFloat('colorMode', gColorMode?1:0);
@@ -4076,14 +4112,14 @@ void main(void){
     eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
-    eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); });
+    eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); bindPLight(eff); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
     ['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread'],
-    ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPWRAP']);
+    ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR'],
+    ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPWRAP','#define PLIGHT']);
   vdwStaticFarMat.onBindObservable.add(mesh=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
-    eff.setFloat('memDrift', gMemDrift);
+    eff.setFloat('memDrift', gMemDrift); bindPLight(eff);
     eff.setFloat('uT',gWaveT); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
@@ -4747,13 +4783,14 @@ void main(void){
     // with the orbitals revealed inside when the camera is in range.
     const chlSphMat = new BABYLON.ShaderMaterial('chlSphMat', scene, 'imp', {
       attributes:['position','instanceColor','instR','world0','world1','world2','world3'],
-      uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','selModel','selCol'] });
+      uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','selModel','selCol','pLight','pLightN','pLightR'],
+      defines:['#define PLIGHT'] });
     chlSphMat.setFloat('radius',1.0); chlSphMat.setFloat('protonOutline',0); chlSphMat.setFloat('depthBias',0);
     chlSphMat.setFloat('selModel',-1); chlSphMat.setColor3('selCol', new BABYLON.Color3(0.6,0.72,0.53));
     chlSphMat.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); chlSphMat.backFaceCulling=false; realAlpha(chlSphMat);
     chlSphMat.onBindObservable.add(()=>{ const eff=chlSphMat.getEffect(); if(!eff)return;
       eff.setFloat('isShell',gShell); eff.setFloat('shellMin',gShellMin); eff.setFloat('bubbleR',gBubbleR); eff.setFloat('coneCos',gConeCos);
-      eff.setFloat('uT',gWaveT); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); eff.setVector3('selCenter', selCenter); });
+      eff.setFloat('uT',gWaveT); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); eff.setVector3('selCenter', selCenter); bindPLight(eff); });
     const chlSph = BABYLON.MeshBuilder.CreatePlane('chlSph',{size:2},scene);
     chlSph.material=chlSphMat; chlSph.isPickable=false; chlSph.alwaysSelectAsActiveMesh=true; chlSph.renderingGroupId=1;
     { const sm=new Float32Array(N*16), sc=new Float32Array(N*4), sr=new Float32Array(N);
@@ -5547,19 +5584,23 @@ void main(void){
     // Free protons stay solid because a bare nucleus has no electron cloud to reveal.
     // (isShell must stay 1 either way — with isShell 0 the alpha is scaled BY the reveal, so the sphere
     // would be invisible everywhere except inside the crisp zone.)
-    const wMat=(rad, solid)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad,scene,'imp',{
+    // glow = the proton corona: same stateless positioning, but the fragment draws a soft additive red disc
+    const wMat=(rad, solid, glow)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':''),scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
-        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2'],
+        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR'],
         samplers:['shellTex','molTex'],
-        defines: NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
-                     : ['#define WATERBOX'] });
+        defines: (NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
+                      : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']) });
       // isShell = 1 so the sphere turns to GLASS inside the reveal radius, exactly as the protein vdW does
       // — otherwise the orbitals built below are drawn correctly but sit hidden inside an opaque ball.
       m.setFloat('radius',rad);m.setFloat('isShell',1);m.setFloat('shellMin',0.18);m.setFloat('revealFade',0.95);
       m.setFloat('bubbleR',1e9);m.setFloat('protonOutline',0);m.setFloat('coneCos',-1.0);m.backFaceCulling=false;
       realAlpha(m);
+      // AFTER realAlpha, which sets the blend mode to COMBINE - the corona has to be additive to read as light
+      if(glow){ m.alphaMode = BABYLON.Constants.ALPHA_ADD; m.disableDepthWrite = true; }
       m.onBindObservable.add(()=>{const eff=m.getEffect();if(!eff)return; eff.setFloat('uT',gWaveT);
         eff.setFloat('bubbleR', solid ? 0 : gCrisp);   // glass only where the orbitals are actually drawn
+        if(!glow) bindPLight(eff);
         eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi);
         eff.setFloat('molTexDim', MOLTEX_DIM); eff.setTexture('molTex', gMolTex);
         if(NSH){ eff.setTexture('shellTex', gShellTex); eff.setArray3('shellCen', gShellCen);
@@ -5614,7 +5655,7 @@ void main(void){
       }
       for(const a of atoms){
         const mesh=BABYLON.MeshBuilder.CreatePlane(nm+a.tag,{size:2},scene);
-        mesh.material=wMat(a.r, solid); mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true;
+        mesh.material=wMat(a.r, solid, !!a.glow); mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true;
         mesh.renderingGroupId=1;
         const cb=new Float32Array(n*4), mb=new Float32Array(n*16), og=new Float32Array(n*3), vl=new Float32Array(n*3);
         const mid=new Float32Array(n);
@@ -5636,9 +5677,18 @@ void main(void){
       return {c, v, ax, n};   // the orbital builder below rides these same bodies
     };
     const cR = info(codeC).vr*FILL_SCALE;
-    // Free protons — crimson, and the SAME radius as a proton drawn inside a nucleus (NUCLEON_R), because
-    // it is the same particle. That makes them very small: sub-pixel except up close, which is honest.
-    const FREE_P = mkFree('p', 20000, 91731, [{tag:'H', r:NUCLEON_R, col:[0.90,0.24,0.30], d:0}], MOLBASE.p, true);
+    /* Free protons, three layers on one stateless body:
+         - a vdW shell in hydrogen's grey at hydrogen's radius, which goes to glass in the crisp zone like
+           every other atom's (solid=false), revealing
+         - the proton itself, crimson, at NUCLEON_R - the same radius as a proton drawn inside a nucleus,
+           because it is the same particle - and
+         - a corona: a soft additive red disc well outside the shell, so the glow reaches the surroundings.
+       The light they cast on neighbouring atoms is separate - see PLIGHT and the gather below. */
+    const hR = info(codeH).vr*FILL_SCALE, hC = info(codeH).c;
+    const FREE_P = mkFree('p', 20000, 91731, [
+      {tag:'H', r:hR,        col:[hC[0],hC[1],hC[2]], d:0},
+      {tag:'N', r:NUCLEON_R, col:[0.90,0.24,0.30],    d:0},
+      {tag:'G', r:hR*2.8,    col:[1.0,0.26,0.13],     d:0, glow:true} ], MOLBASE.p, false);
     // CO2 — charcoal carbon between two slate oxygens, C=O 1.16 Å. Reads as grey smoke against the water.
     const FREE_CO2 = mkFree('co2', 20000, 218347, [{tag:'C', r:cR, col:[0.24,0.25,0.28], d:0},
                                   {tag:'Oa', r:oR, col:[0.52,0.55,0.60], d: 1.16},
@@ -5998,6 +6048,30 @@ void main(void){
         gSimMs += (performance.now() - t0 - gSimMs) * 0.1;
       });
     }
+
+    /* Proton light gather: the PL_N protons nearest the camera, each frame, at the position the shader
+       will draw them (analytic path, then the protein shells - same order). Kept as a worst-first list so
+       the nearest always win without sorting 20000 entries. */
+    { const cand = new Float32Array(PL_N*4); const _pp=[0,0,0];
+      scene.onBeforeRenderObservable.add(()=>{
+        if(!gFreeOn){ gPLN = 0; return; }
+        const cp=cam.position, T = gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed;
+        const F = FREE_P, R = gCrisp*1.6, R2 = R*R;
+        let n=0, worst=Infinity, wi=-1;
+        for(let i=0;i<F.n;i++){
+          const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x); const dx=px-cp.x; if(dx*dx>R2) continue;
+          const py=bnc(F.c[i*3+1]+F.v[i*3+1]*T, bLo.y, bHi.y); const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
+          const pz=bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z); const dz=pz-cp.z; const d2=dx*dx+dy*dy+dz*dz; if(d2>R2) continue;
+          if(n<PL_N){ cand[n*4]=px; cand[n*4+1]=py; cand[n*4+2]=pz; cand[n*4+3]=d2; n++;
+            if(n===PL_N){ worst=-1; for(let k=0;k<PL_N;k++) if(cand[k*4+3]>worst){ worst=cand[k*4+3]; wi=k; } } }
+          else if(d2 < worst){ cand[wi*4]=px; cand[wi*4+1]=py; cand[wi*4+2]=pz; cand[wi*4+3]=d2;
+            worst=-1; for(let k=0;k<PL_N;k++) if(cand[k*4+3]>worst){ worst=cand[k*4+3]; wi=k; } }
+        }
+        for(let k=0;k<n;k++){
+          _pp[0]=cand[k*4]; _pp[1]=cand[k*4+1]; _pp[2]=cand[k*4+2];
+          repelShells(_pp); gPL[k*3]=_pp[0]; gPL[k*3+1]=_pp[1]; gPL[k*3+2]=_pp[2]; }
+        gPLN = n;
+      }); }
 
     /* Orbitals for the linear free species (CO2, O2). Same idea as the water above: build ONE canonical
        lobe set and instance it per molecule with that molecule's own rotation, so only a small matrix
