@@ -2420,6 +2420,38 @@ void main(void){ vec3 c = cBg;
   if(focusAmt > 0.001){ float g = dot(c, vec3(0.299, 0.587, 0.114)); c = mix(c, vec3(g) * (1.0 - focusDark), focusAmt); }
   gl_FragColor = vec4(c, 1.0); }`;
 
+/* ── Video sky: the background clip wrapped around the inside of a sphere ──────────────────
+   A unit sphere drawn with the ROTATION of the view only (no translation), so it sits around the
+   camera wherever the camera is, and pushed to the far plane exactly like the flat quad was. The
+   clip is a soft cloud texture, so it is box-projected by view direction - the same frame on each
+   of the six sides, blended smoothly across the edges - which gives no seam and no pinched pole,
+   where a latitude-longitude wrap of a 16:9 frame would bunch up overhead and underfoot. */
+BABYLON.Effect.ShadersStore['vskyVertexShader'] = `
+precision highp float;
+attribute vec3 position;
+uniform mat4 view;
+uniform mat4 projection;
+varying vec3 vDir;
+void main(void){ vDir = position;
+  vec4 p = projection * vec4(mat3(view) * position, 1.0);
+  gl_Position = vec4(p.xy, p.w * 0.99995, p.w); }`;
+BABYLON.Effect.ShadersStore['vskyFragmentShader'] = `
+precision highp float;
+varying vec3 vDir;
+uniform sampler2D vid;
+uniform float bgLevel;    // the dev 'taustan kirkkaus' slider
+uniform float focusAmt;   // O: fade the background to grayscale too
+uniform float focusDark;  // and darken it with the environment
+void main(void){ vec3 d = normalize(vDir);
+  vec3 a = abs(d);
+  vec3 w = pow(a, vec3(6.0)); w /= (w.x + w.y + w.z);   // soft box weights - one side dominates, the blend is short
+  vec3 cx = texture2D(vid, d.zy / max(a.x, 1e-4) * 0.5 + 0.5).rgb;
+  vec3 cy = texture2D(vid, d.xz / max(a.y, 1e-4) * 0.5 + 0.5).rgb;
+  vec3 cz = texture2D(vid, d.xy / max(a.z, 1e-4) * 0.5 + 0.5).rgb;
+  vec3 c = (cx * w.x + cy * w.y + cz * w.z) * bgLevel;
+  if(focusAmt > 0.001){ float g = dot(c, vec3(0.299, 0.587, 0.114)); c = mix(c, vec3(g) * (1.0 - focusDark), focusAmt); }
+  gl_FragColor = vec4(c, 1.0); }`;
+
 /* Global brightness post-process (dev "lighting" slider). Multiplies the finished frame — the atom
    shaders light themselves, so there is no Babylon light to turn up; this is the safe global lever. */
 BABYLON.Effect.ShadersStore['brightPixelShader'] = `
@@ -2841,6 +2873,16 @@ void main(void){
   const bgQuad = BABYLON.MeshBuilder.CreatePlane('bgQuad', {size:2}, scene);
   bgQuad.material = bgMat; bgQuad.isPickable = false; bgQuad.alwaysSelectAsActiveMesh = true;
   bgQuad.renderingGroupId = 0; bgQuad.infiniteDistance = true;   // stays behind everything
+  // The video sky replaces the flat quad. The quad stays as the fallback and shows until the clip's
+  // first frame is decoded (a ShaderMaterial does not draw before its texture is ready).
+  const vskyTex = new BABYLON.VideoTexture('vskyTex', ['Comp%201_1.mp4'], scene, false, true, BABYLON.Texture.BILINEAR_SAMPLINGMODE,
+    { autoPlay: true, loop: true, muted: true, autoUpdateTexture: true });
+  const vskyMat = new BABYLON.ShaderMaterial('vskyMat', scene, 'vsky', { attributes:['position'], uniforms:['view','projection','bgLevel','focusAmt','focusDark'], samplers:['vid'] });
+  vskyMat.backFaceCulling = false; vskyMat.setTexture('vid', vskyTex);
+  vskyMat.onBindObservable.add(()=>{ const eff=vskyMat.getEffect(); if(!eff) return; eff.setFloat('bgLevel', gBgLevel); eff.setFloat('focusAmt', gFocusDimAmt); eff.setFloat('focusDark', gFocusDark); });
+  const vsky = BABYLON.MeshBuilder.CreateSphere('vsky', {diameter: 2, segments: 24}, scene);
+  vsky.material = vskyMat; vsky.isPickable = false; vsky.alwaysSelectAsActiveMesh = true; vsky.renderingGroupId = 0;
+  vskyTex.onLoadObservable.addOnce(() => { bgQuad.setEnabled(false); });
   const cam = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, Math.PI/2.3, 100,
     BABYLON.Vector3.Zero(), scene);
   cam.attachControl(canvas, true);
@@ -2945,7 +2987,9 @@ void main(void){
       // hijacks the pivot. It used to: with anything selected the wheel pulled toward the selection instead
       // of the mouse, which read as the zoom "sometimes" ignoring the cursor. Keep the world point under the
       // cursor fixed by shifting the pivot the same fraction the distance changed - target = P + f*(target - P).
-      const zp = gZoomP || sc;
+      // Zooming OUT is always from the centre: the pivot stays put and only the distance grows. Only zooming
+      // IN pulls toward the cursor.
+      const zp = delta < 0 ? (gZoomP || sc) : null;
       if(zp){ const f = newR / oldR;
         const pull = gZoomPull;
         const tx = zp.x + f*(cam.target.x-zp.x), ty = zp.y + f*(cam.target.y-zp.y), tz = zp.z + f*(cam.target.z-zp.z);
