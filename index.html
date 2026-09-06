@@ -2949,7 +2949,10 @@ void main(void){
   let gFVigReach = 40;          // how far the vignette reaches inward from the edges, % of the radius. Dev slider.
   // Free-proton light sources: the nearest PL_N proton positions, refreshed each frame by the gather below.
   const PL_N = 16;
-  const gPL = new Float32Array(PL_N*3); let gPLN = 0, gPLR = 11.0;
+  /* Reach 0 = the proton light is OFF on atoms (2026-09-06: at close zoom any shuttle atom within 11 units
+     of a passing proton went red - the owner does not want that tint). The dev slider 'protonivalon
+     kantama' brings it back. The protons' own corona is separate and unaffected. */
+  const gPL = new Float32Array(PL_N*3); let gPLN = 0, gPLR = 0.0;
   // The soft key light: a WORLD direction pointing at the light, from above the membrane (+Y) with a lean
   // toward the default view. gKeyPos is where the dev-mode sun gizmo sits.
   const gKeyDir = new BABYLON.Vector3(0.18, 1.0, 0.42).normalize();
@@ -6737,7 +6740,7 @@ void main(void){
         for(let k=0;k<n;k++){
           _pp[0]=cand[k*4]; _pp[1]=cand[k*4+1]; _pp[2]=cand[k*4+2];
           repelShells(_pp); gPL[k*3]=_pp[0]; gPL[k*3+1]=_pp[1]; gPL[k*3+2]=_pp[2]; }
-        gPLN = n;
+        gPLN = gPLR > 0 ? n : 0;   // reach 0 → no lights uploaded (also keeps the shader clear of a divide by zero)
       }); }
 
     /* PICKING the free molecules. Same positioning the vertex shader does - analytic path, collision
@@ -7133,7 +7136,7 @@ void main(void){
       const c = h.slab.position;   // the transform observer above has already placed it this frame
       const dx = c.x-cp.x, dy = c.y-cp.y, dz = c.z-cp.z;
       const d = Math.sqrt(dx*dx+dy*dy+dz*dz) || 1e-6;
-      const want = (d - h.maxR) > _memR;
+      const want = gSlabLod && (d - h.maxR) > _memR;   // the hull slab is a slab tier too: off with 'laatta-LoD'
       gProtSlab[h.mi] = want;
       if(h.slab.isEnabled() !== want){ h.slab.setEnabled(want);
         if(want){ const o=h.mi*3;   // the model's own colour, dimmed like packed atoms against a flat fill
@@ -8306,6 +8309,11 @@ void main(void){
   const sdSld = document.createElement('input'); sdSld.type='range'; sdSld.min='0'; sdSld.max='100'; sdSld.value='18'; sdSld.style.cssText='width:100%;cursor:pointer;';
   const sdValEl = sdRow.querySelector('#dev-sd-val');
   sdSld.oninput = () => { gSlabDark = +sdSld.value/100; sdValEl.textContent = String(+sdSld.value); };
+  // Proton light reach on atoms (world units, 0 = off).
+  const plRow = document.createElement('div'); plRow.innerHTML = 'protonivalon kantama: <b id="dev-pl-val">0</b>';
+  const plSld = document.createElement('input'); plSld.type='range'; plSld.min='0'; plSld.max='30'; plSld.value='0'; plSld.style.cssText='width:100%;cursor:pointer;';
+  const plValEl = plRow.querySelector('#dev-pl-val');
+  plSld.oninput = () => { gPLR = +plSld.value; plValEl.textContent = String(gPLR); };
   blSld.value = String(Math.round(gMemBlend)); blValEl.textContent = String(Math.round(gMemBlend));
   // Speed of the loose proteins drifting in the box, and how many protons have gone through ATP synthase
   const psRow = document.createElement('div');
@@ -8359,7 +8367,7 @@ void main(void){
   devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
-  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld);
+  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld);
   // Membrane slab tier on/off (see gSlabLod).
   const slRow = document.createElement('div'); const slBtn = document.createElement('button');
   const syncSl = () => { slBtn.textContent = gSlabLod ? 'laatta-LoD: ON' : 'laatta-LoD: OFF'; slBtn.style.cssText = cullStyle(gSlabLod); };
