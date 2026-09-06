@@ -3723,7 +3723,8 @@ void main(void){
   // rims). Outside it EVERYTHING drops to the cheap opaque disc material — one radius governs both, so
   // there is exactly one quality boundary in the scene. Set to the real value once CELL is known.
   let gCrisp = 130;
-  let gMega  = 1600;          // megacheap radius: past this the membrane is a bare slab and proteins thin hard
+  let gMega  = 600;           // megacheap radius: past this the membrane is a bare slab and proteins thin hard (1.5x closer than the ~895 half-period it used to hit)
+  const MEM_BLEND = 60;       // width of the lipid/slab overlap band at the megacheap edge (the gather thins across it, the slab's hole ends at its start)
   let cofListPanel = null;               // right-side cofactor-type list (built later); shown only in ETC mode
   const etcGroups = [];                  // whole cofactor molecules {cx,cy,cz,r,type,atoms} → mid-range picking
   let etcGroupPos = null;                // {gx,gy,gz} per cofactor ATOM (indices match etcGroups[].atoms)
@@ -5058,7 +5059,7 @@ void main(void){
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
         // the hole matches the gather: blocks within memR (by centre) draw every lipid - one block radius
         // less, so the slab's edge sits under drawn lipids rather than leaving a gap before them
-        const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR - gMemCellR) : 0;
+        const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR + gMemCellR - MEM_BLEND) : 0;   // the slab starts where the blend band starts
         eff.setFloat('holeR', hole); eff.setVector3('camPos', cam.position); });
       slab.material = sm; gMemSlab = slab;
       gWorldReach = Math.hypot(memHalfX*MEGA_SCALE, memHalfZ*MEGA_SCALE);   // the slab's far corner - the far clip must reach it
@@ -5415,7 +5416,8 @@ void main(void){
         const near = new BABYLON.Mesh('lipTplS'+T, scene);
         const vd = new BABYLON.VertexData(); vd.positions=pos; vd.indices=idx; vd.applyToMesh(near, false);
         near.setVerticesData('atomOff', off, false, 3); near.setVerticesData('instanceColor', col, false, 4); near.setVerticesData('instR', rad, false, 1);
-        const far = near.clone('lipTplF'+T);   // shares the geometry - only the material and the instances differ
+        const far = near.clone('lipTplF'+T);
+        far.makeGeometryUnique();   // NOT shared: thin-instance buffers (world0..3, memAnc) are stored on the geometry, so twins on one geometry overwrite each other's instances
         for(const m of [near, far]){ m.isPickable=false; m.alwaysSelectAsActiveMesh=true; m.renderingGroupId=1; m.setEnabled(false); }
         near.material = vdwMatStatic; far.material = vdwStaticFarMat;
         const cap = Math.max(1, tplN[T]);
@@ -5465,7 +5467,12 @@ void main(void){
         /* BINARY. A block inside the reach draws every one of its lipids - past it, the slab stands in on
            its own. There used to be a density ramp between (half, quarter, eighth ... over the slab), and
            that read as slab and lipids in the same place, getting denser as you approached. Full or slab. */
-        const take = cnt, near = d2 < full2, st = blkStart[b];
+        /* ...except across the last MEM_BLEND units before the slab, where the block draws a shrinking
+           prefix of its strided order (an even spatial sample) over the slab, so the two overlap along a
+           soft band instead of meeting at a line. */
+        const dEdge = L.memR + bR - Math.sqrt(d2);                                     // distance left before the block would be culled
+        const take = dEdge >= MEM_BLEND ? cnt : Math.round(cnt * Math.max(0, dEdge) / MEM_BLEND);
+        const near = d2 < full2, st = blkStart[b];
         for(let q=0;q<take;q++){ const i = blkLip[st+q], o = i*3, E = sphTpl[lipT[i]]; if(!E) continue;
           const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
           if(near){ if(E.nn >= E.cap) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nn++; }
