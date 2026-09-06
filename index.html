@@ -2076,6 +2076,7 @@ uniform float uT;          // thermal-shake time (matches the orbital shake so t
 uniform vec3 selDelta;     // how far fillOutline already shifted these lobes off their BAKED spot
 varying vec3 vVP;
 varying vec3 vN;
+varying float vR;          // the lobe's world radius (largest axis) - the fragment shader sizes the stroke by how big that is on screen
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
@@ -2094,6 +2095,7 @@ void main(void){
   vec3 M0 = world0.xyz, M1 = world1.xyz, M2 = world2.xyz;
   vec3 wn = cross(M1, M2)*normal.x + cross(M2, M0)*normal.y + cross(M0, M1)*normal.z;
   vN  = (view * vec4(wn, 0.0)).xyz;
+  vR  = 0.5 * max(length(M0), max(length(M1), length(M2)));   // unit sphere (diameter 1) times the largest axis scale
   gl_Position = projection * vp;
 }`;
 BABYLON.Effect.ShadersStore['hloFragmentShader'] = `
@@ -2106,13 +2108,21 @@ uniform float solidDepth;   // 1 = keep the (invisible) interior so the WHOLE fr
 uniform float glowAmt;      // 0 = a plain stroke. Above 0, a soft wide halo bleeds off it - the selection glow
 varying vec3 vVP;
 varying vec3 vN;
+varying float vR;
 void main(void){
   vec3 N = normalize(vN), V = normalize(-vVP);
   float f = 1.0 - max(dot(N, V), 0.0);             // 0 face-on … 1 at the silhouette (front faces only)
   float w = fwidth(f);                             // screen-space gradient → normalise the band to a constant pixel width
-  float a = 1.0 - smoothstep(0.0, w*rimW, abs(f - rimLo));   // even stroke along the f=rimLo contour
+  /* The stroke THINS as the lobe grows on screen. Every lobe's contour is drawn whatever the others do,
+     so at high magnification a fixed-width stroke criss-crosses into solid blobs - here the width eases
+     from full (lobes under ~40 px) to a quarter (lobes over ~300 px). fwidth of the view position is
+     world units per pixel, so vR over it is the lobe's radius in pixels. */
+  float upx = fwidth(vVP.x) + fwidth(vVP.y);
+  float rpx = 2.0 * vR / max(upx, 1e-6);
+  float rw = rimW * mix(1.0, 0.25, smoothstep(40.0, 300.0, rpx));
+  float a = 1.0 - smoothstep(0.0, w*rw, abs(f - rimLo));   // even stroke along the f=rimLo contour
   if(glowAmt > 0.001){                             // same contour, ~4x wider and squared -> a soft falloff either side
-    float h = 1.0 - smoothstep(0.0, w*rimW*3.6, abs(f - rimLo));
+    float h = 1.0 - smoothstep(0.0, w*rw*3.6, abs(f - rimLo));
     a = max(a, h*h*glowAmt);
   }
   if(solidDepth < 0.5 && a < 0.04) discard;        // atoms: rim-only. Molecules: keep the interior (alpha≈0) so it writes depth and hides rims behind it.
@@ -2711,7 +2721,7 @@ void main(void){
      draws the same thing procedurally: a jittered lattice at the lipid pitch in world XZ, one disc per
      cell (its radius about half a cell), a dark gap outside it, and a per-cell brightness wobble for
      the mixed species. Far away the cells go sub-pixel, so the pattern eases back to its own mean
-     tone (about 0.74) instead of shimmering - fwidth measures how many cells a pixel spans. */
+     tone (about 0.80) instead of shimmering - fwidth measures how many cells a pixel spans. */
   vec2 q = vWP.xz / max(grainPitch, 0.5);
   vec2 cell = floor(q);
   float best = 9.0, bid = 0.0;
@@ -2721,10 +2731,10 @@ void main(void){
     float d = distance(q, cen);
     if(d < best){ best = d; bid = hash1(c + 3.1); }
   }
-  float disc = 1.0 - smoothstep(0.40, 0.56, best);
-  float tone = mix(0.34, 1.0, disc) * (0.82 + 0.36 * bid);
+  float disc = 1.0 - smoothstep(0.44, 0.58, best);
+  float tone = mix(0.48, 1.0, disc) * (0.82 + 0.36 * bid);
   float px = fwidth(q.x) + fwidth(q.y);
-  tone = mix(tone, 0.74, clamp(px * 1.5, 0.0, 1.0));
+  tone = mix(tone, 0.80, clamp(px * 1.5, 0.0, 1.0));
   float dt = clamp((vZ - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
   gl_FragColor = vec4(slabCol * tone * mix(1.0, depthLo, dt * depthK), 1.0);
 }`;
