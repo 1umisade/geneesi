@@ -420,7 +420,7 @@ const ETC_TYRZ = 9;                                             // assigned geom
 // and PG is the ONLY one with a phosphate head — so a realistic mix shows all four head groups.
 const LIPID_RES = { LMG:1, DGD:2, SQD:3, LHG:4 };
 // Every cofactor type is one of five bright hues: RED, GREEN, CORAL, BLUE, PINK.
-const _RED=[1.00,0.16,0.16], _GRN=[0.16,0.90,0.36], _COR=[1.00,0.50,0.34], _BLU=[0.28,0.56,1.00], _PNK=[1.00,0.42,0.80];
+const _RED=[1.00,0.16,0.16], _GRN=[0.16,0.90,0.36], _COR=[1.00,0.50,0.34], _BLU=[0.28,0.56,1.00], _PNK=[1.00,0.42,0.80], _ORG=[1.00,0.58,0.10];
 /* One stable colour per MOLECULE (residue instance). Hashing the id spreads neighbouring residues to
    far-apart hues, so two chlorophylls sitting side by side never come out the same shade, while every
    atom of one molecule shares exactly one colour - which is what makes the grouping readable. */
@@ -442,7 +442,7 @@ const ETC_COL = [ [0,0,0],   // 0 unused
   _GRN,   // 5 Fe-S cluster          — green
   _BLU,   // 6 Cu (plastocyanin)     — blue
   _GRN,   // 7 chlorophyll           — green
-  _COR,   // 8 carotenoid            — coral
+  _ORG,   // 8 carotenoid            — orange
   _PNK,   // 9 Tyr Z (D1-Tyr161)     — pink
   _PNK ]; // 10 NADPH (FNR)          — pink
 
@@ -906,7 +906,7 @@ uniform float pLightR;     // falloff radius - the distance at which the light h
    into shadow, it just rounds. A material that never sets keyDir gets a zero vector and stays flat. */
 uniform vec3 keyDir;
 float keyLight(vec3 nW){ if(dot(keyDir, keyDir) < 0.5) return 1.0;
-  return 0.72 + 0.28 * max(dot(normalize(nW), keyDir), 0.0); }
+  return 0.60 + 0.40 * pow(max(dot(normalize(nW), keyDir), 0.0), 1.2); }   // a firmer key than the old 0.72 floor: the shadow side drops to 60 percent
 vec3 protonLight(vec3 p){ vec3 acc = vec3(0.0);
   /* A compact falloff, exactly zero at pLightR. The old 1/(1+4d*d) never reached zero, and since the
      lights are the protons nearest the CAMERA, every atom you approached picked up their red - the
@@ -967,7 +967,7 @@ void main(void){
   float rimF = smoothstep(0.86, 1.0, r2);
   colF = mix(colF, vColor * 0.40, rimF);
 #ifdef DEPTHSHADE
-  float dtF = clamp((vWCen.z - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
+  float dtF = clamp((length(vCenterV) - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);   // camera distance past the pivot
   colF *= mix(1.0, depthLo, dtF * depthK);
 #endif
 #ifdef MODELMOVE
@@ -1105,7 +1105,7 @@ void main(void){
 #ifdef DEPTHSHADE
   // Front-to-back darkening, applied to the FINAL colour (after the outline) so the outline darkens WITH
   // the fill and stays visible. dt ramps 0 at the start point to 1 across the spread, farther = darker.
-  float dt = clamp((vWCen.z - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);   // distance from the FIXED shading plane (focalD, world Z), not the camera
+  float dt = clamp((length(vCenterV) - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);   // camera distance past the pivot (focalD = the orbit radius) - farther = darker, from any angle
   col *= mix(1.0, depthLo, dt * depthK);
 #endif
   float fog = clamp((fogEnd - posV.z) / (fogEnd - fogStart), 0.0, 1.0);
@@ -2765,7 +2765,7 @@ void main(void){
   float tone = mix(0.48, 1.0, disc) * (0.82 + 0.36 * bid);
   float px = fwidth(q.x) + fwidth(q.y);
   tone = mix(tone, 0.80, clamp(px * 1.5, 0.0, 1.0));
-  float dt = clamp((vZ - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
+  float dt = clamp((distance(vWP, camPos) - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
   gl_FragColor = vec4(slabCol * tone * mix(1.0, depthLo, dt * depthK), 1.0);
 }`;
   const bgMat = new BABYLON.ShaderMaterial('bgMat', scene, 'bg', { attributes:['position'], uniforms:['cBg','focusAmt','focusDark'] });
@@ -2840,8 +2840,8 @@ void main(void){
   let gDimRadius = 20;          // point-selection radius (world units)
   const gFocusSet = new Float32Array(24);      // mode 2: 1 = this model index is in the F selection (the shaders keep its atoms coloured)
   let gFocusDark = 0.0;         // O: how much the grayscale (non-selection) environment darkens (0 = just grey, 1 = to black). Dev slider.
-  let gFVigStr = 0.55;          // O: vignette edge darkness (0 = off, 1 = black corners). Dev slider.
-  let gFVigReach = 45;          // O: how far the vignette reaches inward from the edges, % of the radius. Dev slider.
+  let gFVigStr = 1.0;           // vignette edge darkness (0 = off, 1 = black corners). Dev slider. Always shown.
+  let gFVigReach = 40;          // how far the vignette reaches inward from the edges, % of the radius. Dev slider.
   // Free-proton light sources: the nearest PL_N proton positions, refreshed each frame by the gather below.
   const PL_N = 16;
   const gPL = new Float32Array(PL_N*3); let gPLN = 0, gPLR = 11.0;
@@ -3730,16 +3730,16 @@ void main(void){
   let gCofOutCol = 0.05;      // grey level of a see-through atom's outline: 0 = black → 1 = white. Dev slider.
   let gConeReach = 0.0;       // how far BEHIND the cofactor atom the cone still clears (Å). Dev slider.
   let gCofLineW = 2.2;        // cofactor silhouette outline thickness (px). Dev slider.
-  let gDepthK = 0.00;         // front-to-back depth-shading amount 0..1 on the molecules. OFF: flat lighting means
+  let gDepthK = 0.40;         // depth-shading amount 0..1: atoms beyond the orbit pivot darken with camera distance. Was 0 (flat)
                               // no shading at all, and at 0.75 this darkened half the scene like a shadow. Dev slider.
-  let gDepthLo = 0.40;        // darkest floor the depth-shading reaches (lower = more contrast). Dev slider.
+  let gDepthLo = 0.50;        // darkest floor the depth-shading reaches (lower = more contrast). Dev slider.
   let gDepthStart = 0.0;      // where the darkening begins, WORLD units from the shading plane. Dev slider.
   let gDepthSpread = 120.0;   // world distance over which it fades to the floor. Dev slider.
   let gShadePlane = 60.0;     // FIXED shading reference = the FAR-Z WALL of the scene box (behind the molecules, so the white dev plane never tints them). Recomputed below.
   let gSceneZmin = -60, gSceneZmax = 60;
   { let zmin=1e9, zmax=-1e9; for(let mi=0;mi<mols.length;mi++){ const md=mInfo[mi]; zmin=Math.min(zmin, md.z0-md.cz); zmax=Math.max(zmax, md.z1-md.cz); }
-    gSceneZmin=zmin; gSceneZmax=zmax; gDepthSpread=Math.max(20, zmax-zmin);
-    gShadePlane=zmax; gDepthStart=-gDepthSpread; }   // plane on the FAR wall; startOff = -spread keeps the front-to-back gradient (near-camera bright → far dark)
+    gSceneZmin=zmin; gSceneZmax=zmax;
+    gShadePlane=zmax; }   // the shading plane stays on the far wall for the dev gizmo - the depth shading itself now runs on camera distance past the pivot, with its own start (0) and spread (120), so they are no longer derived from the scene's Z extent
   let gArmedItem = null;      // {kind,name} armed in the spawn selector (molecule / protein / photon)
   let disarmSpawn = () => {}; // clears the armed item/element + un-highlights its button (right-click ends spawning)
   let gCollScale = 1.0;       // reactive-site / collision sphere radius multiplier. Dev slider.
@@ -4253,7 +4253,7 @@ void main(void){
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → vdW goes 50% transparent where its atom reveals orbitals
     eff.setFloat('uT',gWaveT); eff.setMatrices('modelXform', gModelXform); eff.setArray3('modelCol', gModelCol); eff.setFloat('colorMode', gColorMode?1:0); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
     eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE); eff.setFloat('boil', gBoil);
-    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
+    eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
     attributes:['position','atomOff','instanceColor','instR','memAnc','world0','world1','world2','world3'],
     uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR','keyDir'],
@@ -4267,7 +4267,7 @@ void main(void){
     eff.setFloat('memDrift', gMemDrift);
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → membrane vdW goes 50% transparent where revealed
     eff.setFloat('uT',gWaveT); eff.setFloat('boil', gBoil); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
-    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
+    eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
 
   /* FAR twins of the two vdW materials. Same shader, same instance buffers — but compiled with CHEAP, and
      crucially left OPAQUE (no realAlpha, depth write on, no gl_FragDepthEXT). The normal materials are
@@ -4295,7 +4295,7 @@ void main(void){
     eff.setFloat('uT',gWaveT); eff.setMatrices('modelXform', gModelXform); eff.setArray3('modelCol', gModelCol); eff.setFloat('colorMode', gColorMode?1:0);
     eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter);
     eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE);
-    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+    eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); bindPLight(eff); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
@@ -4306,7 +4306,7 @@ void main(void){
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
     eff.setFloat('memDrift', gMemDrift); bindPLight(eff);
     eff.setFloat('uT',gWaveT); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
-    eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+    eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); });
 
@@ -4342,7 +4342,7 @@ void main(void){
       eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('bubbleR', gBubbleR); eff.setFloat('coneCos', gConeCos);   // mode 1 → cofactor spheres go glass so their orbitals (rendered by the cells beneath) show through
       eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',1e8); eff.setFloat('fogEnd',1e9);   // no fog fade → cofactors stay bright wherever they are
       eff.setFloat('hlGroup', gHlGroup); eff.setFloat('hlBright', gHlBright);   // brighten the hovered / flashing cofactor group
-      eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); });
+      eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); });
     etcOverlay = BABYLON.MeshBuilder.CreatePlane('etcOverlay',{size:2},scene);
     etcOverlay.material=etcMat; etcOverlay.isPickable=false; etcOverlay.alwaysSelectAsActiveMesh=true;
     etcOverlay.thinInstanceSetBuffer('matrix', new Float32Array(etcM),16,true);
@@ -5196,7 +5196,7 @@ void main(void){
       sm.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22));   // placeholder until the real lipid mean lands below
       sm.setFloat('grainPitch', S);   // the grain's cell size = the real lipid pitch
       sm.onBindObservable.add(()=>{ const eff=sm.getEffect(); if(!eff) return;
-        eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+        eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
         // the hole matches the gather: blocks within memR (by centre) draw every lipid - one block radius
         // less, so the slab's edge sits under drawn lipids rather than leaving a gap before them
@@ -7746,20 +7746,19 @@ void main(void){
     chl.forEach((o, k) => { const g = o.g; chB[k*3]=g.cx; chB[k*3+1]=g.cy; chB[k*3+2]=g.cz; chMi[k] = modelOf(chB[k*3], chB[k*3+1], chB[k*3+2]); });
     const N_PH = 90, PH_SPEED = 420, HIT_R = 7, GLOW_S = 5, HALO_MAX = 48;
     const px = new Float32Array(N_PH*3), pd = new Float32Array(N_PH*3), alive = new Uint8Array(N_PH);
-    /* Photons as LASER BEAMS: a wavy tube (four sine waves along its length), 80 units long, in six
-       spectral colours, its wave plane spinning about the direction of flight so the beam oscillates as
-       it goes. One mesh per colour - thin-instance buffers live on the geometry, so nothing is shared. */
+    /* Photons as ELECTRIC ARCS: per photon two thin jagged lines, 27 units long, running along the
+       flight direction, their points re-jittered every frame so they rattle like a spark - six spectral
+       colours as vertex colours, translucent. One updatable line system holds them all - the points are
+       persistent Vector3s rewritten in place, so nothing is allocated per frame. */
     const PH_COLS = [[0.62,0.32,1.0],[0.30,0.52,1.0],[0.30,1.0,0.42],[1.0,0.95,0.30],[1.0,0.60,0.20],[1.0,0.26,0.26]];
-    const PH_LEN = 80, PH_W = 9;
-    const phMeshes = PH_COLS.map((col, ci) => {
-      const path = []; for(let k=0;k<=48;k++){ const t=k/48; path.push(new BABYLON.Vector3(0.5*Math.sin(t*Math.PI*8), 0, t)); }
-      const m = BABYLON.MeshBuilder.CreateTube('photon'+ci, {path, radius:0.09, tessellation:6, cap:BABYLON.Mesh.CAP_ALL}, scene);
-      // normal blending, not additive: additive over the bright membrane saturated every colour to white
-      const mat = new BABYLON.StandardMaterial('photonMat'+ci, scene); mat.emissiveColor = new BABYLON.Color3(col[0],col[1],col[2]); mat.disableLighting = true; mat.alpha = 0.96; mat.alphaMode = BABYLON.Constants.ALPHA_COMBINE; mat.disableDepthWrite = true; mat.backFaceCulling = false;
-      m.material = mat; m.isPickable = false; m.alwaysSelectAsActiveMesh = true; m.renderingGroupId = 2;
-      const buf = new Float32Array(N_PH*16); m.thinInstanceSetBuffer('matrix', buf, 16, false); m.thinInstanceCount = 0; m.setEnabled(false);
-      return { m, buf, n:0 }; });
-    const phCol = new Uint8Array(N_PH), phSpin = new Float32Array(N_PH); for(let i=0;i<N_PH;i++){ phCol[i] = i % PH_COLS.length; phSpin[i] = Math.random()*6.283; }
+    const PH_LEN = 27, PH_JIT = 1.6, PH_K = 10, PH_ARCS = 2;
+    const phLines = [], phCols = [];
+    for(let i=0;i<N_PH;i++) for(let a=0;a<PH_ARCS;a++){ const pts = [], cs = []; const col = PH_COLS[i % PH_COLS.length];
+      for(let k=0;k<PH_K;k++){ pts.push(new BABYLON.Vector3(0, -1e5, 0)); cs.push(new BABYLON.Color4(col[0], col[1], col[2], a === 0 ? 0.55 : 0.32)); }
+      phLines.push(pts); phCols.push(cs); }
+    const phMesh = BABYLON.MeshBuilder.CreateLineSystem('photons', { lines: phLines, colors: phCols, useVertexColor: true, updatable: true }, scene);
+    phMesh.isPickable = false; phMesh.alwaysSelectAsActiveMesh = true; phMesh.renderingGroupId = 2; phMesh.alpha = 0.85;
+    const phCol = new Uint8Array(N_PH); for(let i=0;i<N_PH;i++) phCol[i] = i % PH_COLS.length;
     const haloMesh = BABYLON.MeshBuilder.CreateSphere('chlHalo', {diameter:1, segments:10}, scene);
     const haloMat = new BABYLON.StandardMaterial('chlHaloMat', scene); haloMat.emissiveColor = new BABYLON.Color3(0.62, 1.0, 0.36); haloMat.disableLighting = true; haloMat.alpha = 0.32; haloMat.alphaMode = BABYLON.Constants.ALPHA_ADD; haloMat.disableDepthWrite = true; haloMat.backFaceCulling = false;
     haloMesh.material = haloMat; haloMesh.isPickable = false; haloMesh.alwaysSelectAsActiveMesh = true; haloMesh.renderingGroupId = 2;
@@ -7779,7 +7778,7 @@ void main(void){
       // chlorophyll centres through their models' transforms (cheap: a few hundred)
       for(let k=0;k<N_CH;k++){ const m = gModelXform, o = chMi[k]*16, x=chB[k*3], y=chB[k*3+1], z=chB[k*3+2];
         chW[k*3] = m[o]*x + m[o+4]*y + m[o+8]*z + m[o+12]; chW[k*3+1] = m[o+1]*x + m[o+5]*y + m[o+9]*z + m[o+13]; chW[k*3+2] = m[o+2]*x + m[o+6]*y + m[o+10]*z + m[o+14]; }
-      const lo = gBoxLo, hi = gBoxHi, step = PH_SPEED*dt; let n = 0; for(const P of phMeshes) P.n = 0;
+      const lo = gBoxLo, hi = gBoxHi, step = PH_SPEED*dt; let n = 0;
       for(let i=0;i<N_PH;i++){ const o=i*3; if(!alive[i]) spawn(i);
         const x0=px[o], y0=px[o+1], z0=px[o+2], dx=pd[o], dy=pd[o+1], dz=pd[o+2];
         // absorbed if the step passes within HIT_R of a chlorophyll centre
@@ -7790,15 +7789,16 @@ void main(void){
         const x=x0+dx*step, y=y0+dy*step, z=z0+dz*step;
         if(x < lo.x-2 || x > hi.x+2 || y < lo.y-2 || y > hi.y+2 || z < lo.z-2 || z > hi.z+2){ alive[i] = 0; continue; }
         px[o]=x; px[o+1]=y; px[o+2]=z;
-        // the beam: its tail behind the head, the wave plane spun about the flight direction
-        const P = phMeshes[phCol[i]], pm = P.buf, m = P.n*16; let ux=0, uy=1, uz=0; if(Math.abs(dy) > 0.9){ ux=1; uy=0; }
+        // the arcs: points from the head back along the direction, each kicked sideways at random this frame
+        let ux=0, uy=1, uz=0; if(Math.abs(dy) > 0.9){ ux=1; uy=0; }
         let vx=uy*dz-uz*dy, vy=uz*dx-ux*dz, vz=ux*dy-uy*dx; const vl=Math.hypot(vx,vy,vz)||1; vx/=vl; vy/=vl; vz/=vl; const wx=dy*vz-dz*vy, wy=dz*vx-dx*vz, wz=dx*vy-dy*vx;
-        const spn = phSpin[i] + gWaveT*9, cs = Math.cos(spn), sn = Math.sin(spn);
-        const ax = vx*cs + wx*sn, ay = vy*cs + wy*sn, az = vz*cs + wz*sn, bx = wx*cs - vx*sn, by = wy*cs - vy*sn, bz = wz*cs - vz*sn;
-        pm[m]=ax*PH_W; pm[m+1]=ay*PH_W; pm[m+2]=az*PH_W; pm[m+3]=0; pm[m+4]=bx*PH_W; pm[m+5]=by*PH_W; pm[m+6]=bz*PH_W; pm[m+7]=0; pm[m+8]=dx*PH_LEN; pm[m+9]=dy*PH_LEN; pm[m+10]=dz*PH_LEN; pm[m+11]=0;
-        pm[m+12]=x-dx*PH_LEN; pm[m+13]=y-dy*PH_LEN; pm[m+14]=z-dz*PH_LEN; pm[m+15]=1; P.n++; n++;
+        for(let a=0;a<PH_ARCS;a++){ const pts = phLines[i*PH_ARCS+a];
+          for(let k=0;k<PH_K;k++){ const t = k/(PH_K-1), end = (k === 0 || k === PH_K-1) ? 0.3 : 1.0, j1 = (Math.random()-0.5)*2*PH_JIT*end, j2 = (Math.random()-0.5)*2*PH_JIT*end;
+            pts[k].set(x - dx*PH_LEN*t + vx*j1 + wx*j2, y - dy*PH_LEN*t + vy*j1 + wy*j2, z - dz*PH_LEN*t + vz*j1 + wz*j2); } }
+        n++;
       }
-      for(const P of phMeshes){ if(P.n) P.m.thinInstancePartialBufferUpdate('matrix', P.buf.subarray(0, P.n*16), 0); P.m.thinInstanceCount = P.n; P.m.setEnabled(P.n > 0); }
+      for(let i=0;i<N_PH;i++) if(!alive[i]) for(let a=0;a<PH_ARCS;a++) for(const q of phLines[i*PH_ARCS+a]) q.set(0, -1e5, 0);   // a dead photon's arcs are parked far below the scene
+      BABYLON.MeshBuilder.CreateLineSystem('photons', { lines: phLines, instance: phMesh });
       // the halos: shrink and fade out over GLOW_S seconds
       let hn = 0; for(const [k, left] of glows){ const nl = left - dt; if(nl <= 0){ glows.delete(k); continue; } glows.set(k, nl);
         if(hn >= HALO_MAX) continue; const f = nl/GLOW_S, r = 9 + 10*Math.sqrt(f), m = hn*16;
@@ -8023,13 +8023,13 @@ void main(void){
   fpSld.oninput = () => { const o = +fpSld.value/100; fpValEl.textContent = o.toFixed(2);
     const fm = scene.getMaterialByName('rtsFloorMat'); if(fm) fm.alpha = o; };
   // Depth shading on the molecules (front-to-back darkening) — 0 = flat, higher = more 3D.
-  const dsRow = document.createElement('div'); dsRow.innerHTML = 'syvyysvarjostus: <b id="dev-ds-val">0.00</b>';
-  const dsSld = document.createElement('input'); dsSld.type='range'; dsSld.min='0'; dsSld.max='100'; dsSld.value='0'; dsSld.style.cssText='width:100%;cursor:pointer;';   // amount 0…1 - starts OFF (flat)
+  const dsRow = document.createElement('div'); dsRow.innerHTML = 'syvyysvarjostus: <b id="dev-ds-val">0.40</b>';
+  const dsSld = document.createElement('input'); dsSld.type='range'; dsSld.min='0'; dsSld.max='100'; dsSld.value=String(Math.round(gDepthK*100)); dsSld.style.cssText='width:100%;cursor:pointer;';   // amount 0…1 - starts OFF (flat)
   const dsValEl = dsRow.querySelector('#dev-ds-val');
   dsSld.oninput = () => { gDepthK = +dsSld.value/100; dsValEl.textContent = gDepthK.toFixed(2); };
   // CONTRAST: how dark the far side goes (higher slider = lower floor = more contrast).
-  const dcRow = document.createElement('div'); dcRow.innerHTML = 'varjostuksen kontrasti: <b id="dev-dc-val">0.40</b>';
-  const dcSld = document.createElement('input'); dcSld.type='range'; dcSld.min='0'; dcSld.max='100'; dcSld.value='60'; dcSld.style.cssText='width:100%;cursor:pointer;';   // 60 → floor 0.40
+  const dcRow = document.createElement('div'); dcRow.innerHTML = 'varjostuksen kontrasti: <b id="dev-dc-val">0.50</b>';
+  const dcSld = document.createElement('input'); dcSld.type='range'; dcSld.min='0'; dcSld.max='100'; dcSld.value='50'; dcSld.style.cssText='width:100%;cursor:pointer;';   // 60 → floor 0.40
   const dcValEl = dcRow.querySelector('#dev-dc-val');
   dcSld.oninput = () => { gDepthLo = (1 - +dcSld.value/100); dcValEl.textContent = gDepthLo.toFixed(2); };
   // START POINT: where the darkening begins, in view units relative to the pivot (−150 … +150).
@@ -8059,13 +8059,13 @@ void main(void){
   fdSld.oninput = () => { gFocusDark = +fdSld.value/100; fdValEl.textContent = gFocusDark.toFixed(2); };
   // Vignette STRENGTH: how dark the screen edges go (0 = off … 1 = black corners). Governs BOTH the
   // O-hold darkening and the vignette that closes in whenever something is selected.
-  const fvStrRow = document.createElement('div'); fvStrRow.innerHTML = 'vinjetti voimakkuus: <b id="dev-fvs-val">0.55</b>';
-  const fvStrSld = document.createElement('input'); fvStrSld.type='range'; fvStrSld.min='0'; fvStrSld.max='100'; fvStrSld.value='55'; fvStrSld.style.cssText='width:100%;cursor:pointer;';
+  const fvStrRow = document.createElement('div'); fvStrRow.innerHTML = 'vinjetti voimakkuus: <b id="dev-fvs-val">1.00</b>';
+  const fvStrSld = document.createElement('input'); fvStrSld.type='range'; fvStrSld.min='0'; fvStrSld.max='100'; fvStrSld.value='100'; fvStrSld.style.cssText='width:100%;cursor:pointer;';
   const fvStrVal = fvStrRow.querySelector('#dev-fvs-val');
   fvStrSld.oninput = () => { gFVigStr = +fvStrSld.value/100; fvStrVal.textContent = gFVigStr.toFixed(2); updateFVig(); };
   // Vignette REACH: how far the darkening bleeds inward from the edges (% of the radius toward centre).
-  const fvRchRow = document.createElement('div'); fvRchRow.innerHTML = 'vinjetti kantama: <b id="dev-fvr-val">45</b>';
-  const fvRchSld = document.createElement('input'); fvRchSld.type='range'; fvRchSld.min='0'; fvRchSld.max='90'; fvRchSld.value='45'; fvRchSld.style.cssText='width:100%;cursor:pointer;';
+  const fvRchRow = document.createElement('div'); fvRchRow.innerHTML = 'vinjetti kantama: <b id="dev-fvr-val">40</b>';
+  const fvRchSld = document.createElement('input'); fvRchSld.type='range'; fvRchSld.min='0'; fvRchSld.max='90'; fvRchSld.value='40'; fvRchSld.style.cssText='width:100%;cursor:pointer;';
   const fvRchVal = fvRchRow.querySelector('#dev-fvr-val');
   fvRchSld.oninput = () => { gFVigReach = +fvRchSld.value; fvRchVal.textContent = String(gFVigReach); updateFVig(); };
   // Restore-defaults button: snapshot every slider's starting value now, then reset + re-apply on click.
@@ -10270,7 +10270,7 @@ void main(void){
     gSelVigAmt += ((anySel ? 1 : 0) - gSelVigAmt) * 0.09;
     // Written only when it actually moves. Assigning style.opacity every frame invalidates the layer
     // even when the value is identical.
-    const vigWant = Math.max(gFocusDimAmt, gSelVigAmt);   // darkening vignette: O held, or a selection
+    const vigWant = 1;   // the vignette is always on at full (it used to rise only with O held or a selection)
     if(Math.abs(vigWant - _vigShown) > 0.002){ _vigShown = vigWant;
       fVig.style.opacity = vigWant.toFixed(3);
       fVig.style.display = vigWant < 0.004 ? 'none' : 'block'; }
