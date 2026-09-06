@@ -4005,6 +4005,12 @@ void main(void){
         pb.classList.toggle('on', !gFreeOn);   // highlighted while they are HIDDEN, like the Kalvo button
         const lab=document.getElementById('particles-label'); if(lab) lab.textContent = gFreeOn ? 'Hiukkaset' : 'Hiukkaset pois';
         for(const m of gFreeMeshes) m.setEnabled(gFreeOn); }); }
+  /* The membrane's SLAB tier (megahalpa: past memR the lipids switch off and the flat slab stands in,
+     with the sheet wrapping around the camera) is switched OFF by default since 2026-09-06 - the owner
+     wants the real lipids at every distance for now. The dev button 'laatta-LoD' turns it back on.
+     Off means: every block within the footprint is gathered in full, no wrap, no cell ever goes
+     megacheap, the slab mesh stays hidden. The PROTEIN hull handover keeps using memR regardless. */
+  let gSlabLod = false;
   let gMembrane = true;    // membrane SHOWN by default (it used to start hidden as the heaviest thing in the scene, but the slab and the density ramp made it cheap enough); the Kalvo button hides it
   { const mb = document.getElementById('membrane-btn');
     if(mb){ mb.addEventListener('click', () => { gMembrane = !gMembrane;
@@ -5772,13 +5778,14 @@ void main(void){
       const lipInProt = (T, lx, lz) => { const i = ((lx-footX0)/FOOT_CELL)|0, j = ((lz-footZ0)/FOOT_CELL)|0;
         return i >= 0 && j >= 0 && i < footW && j < footH && footUp[j*footW+i] === 1; };
       const y = bilayerCen.y, dy = y - cp.y, dy2 = dy*dy;
-      if(dy2 <= memR2 + bM2) for(let b=0;b<NBLK;b++){
+      if(!gSlabLod || dy2 <= memR2 + bM2) for(let b=0;b<NBLK;b++){
         const cnt = blkCnt[b]; if(!cnt) continue;
-        const ox = Math.round((cp.x - blkCx[b])/gMemSpanX)*gMemSpanX, oz = Math.round((cp.z - blkCz[b])/gMemSpanZ)*gMemSpanZ;
+        // slab tier off → no wrap: the sheet stays where it is and every block of it is drawn
+        const ox = gSlabLod ? Math.round((cp.x - blkCx[b])/gMemSpanX)*gMemSpanX : 0, oz = gSlabLod ? Math.round((cp.z - blkCz[b])/gMemSpanZ)*gMemSpanZ : 0;
         const wcx = blkCx[b]+ox, wcz = blkCz[b]+oz;
         if(Math.abs(wcx - bilayerCen.x) > gMemFootX || Math.abs(wcz - bilayerCen.z) > gMemFootZ) continue;   // never past the slab
         const dx = wcx-cp.x, dz = wcz-cp.z, d2 = dx*dx + dy2 + dz*dz;
-        if(d2 > memR2 + bR*bR) continue;                                                             // megacheap: the slab stands in
+        if(gSlabLod && d2 > memR2 + bR*bR) continue;                                                 // megacheap: the slab stands in (only with the slab tier on)
         let vis = true;
         for(let q=0;q<6;q++){ const pl=fp[q]; if(pl.normal.x*wcx + pl.normal.y*y + pl.normal.z*wcz + pl.d < -(bR+14)){ vis=false; break; } }
         if(!vis) continue;
@@ -5789,7 +5796,7 @@ void main(void){
            prefix of its strided order (an even spatial sample) over the slab, so the two overlap along a
            soft band instead of meeting at a line. */
         const dEdge = L.memR + bR - Math.sqrt(d2);                                     // distance left before the block would be culled
-        const take = dEdge >= gMemBlend ? cnt : Math.round(cnt * Math.max(0, dEdge) / gMemBlend);
+        const take = (!gSlabLod || dEdge >= gMemBlend) ? cnt : Math.round(cnt * Math.max(0, dEdge) / gMemBlend);
         const near = d2 < full2, st = blkStart[b];
         for(let q=0;q<take;q++){ const i = blkLip[st+q], o = i*3, E = sphTpl[lipT[i]]; if(!E) continue;
           const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
@@ -7110,7 +7117,8 @@ void main(void){
         const K = 1.0;   // the darkening now lives in the 'laatan tummuus' slider (gSlabDark), applied in the shader
         gMemSlab.material.setColor3('slabCol',
           new BABYLON.Color3(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K)); }
-      if(gMemSlab.isEnabled() !== gMembrane) gMemSlab.setEnabled(gMembrane);
+      const wantSlab = gMembrane && gSlabLod;   // the slab only stands in when its tier is on
+      if(gMemSlab.isEnabled() !== wantSlab) gMemSlab.setEnabled(wantSlab);
     }
     const MEGA2 = _memR*_memR;   // the protein thinning tier sits on the same radius as the hull handover and the membrane slab
     /* The membrane's detail now RAMPS with distance instead of being all-or-nothing. The tile order was
@@ -7160,7 +7168,7 @@ void main(void){
            crisp. Wrapping per CELL rather than per sheet means cells always surround you and there is
            no edge to cross - the sheet is effectively endless, at the cost of repeating every period.
            The period is exact (Gx*S), so copies land on the lattice and the seam is invisible. */
-        if(gMemSpanX > 0){
+        if(gSlabLod && gMemSpanX > 0){   // the wrap belongs to the slab tier - off, the sheet stays put
           const ox = Math.round((cp.x - cell.cx)/gMemSpanX)*gMemSpanX;
           const oz = Math.round((cp.z - cell.cz)/gMemSpanZ)*gMemSpanZ;
           if(cell.off.x !== ox || cell.off.z !== oz) cell.off.set(ox, 0, oz);
@@ -7186,7 +7194,7 @@ void main(void){
          outright by the slab underneath it, which costs two triangles for the whole sheet instead of
          a few thousand impostors per cell. Proteins are the content, so they are never dropped - they
          just thin much harder (see the instance count below). */
-      const mega = d2 > (cell.macro ? MEGA2 : MEMR2) + cR*cR || offSlab;
+      const mega = (cell.macro ? d2 > MEGA2 + cR*cR : (gSlabLod && d2 > MEMR2 + cR*cR)) || offSlab;   // a membrane cell only goes megacheap with the slab tier on
       const wantSph = vis && !!cell.sphere && (!gCullOnly || d2 < closeR*closeR) && !(mega && !cell.macro);
       const nucR = gCrisp + cR + 8;                         // nuclei wherever the orbitals show (they used to stop at half the crisp radius)
       const wantNuc = vis && gGfxMode === 1 && d2 < nucR*nucR;   // nuclei: mode 1, genuinely up close only
@@ -8316,7 +8324,12 @@ void main(void){
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
   devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld);
-  devPanel.appendChild(cullRow); devPanel.appendChild(selRow); devPanel.appendChild(phRow);   // (cullRow had been built but never attached)
+  // Membrane slab tier on/off (see gSlabLod).
+  const slRow = document.createElement('div'); const slBtn = document.createElement('button');
+  const syncSl = () => { slBtn.textContent = gSlabLod ? 'laatta-LoD: ON' : 'laatta-LoD: OFF'; slBtn.style.cssText = cullStyle(gSlabLod); };
+  slBtn.onclick = () => { gSlabLod = !gSlabLod; syncSl(); };
+  syncSl(); slRow.appendChild(slBtn);
+  devPanel.appendChild(cullRow); devPanel.appendChild(selRow); devPanel.appendChild(phRow); devPanel.appendChild(slRow);   // (cullRow had been built but never attached)
   devPanel.appendChild(psRow); devPanel.appendChild(psSld); devPanel.appendChild(ppRow);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
   devPanel.appendChild(zmRow); devPanel.appendChild(zmSld); devPanel.appendChild(zxRow); devPanel.appendChild(zxSld);
