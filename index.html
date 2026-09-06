@@ -2674,9 +2674,11 @@ uniform mat4 world;
 uniform mat4 view;
 uniform mat4 projection;
 varying float vZ;
+varying vec3 vWP;
 void main(void){
   vec4 wp = world * vec4(position, 1.0);
   vZ = wp.z;
+  vWP = wp.xyz;
   gl_Position = projection * view * wp;
 }`;
 BABYLON.Effect.ShadersStore['slabPixelShader'] = `
@@ -2687,8 +2689,14 @@ uniform float depthK;
 uniform float depthLo;
 uniform float startOff;
 uniform float spread;
+uniform vec3 camPos;
+uniform float holeR;
 varying float vZ;
+varying vec3 vWP;
 void main(void){
+  /* inside holeR of the camera every lipid is drawn at full density, so the slab steps aside there -
+     a glass shell over a slab of its own colour was invisible, and the two never belong in one place */
+  if(holeR > 0.0 && distance(vWP, camPos) < holeR) discard;
   float dt = clamp((vZ - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
   gl_FragColor = vec4(slabCol * mix(1.0, depthLo, dt * depthK), 1.0);
 }`;
@@ -5042,12 +5050,16 @@ void main(void){
       slab.position.copyFrom(bilayerCen);
       slab.isPickable = false; slab.renderingGroupId = 0; slab.alwaysSelectAsActiveMesh = true;
       const sm = new BABYLON.ShaderMaterial('memSlabMat', scene, 'slab', {
-        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread'] });
+        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR'] });
       sm.backFaceCulling = false;
       sm.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22));   // placeholder until the real lipid mean lands below
       sm.onBindObservable.add(()=>{ const eff=sm.getEffect(); if(!eff) return;
         eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
-        eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); });
+        eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
+        // the hole matches the gather: blocks within memR (by centre) draw every lipid - one block radius
+        // less, so the slab's edge sits under drawn lipids rather than leaving a gap before them
+        const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR - gMemCellR) : 0;
+        eff.setFloat('holeR', hole); eff.setVector3('camPos', cam.position); });
       slab.material = sm; gMemSlab = slab;
       gWorldReach = Math.hypot(memHalfX*MEGA_SCALE, memHalfZ*MEGA_SCALE);   // the slab's far corner - the far clip must reach it
       gMemFootX = memHalfX*MEGA_SCALE; gMemFootZ = memHalfZ*MEGA_SCALE;   // nothing membrane-shaped is drawn outside this
@@ -5069,7 +5081,9 @@ void main(void){
           crx=uy*z1-uz*y1, cry=uz*x1-ux*z1, crz=ux*y1-uy*x1;
         out[k*3]=x1*ct+crx*st+ux*dt*(1-ct); out[k*3+1]=y1*ct+cry*st+uy*dt*(1-ct); out[k*3+2]=z1*ct+crz*st+uz*dt*(1-ct); }
       return out; };
-    const hash2=(i,j)=>{ let h=((i*73856093)^(j*19349663))>>>0; h^=h>>>13; h=(h*1274126177)>>>0; return h; };
+    // Math.imul, not '*': h*1274126177 is ~5e18, past float64's 53 bits, so the low ~10 bits came back
+    // as zeros - '% NV' was 0 for nearly every tile (one rotamer per species) and the x-jitter (h&1023) was 0.
+    const hash2=(i,j)=>{ let h=((i*73856093)^(j*19349663))>>>0; h^=h>>>13; h=Math.imul(h,1274126177)>>>0; return h; };
     const tileVar=(gi,gj,leaf)=> hash2(gi*2+leaf, gj*3+leaf) % NV;
     const tileJit=(gi,gj,leaf)=>{ const h=hash2(gi+leaf*911+1, gj+leaf*337+1);
       return [ ((h&1023)/1023-0.5)*2*JIT, (((h>>>10)&1023)/1023-0.5)*2*(S*0.04), (((h>>>20)&1023)/1023-0.5)*2*JIT ]; };
@@ -5285,10 +5299,11 @@ void main(void){
        tileType/tileVar/tileOrg are hashes and running them for 20000 lipids every frame is wasteful. */
     const LIPN = Gx*Gz*2;
     const lipT = new Int32Array(LIPN), lipO = new Float32Array(LIPN*3);
+    const tplN = new Int32Array(NTPL);   // lipids per template - each sphere stream is sized to exactly this, so it can never overflow
     { let n=0;
       for(let leaf=0; leaf<2; leaf++) for(let gi=0; gi<Gx; gi++) for(let gj=0; gj<Gz; gj++){
         const og = tileOrg(gi,gj,leaf);
-        lipT[n] = tplIdx(tileType(gi,gj,leaf), leaf, tileVar(gi,gj,leaf));
+        lipT[n] = tplIdx(tileType(gi,gj,leaf), leaf, tileVar(gi,gj,leaf)); tplN[lipT[n]]++;
         lipO[n*3]=og[0]; lipO[n*3+1]=og[1]; lipO[n*3+2]=og[2]; n++;
       }
     }
@@ -5382,8 +5397,9 @@ void main(void){
         tmp.length=0; for(let q=0,k=0;q<n;q++,k=(k+stride)%n) tmp.push(blkLip[blkStart[b]+k]);
         for(let q=0;q<n;q++) blkLip[blkStart[b]+q]=tmp[q]; } }
 
-    // the 64 sphere templates: near (glass-capable) and far (opaque, cheap) twins sharing one geometry
-    const SPH_CAP = 2048;
+    // the 64 sphere templates: near (glass-capable) and far (opaque, cheap) twins sharing one geometry.
+    // Each stream holds exactly the template's lipid count: a lipid is drawn once per frame, so the
+    // count can never exceed it (a fixed 2048 cap used to drop whole swathes when a template was busy).
     const sphTpl = [];
     { const corner = [-1,-1, 1,-1, 1,1, -1,1];
       for(let ty=0; ty<NTY; ty++) for(let leaf=0; leaf<2; leaf++) for(let v=0; v<NV; v++){
@@ -5402,17 +5418,19 @@ void main(void){
         const far = near.clone('lipTplF'+T);   // shares the geometry - only the material and the instances differ
         for(const m of [near, far]){ m.isPickable=false; m.alwaysSelectAsActiveMesh=true; m.renderingGroupId=1; m.setEnabled(false); }
         near.material = vdwMatStatic; far.material = vdwStaticFarMat;
-        const nM=new Float32Array(SPH_CAP*16), fM=new Float32Array(SPH_CAP*16), nA=new Float32Array(SPH_CAP), fA=new Float32Array(SPH_CAP);
+        const cap = Math.max(1, tplN[T]);
+        const nM=new Float32Array(cap*16), fM=new Float32Array(cap*16), nA=new Float32Array(cap), fA=new Float32Array(cap);
         near.thinInstanceSetBuffer('matrix', nM, 16, false); near.thinInstanceSetBuffer('memAnc', nA, 1, false);
         far.thinInstanceSetBuffer('matrix', fM, 16, false);  far.thinInstanceSetBuffer('memAnc', fA, 1, false);
         near.thinInstanceCount = 0; far.thinInstanceCount = 0;
-        sphTpl[T] = { near, far, nM, fM, nA, fA, nn:0, nf:0 };
+        sphTpl[T] = { near, far, nM, fM, nA, fA, nn:0, nf:0, cap };
       } }
 
     /* THE GATHER - spheres and orbitals in one pass over the blocks. Each block is wrapped onto the copy
        nearest the camera (by its centre, so every lipid in it agrees), kept inside the slab's footprint,
-       culled by distance and frustum, then thinned by the density ramp: a prefix of its strided order.
-       Lipids inside the full-density band go to the near (glass) stream, the rest to the far (opaque)
+       culled by distance and frustum, and drawn in FULL - never thinned. (The strided order inside a
+       block is kept: it costs nothing and a prefix of it is still an even sample, should a ramp ever
+       come back.) Lipids inside the glass band go to the near stream, the rest to the far (opaque)
        one - a lipid simply changes stream as it crosses the line, so there is no material swap and no
        stall. Blocks within the orbital radius also feed the nearest-N orbital budget, as before. */
     let gOrbLive = false, gSphLive = false;
@@ -5444,12 +5462,14 @@ void main(void){
         let vis = true;
         for(let q=0;q<6;q++){ const pl=fp[q]; if(pl.normal.x*wcx + pl.normal.y*y + pl.normal.z*wcz + pl.d < -(bR+14)){ vis=false; break; } }
         if(!vis) continue;
-        const f = d2 > ST[4] ? 0.03125 : d2 > ST[3] ? 0.0625 : d2 > ST[2] ? 0.125 : d2 > ST[1] ? 0.25 : d2 > ST[0] ? 0.5 : 1.0;
-        const take = Math.max(1, Math.round(cnt*f)), near = d2 < full2, st = blkStart[b];
+        /* BINARY. A block inside the reach draws every one of its lipids - past it, the slab stands in on
+           its own. There used to be a density ramp between (half, quarter, eighth ... over the slab), and
+           that read as slab and lipids in the same place, getting denser as you approached. Full or slab. */
+        const take = cnt, near = d2 < full2, st = blkStart[b];
         for(let q=0;q<take;q++){ const i = blkLip[st+q], o = i*3, E = sphTpl[lipT[i]]; if(!E) continue;
           const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
-          if(near){ if(E.nn >= SPH_CAP) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nn++; }
-          else    { if(E.nf >= SPH_CAP) continue; const m=E.nf*16, M=E.fM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.fA[E.nf]=lz; E.nf++; }
+          if(near){ if(E.nn >= E.cap) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nn++; }
+          else    { if(E.nf >= E.cap) continue; const m=E.nf*16, M=E.fM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.fA[E.nf]=lz; E.nf++; }
         }
         // orbital candidates: every lipid of a block that reaches into the orbital radius (never thinned there - it is inside the full band)
         if(orbOn && d2 <= (oR+bR)*(oR+bR)) for(let q=0;q<cnt;q++){ const i = blkLip[st+q], o = i*3;
@@ -6840,8 +6860,8 @@ void main(void){
   // Shared outline geometry: fill `buf` with an atom's orbital lobes AND its bonding lobes.
   // Hover and selection outlines use this identical geometry so they always match.
   const OUT_MAX = 160;
-  const fillOutline = (buf, atom, applyFoc = true) => {
-    const foc = applyFoc ? gFocusId : -1;       // hover passes false → always outline the whole atom (focus only isolates the SELECTED atom)
+  const fillOutline = (buf, atom, applyFoc = true, focOverride = -1) => {
+    const foc = focOverride >= 0 ? focOverride : (applyFoc ? gFocusId : -1);   // hover passes false → always outline the whole atom (focus only isolates the SELECTED atom)
     /* Free molecules and membrane lipids carry fill(): it copies the atom's ACTUAL, CURRENT lobe matrices
        out of the buffers the renderer drew this frame. The spawn branch below draws a generic unbonded
        atomic set at a fixed point, which is right for a hand-dropped atom and wrong for these - a water
@@ -8955,13 +8975,34 @@ void main(void){
   // the preview camera frames them. Same 'orb' shader as the 3-D scene. Returns the bounding radius.
   const buildOrb = atom => {
     const e = atom.e, col = info(e).c;
-    const n = fillOutline(prevOrbBuf, atom, false);            // every lobe (ignore any orbital-isolate)
+    let n = fillOutline(prevOrbBuf, atom, false);              // every lobe (ignore any orbital-isolate)
     // Centre on where the lobes ACTUALLY are. fillOutline hands them back at the atom's render position,
     // so subtracting the baked centre instead left the whole cloud sitting `world - center` off the
     // origin — up to 135 units for a flattened model. maxR then framed that offset rather than the atom
     // and the render came out a speck in the middle of an empty canvas.
     const rc = atom.world || atom.center;
     const cx=rc.x, cy=rc.y, cz=rc.z;
+    /* Hydrogen: the card shows its 1s ALONE - the σ lobe belongs to the bond, not to this atom's own
+       orbital list. And a bonded 1s is not a sphere sitting on the nucleus: it is pulled into the bond,
+       so it is drawn as an ellipsoid stretched along the bond axis and shifted toward the partner, where
+       it partly overlaps the partner's bonding lobe. The bond axis is read off the σ lobe before it goes. */
+    if(atom.sym === 'H' && n > 1){   // e is the element CODE - the symbol says hydrogen
+      let dx=0, dy=0, dz=0, best=0;
+      for(let i=0;i<n;i++){ const o=i*16, ox=prevOrbBuf[o+12]-cx, oy=prevOrbBuf[o+13]-cy, oz=prevOrbBuf[o+14]-cz, d2=ox*ox+oy*oy+oz*oz;
+        if(d2 > best){ best=d2; dx=ox; dy=oy; dz=oz; } }   // the lobe farthest from the nucleus is the σ, pointing at the partner
+      n = fillOutline(prevOrbBuf, atom, false, 100);         // oid 100 = 1s
+      if(n >= 1 && best > 1e-6){
+        const dl=Math.sqrt(best); dx/=dl; dy/=dl; dz/=dl;
+        const M = prevOrbBuf, r = Math.hypot(M[0],M[1],M[2]);
+        const ax = Math.abs(dy) < 0.9 ? [0,1,0] : [1,0,0];
+        let ux=dy*ax[2]-dz*ax[1], uy=dz*ax[0]-dx*ax[2], uz=dx*ax[1]-dy*ax[0]; const ul=Math.hypot(ux,uy,uz); ux/=ul; uy/=ul; uz/=ul;
+        const wx=dy*uz-dz*uy, wy=dz*ux-dx*uz, wz=dx*uy-dy*ux;
+        const LONG = 1.7, SHIFT = 0.55;   // axis ratio, and how far (in radii) the ellipse leans into the bond
+        M[0]=ux*r; M[1]=uy*r; M[2]=uz*r;  M[4]=wx*r; M[5]=wy*r; M[6]=wz*r;  M[8]=dx*r*LONG; M[9]=dy*r*LONG; M[10]=dz*r*LONG;
+        M[12]=cx+dx*r*SHIFT; M[13]=cy+dy*r*SHIFT; M[14]=cz+dz*r*SHIFT;
+        n = 1;
+      }
+    }
     const oc = new Float32Array(n*3), cen = new Float32Array(n*3), oid = new Float32Array(n);
     let maxR = 0.6;
     for(let i=0;i<n;i++){ const o=i*16;
