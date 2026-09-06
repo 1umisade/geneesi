@@ -2736,7 +2736,7 @@ void main(void){
   float len = length(axis);
   vec3 dir = axis / max(len, 1e-4);
   float width = world2.x;
-  float along = (position.y + 0.5) * 1.3 - 0.3;
+  float along = (position.y + 0.5) * 1.5 - 0.5;
   vec3 p0 = head - dir * len * along;
   vec3 toCam = camPos - p0;
   vec3 side = normalize(cross(dir, toCam));
@@ -2766,13 +2766,19 @@ void main(void){
   /* the window reaches zero at the quad's side edge, so the glow has no cut there - and the head is a
      round falloff measured in world units around the head point, drawn on the part of the quad that
      runs ahead of it, so it has no flat end either */
-  float win = smoothstep(1.0, 0.55, r);
-  float fil = (exp(-pow((x - w1) / 0.10, 2.0)) + exp(-pow((x - w2) / 0.10, 2.0)) * 0.8) * win;
-  float core = exp(-pow(r / 0.20, 2.0)) * 0.7 * win;
-  float halo = exp(-pow(r / 0.70, 2.0)) * 1.1 * win;
+  float win = smoothstep(1.0, 0.45, r);
+  /* kept below the painterly post-process's top level except at the very core - above it everything
+     posterises into one flat paper-white region with an inked edge, which is what a flat head and a
+     hard glow edge were: the gradient underneath was fine, its peak was just far past the clip */
+  float fil = (exp(-pow((x - w1) / 0.10, 2.0)) + exp(-pow((x - w2) / 0.10, 2.0)) * 0.8) * win * 0.30;
+  float core = exp(-pow(r / 0.22, 2.0)) * 0.28 * win;
+  float halo = exp(-pow(r / 0.70, 2.0)) * 0.30 * win;
+  /* the body does not switch off at the head - it rises softly over a 15-unit run through the head
+     region, and the head glow is large enough that the bright region's boundary follows its round
+     contour instead of a line across the beam */
   float dHead = length(vec2(v * vDim.x, r * vDim.y));
-  float headGlow = exp(-pow(dHead / 7.0, 2.0)) * 1.6 + exp(-pow(dHead / 14.0, 2.0)) * 0.5;
-  float fade = smoothstep(1.0, 0.35, v) * smoothstep(-0.02, 0.05, v);
+  float headGlow = exp(-pow(dHead / 13.0, 2.0)) * 0.5 + exp(-pow(dHead / 24.0, 2.0)) * 0.2;
+  float fade = smoothstep(1.0, 0.35, v) * smoothstep(-0.25, 0.12, v);
   vec3 light = mix(vCol, vec3(1.0), 0.12);
   vec3 filCol = mix(vec3(1.0), vCol, 0.35);
   vec3 c = filCol * (fil * flick + core) + light * halo + mix(light, vec3(1.0), 0.4) * headGlow;
