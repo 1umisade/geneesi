@@ -602,8 +602,9 @@ uniform mat4 projection;
 uniform float radius;
 uniform float uT;        // thermal-shake time (0 = still)
 uniform float boil;      // line-boil: STEPPED per-atom jitter of the billboard centre (0 = off)
-#ifdef LIPTILE
-uniform vec3 tileOff;    // per-mesh translation so membrane tiles can share ONE nucleon template buffer
+#if defined(LIPTILE) || defined(LIPWRAP)
+uniform vec3 tileOff;    // per-mesh translation - the nucleon pool shares ONE template buffer with it, and
+                         // the membrane cells use it to repeat themselves around the camera
 #endif
 #ifdef MACROMOVE
 uniform mat4 macroXform; uniform vec3 macroCenter;
@@ -697,6 +698,10 @@ vec3 memSway(vec3 b){ float ph = b.x*0.28 + b.z*0.24;
 #endif
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
+#ifdef LIPWRAP
+  W[3].xyz += tileOff;   // membrane wrap - this cell is repeated to the copy nearest the camera, and doing
+                         // it HERE means every downstream use (centre, shake, sway, reveal cone) follows
+#endif
   vec3 base = W[3].xyz;
 #ifdef WATERBOX
   // Repel the molecule CENTRE, then add this atom's rigid offset - so the whole molecule is displaced as
@@ -733,6 +738,8 @@ void main(void){
   wc += memSway(base);   // membrane fluid sway - kept in BOTH tiers so the sheet moves as one
 #ifdef LIPTILE
   vMemAnc = tileOff.z;   // pooled nucleons: the tile origin IS the lipid anchor (one tile per mesh)
+#elif defined(LIPWRAP)
+  vMemAnc = memAnc + tileOff.z;   // wrapped copy: its anchor moves with it
 #else
   vMemAnc = memAnc;      // per-instance lipid anchor
 #endif
@@ -1208,6 +1215,9 @@ varying float vCang;
 varying vec3 vMemW; uniform vec3 memCut;
 varying float vMemAnc; attribute float memAnc;   // per-lipid anchor Z → whole-lipid cross-cut
 #endif
+#ifdef LIPWRAP
+uniform vec3 tileOff;    // membrane wrap - see the imp shader
+#endif
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/orb shaders exactly so a lipid's bonds ride with its atoms.
@@ -1216,6 +1226,10 @@ vec3 memSway(vec3 b){ float ph = b.x*0.28 + b.z*0.24;
 #endif
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
+#ifdef LIPWRAP
+  W[3].xyz += tileOff;   // membrane wrap - this cell is repeated to the copy nearest the camera, and doing
+                         // it HERE means every downstream use (centre, shake, sway, reveal cone) follows
+#endif
   float wsc = taper;   // per-lobe overall width multiplier (electronegative atom's lobe is wider → pair forms a cone)
   vec3 pos = vec3(position.x*wsc, position.y, position.z*wsc);
   vec3 nrm = normal;
@@ -1233,7 +1247,11 @@ void main(void){
 #endif
 #ifdef MEMFADE
   vMemW = wp.xyz;
+#ifdef LIPWRAP
+  vMemAnc = memAnc + tileOff.z;   // wrapped copy: its anchor moves with it
+#else
   vMemAnc = memAnc;
+#endif
 #endif
   vec4 vp = view * wp;
   vViewPos = vp.xyz;
@@ -1243,10 +1261,15 @@ void main(void){
   vec3 M0=world0.xyz, M1=world1.xyz, M2=world2.xyz;   // cofactor matrix → correct normal under non-uniform scale
   vec3 wn = cross(M1,M2)*sn.x + cross(M2,M0)*sn.y + cross(M0,M1)*sn.z;
   vNrmV = (view * vec4(wn, 0.0)).xyz;
-  vSel = step(distance(ocen, selCenter), 0.6);   // 1 = belongs to the selected atom
+#ifdef LIPWRAP
+  vec3 ocenW = ocen + tileOff;   // ocen is a WORLD attribute, so a wrapped copy has to carry it along -
+#else
+  vec3 ocenW = ocen;             // the reveal cone keys off it, which is what makes orbitals appear
+#endif
+  vSel = step(distance(ocenW, selCenter), 0.6);   // 1 = belongs to the selected atom
   vBcol = bcol;   // bonding lobes ALWAYS keep their element colour — per-model pastel applies to the vdW spheres only
   vOid = oid;
-  vec3 ocv = (view * vec4(ocen, 1.0)).xyz; vCang = (ocv.z > 0.0) ? length(ocv.xy)/ocv.z : 1e9;   // ⊥ distance from the view axis (reveal tube)
+  vec3 ocv = (view * vec4(ocenW, 1.0)).xyz; vCang = (ocv.z > 0.0) ? length(ocv.xy)/ocv.z : 1e9;   // ⊥ distance from the view axis (reveal tube)
   gl_Position = projection * vp;
 }`;
 BABYLON.Effect.ShadersStore['bondFragmentShader'] = `
@@ -1461,6 +1484,9 @@ varying float vCang;
 varying vec3 vMemW; uniform vec3 memCut;
 varying float vMemAnc; attribute float memAnc;   // per-lipid anchor Z → whole-lipid cross-cut
 #endif
+#ifdef LIPWRAP
+uniform vec3 tileOff;    // membrane wrap - see the imp shader
+#endif
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/bond shaders exactly so a lipid's orbitals ride with it.
@@ -1469,6 +1495,10 @@ vec3 memSway(vec3 b){ float ph = b.x*0.28 + b.z*0.24;
 #endif
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
+#ifdef LIPWRAP
+  W[3].xyz += tileOff;   // membrane wrap - this cell is repeated to the copy nearest the camera, and doing
+                         // it HERE means every downstream use (centre, shake, sway, reveal cone) follows
+#endif
   vec4 wp = W * vec4(position, 1.0); wp.xyz += shakeOff(W[3].xyz);
 #ifdef MEMFADE
   wp.xyz += memSway(W[3].xyz);
@@ -1483,7 +1513,11 @@ void main(void){
 #endif
 #ifdef MEMFADE
   vMemW = wp.xyz;
+#ifdef LIPWRAP
+  vMemAnc = memAnc + tileOff.z;   // wrapped copy: its anchor moves with it
+#else
   vMemAnc = memAnc;
+#endif
 #endif
   vec4 vp = view * wp;
   vViewPos = vp.xyz;
@@ -1493,9 +1527,14 @@ void main(void){
   vec3 wn = cross(M1,M2)*normal.x + cross(M2,M0)*normal.y + cross(M0,M1)*normal.z;
   vNrmV = (view * vec4(wn, 0.0)).xyz;
   vCol = ocol;   // orbitals ALWAYS keep their element colour — per-model pastel applies to the vdW spheres only
-  vSel = step(distance(ocen, selCenter), 0.6);   // 1 = belongs to the selected atom
+#ifdef LIPWRAP
+  vec3 ocenW = ocen + tileOff;   // ocen is a WORLD attribute, so a wrapped copy has to carry it along -
+#else
+  vec3 ocenW = ocen;             // the reveal cone keys off it, which is what makes orbitals appear
+#endif
+  vSel = step(distance(ocenW, selCenter), 0.6);   // 1 = belongs to the selected atom
   vOid = oid;
-  vec3 ocv = (view * vec4(ocen, 1.0)).xyz; vCang = (ocv.z > 0.0) ? length(ocv.xy)/ocv.z : 1e9;   // ⊥ distance from the view axis (reveal tube)
+  vec3 ocv = (view * vec4(ocenW, 1.0)).xyz; vCang = (ocv.z > 0.0) ? length(ocv.xy)/ocv.z : 1e9;   // ⊥ distance from the view axis (reveal tube)
   gl_Position = projection * vp;
 }`;
 BABYLON.Effect.ShadersStore['orbFragmentShader'] = `
@@ -3902,13 +3941,14 @@ void main(void){
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
     attributes:['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'],
+    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'],
     samplers:['cofDepth'],
-    defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE'] });   // MEMFADE = membrane cross-cut fade
+    defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPWRAP'] });   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
   vdwMatStatic.setFloat('radius',1.0); vdwMatStatic.setFloat('isShell',0); vdwMatStatic.setFloat('shellMin',0); vdwMatStatic.setFloat('bubbleR',1e9);
   vdwMatStatic.setFloat('protonOutline',0); vdwMatStatic.setFloat('depthBias',0); vdwMatStatic.setFloat('coneCos',-1.0);
   vdwMatStatic.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); vdwMatStatic.backFaceCulling=false; realAlpha(vdwMatStatic); vdwMatStatic.setFloat('selModel', -1);
-  vdwMatStatic.onBindObservable.add(()=>{ const eff=vdwMatStatic.getEffect(); if(!eff)return;
+  vdwMatStatic.onBindObservable.add(mesh=>{ const eff=vdwMatStatic.getEffect(); if(!eff)return;
+    eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → membrane vdW goes 50% transparent where revealed
     eff.setFloat('uT',gWaveT); eff.setFloat('boil', gBoil); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); });
@@ -3944,9 +3984,10 @@ void main(void){
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
     ['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    ['memCut','focalD','depthK','depthLo','startOff','spread'],
-    ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE']);
-  vdwStaticFarMat.onBindObservable.add(()=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
+    ['memCut','tileOff','focalD','depthK','depthLo','startOff','spread'],
+    ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPWRAP']);
+  vdwStaticFarMat.onBindObservable.add(mesh=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
+    eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
     eff.setFloat('uT',gWaveT); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
@@ -4665,6 +4706,8 @@ void main(void){
   const bilayerCen = new BABYLON.Vector3(memCenX, MEMBRANE_Y, memCenZ);
   let bilayerHalf = 0;
   let gMemSlab = null;        // the megacheap membrane: one flat slab standing in for the far lipids
+  const gTileZero = new BABYLON.Vector3(0,0,0);
+  let gMemSpanX = 0, gMemSpanZ = 0;   // the lipid lattice's exact period, so a copy lands seamlessly on it
   let gSlabR=0, gSlabG=0, gSlabB=0, gSlabN=0, gSlabDone=false;   // running mean of the lipid spheres' own colours
   let buildMembrane = null;   // the heavy lipid membrane build, deferred to run AFTER the scene is revealed (complexes show first, membrane fills in)
   if(lipids.length){
@@ -4715,6 +4758,7 @@ void main(void){
     const halfX=(Gx-1)*S*0.5, halfZ=(Gz-1)*S*0.5;
     const JIT = S*0.34;   // per-tile in-plane position jitter → breaks the crystalline grid
     bilayerHalf = Math.max(halfX, halfZ) + Math.max(xr,zr) + JIT + S*0.5;   // +S*0.5 = the row stagger below
+    gMemSpanX = Gx*S; gMemSpanZ = Gz*S;   // exact lattice period - a copy at one span lands on the grid
     /* ── MEGACHEAP membrane ── the third quality tier, below crisp and cheap.
        The detailed lipid sheet cannot simply be made ten times bigger: its pitch is derived from the
        sheet AREA against a fixed lipid budget, so a 10x sheet would come out with the same 20000 lipids
@@ -4843,11 +4887,12 @@ void main(void){
     const NEAR_R = Math.max(60, S*3);   // "close to the camera" → nuclei + electrons switch on inside this
     const mkLipMat = (nm, shader, attrs, extra) => {
       const mat = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs,
-        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec','elecR','memCut','selModel'].concat(extra||[]),
-        defines:['#define ELECGATE','#define MEMFADE'] });   // ELECGATE isolates elecR, MEMFADE = the cross-cut fade
+        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec','elecR','memCut','selModel','tileOff'].concat(extra||[]),
+        defines:['#define ELECGATE','#define MEMFADE','#define LIPWRAP'] });   // ELECGATE isolates elecR, MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
       mat.setFloat('bubbleR',1e9); mat.setFloat('nElec',2); mat.setFloat('coneCos',-1.0);
       mat.setFloat('drawElec',1); mat.setFloat('elecR', NEAR_R); mat.backFaceCulling=true; mat.setFloat('selModel', -1);   // orbitals always, electrons only up close
-      mat.onBindObservable.add(()=>{ const eff=mat.getEffect(); if(!eff) return;
+      mat.onBindObservable.add(mesh=>{ const eff=mat.getEffect(); if(!eff) return;
+        eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
         eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 2 → membrane orbitals only inside the close forward cone
         eff.setFloat('uT', gWaveT); eff.setVector3('selCenter', selCenter); eff.setFloat('focusId', gFocusId); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
         eff.setColor3('fogColor', scene.fogColor); eff.setFloat('fogStart', scene.fogStart); eff.setFloat('fogEnd', scene.fogEnd); });
@@ -4918,7 +4963,11 @@ void main(void){
         sphMesh.material=vdwMatStatic; sphMesh.isPickable=false; sphMesh.alwaysSelectAsActiveMesh=true; sphMesh.renderingGroupId=1;
         sphMesh.thinInstanceSetBuffer('matrix',sM,16,true); sphMesh.thinInstanceSetBuffer('instanceColor',sC,4,true); sphMesh.thinInstanceSetBuffer('instR',sR,1,true); sphMesh.thinInstanceSetBuffer('memAnc',sAnc,1,true); sphMesh.thinInstanceCount=si;
         coreMesh.setEnabled(false); bondMesh.setEnabled(false); sphMesh.setEnabled(false);
-        cellList.push({ cx:bcX, cy:bilayerCen.y, cz:bcZ, meshes:[coreMesh,bondMesh], nuc:null, sphere:sphMesh, macro:false, r:blockR, visOn:false, nucOn:false, sphOn:false, sphEnd, sphFull:si, sphCount:si });
+        /* One offset object per cell, shared by its three meshes, so the wrap below is a single write
+           per cell and the shader picks it up through mesh.metadata. */
+        const off = new BABYLON.Vector3(0,0,0);
+        coreMesh.metadata = {off}; bondMesh.metadata = {off}; sphMesh.metadata = {off};
+        cellList.push({ cx:bcX, cy:bilayerCen.y, cz:bcZ, meshes:[coreMesh,bondMesh], nuc:null, sphere:sphMesh, macro:false, r:blockR, visOn:false, nucOn:false, sphOn:false, sphEnd, sphFull:si, sphCount:si, off });
       }
       await yield_();
     } }
@@ -5896,7 +5945,13 @@ void main(void){
        rebuild. Thinning the sheet used to be off the table because it visibly changed its density, but
        that was when there was nothing behind it. The slab is behind it now, in the lipids' own colour,
        so a thinned sheet reads as less TEXTURE rather than as holes. */
-    const MEM1 = (gMega*0.25)*(gMega*0.25), MEM2 = (gMega*0.5)*(gMega*0.5), MEM3 = (gMega*0.75)*(gMega*0.75);
+    /* The wrapped sheet covers exactly ONE lattice period centred on the camera, so its own reach is
+       half a period - past that a cell has wrapped to the other side and there is nothing there. Draw
+       the membrane beyond that and the sheet would stop at a hard edge instead of thinning out, so the
+       ramp is squeezed into whichever is smaller: the megacheap radius, or half the period. */
+    const memR = Math.min(gMega, Math.min(gMemSpanX, gMemSpanZ) * 0.5) || gMega;
+    const MEMR2 = memR*memR;
+    const MEM1 = (memR*0.25)*(memR*0.25), MEM2 = (memR*0.5)*(memR*0.5), MEM3 = (memR*0.75)*(memR*0.75);
     const memFrac = (cell, f) => { const e = cell.sphEnd;
       if(!e || !e.length) return cell.sphFull;
       return e[Math.max(0, Math.min(e.length-1, Math.round(e.length*f)-1))]; };
@@ -5920,7 +5975,20 @@ void main(void){
         const px=mm[mo]*bx+mm[mo+4]*by+mm[mo+8]*bz+mm[mo+12], py=mm[mo+1]*bx+mm[mo+5]*by+mm[mo+9]*bz+mm[mo+13], pz=mm[mo+2]*bx+mm[mo+6]*by+mm[mo+10]*bz+mm[mo+14];
         const lx=px-cx0, ly=py-cy0, lz=pz-cz0;   // 2) then the PSII macro transform about macroCenter
         wcx=M[0]*lx+M[4]*ly+M[8]*lz+M[12]; wcy=M[1]*lx+M[5]*ly+M[9]*lz+M[13]; wcz=M[2]*lx+M[6]*ly+M[10]*lz+M[14]; }
-      else { wcx=cell.cx; wcy=cell.cy; wcz=cell.cz; }   // membrane cells don't follow the PSII gizmo
+      else {
+        /* Repeat each membrane cell into whichever copy of the lattice is nearest the camera. The
+           detailed sheet only spans one period, but the slab under it runs ten times further, so
+           without this you could fly out over the slab, zoom in, and find nothing there to become
+           crisp. Wrapping per CELL rather than per sheet means cells always surround you and there is
+           no edge to cross - the sheet is effectively endless, at the cost of repeating every period.
+           The period is exact (Gx*S), so copies land on the lattice and the seam is invisible. */
+        if(gMemSpanX > 0){
+          const ox = Math.round((cp.x - cell.cx)/gMemSpanX)*gMemSpanX;
+          const oz = Math.round((cp.z - cell.cz)/gMemSpanZ)*gMemSpanZ;
+          if(cell.off.x !== ox || cell.off.z !== oz) cell.off.set(ox, 0, oz);
+          wcx=cell.cx+ox; wcy=cell.cy; wcz=cell.cz+oz;
+        } else { wcx=cell.cx; wcy=cell.cy; wcz=cell.cz; }   // membrane cells don't follow the PSII gizmo
+      }
       const vx=wcx-cp.x, vy=wcy-cp.y, vz=wcz-cp.z, d2=vx*vx+vy*vy+vz*vz;
       let vis = true;                                    // in the view frustum?
       if(d2 > cM*cM){
@@ -5938,7 +6006,7 @@ void main(void){
          outright by the slab underneath it, which costs two triangles for the whole sheet instead of
          a few thousand impostors per cell. Proteins are the content, so they are never dropped - they
          just thin much harder (see the instance count below). */
-      const mega = d2 > MEGA2 + cR*cR;
+      const mega = d2 > (cell.macro ? MEGA2 : MEMR2) + cR*cR;
       const wantSph = vis && !!cell.sphere && (!gCullOnly || d2 < closeR*closeR) && !(mega && !cell.macro);
       const nucR = gCrisp*0.5 + cR + 8;                     // nuclei use their OWN tight range, not the orbital one
       const wantNuc = vis && gGfxMode === 1 && d2 < nucR*nucR;   // nuclei: mode 1, genuinely up close only
