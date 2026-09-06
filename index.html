@@ -648,7 +648,6 @@ vec3 shake(vec3 p){ return p + 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1
 attribute vec3 wOrig;
 attribute vec3 wVel;
 uniform vec3 boxLo;
-uniform vec3 camCen;     // camera position - the free swarm is tiled around it so it has no walls
 uniform vec3 boxHi;
 /* Molecule-vs-molecule collisions ride ON TOP of that analytic path as a DISPLACEMENT, looked up per
    molecule from a texture. The analytic wave stays the reference trajectory and costs nothing, while
@@ -727,14 +726,6 @@ void main(void){
                    bnc(wOrig.y + wVel.y*uT, boxLo.y, boxHi.y),
                    bnc(wOrig.z + wVel.z*uT, boxLo.z, boxHi.z));
   wCen += molDisp();          // collision deviation, zero for anything the CPU is not simulating
-  /* Tile the swarm around the camera instead of letting it end. bnc() alone reflects the molecules
-     inside a fixed box, so fly past its wall and the medium simply stops - a visible rectangular edge
-     with nothing beyond it. Wrapping by the box span puts every molecule in the copy nearest the
-     camera, so the swarm always surrounds you. The molecules are interchangeable, so the repetition
-     is invisible - it is the same trick the membrane sheet uses, one period at a time.
-     Done BEFORE the shells, so a molecule that wraps into a protein is still pushed out of it. */
-  { vec3 span = boxHi - boxLo;
-    wCen -= span * floor((wCen - camCen)/span + 0.5); }
 #ifdef NSHELL
   wCen = repelShells(wCen);   // the protein shells still win: they are applied last
 #endif
@@ -4840,8 +4831,6 @@ void main(void){
   let gMemFullR = 1e9;        // radius out to which the sheet keeps FULL lipid density - orbitals never go past it
   let gWorldReach = 0;        // how far the furthest thing in the scene actually is - the far clip must clear it
   let gMemCellR = 0;          // radius of one membrane cell - every margin below has to clear a whole one
-  let gBoxSpanX = 0, gBoxSpanY = 0, gBoxSpanZ = 0;   // free-swarm tiling period, so the medium has no walls
-  const boxWrap = (v, c, span) => v - span*Math.floor((v-c)/span + 0.5);
   /* ── ONE derived set of membrane LOD radii ────────────────────────────────────────────────────────
      These are not independent numbers, and every time they were written out separately one of them
      drifted and the sheet showed it: bare orbital lobes where the vdW shells had already been thinned
@@ -5505,11 +5494,10 @@ void main(void){
     apply();
   }
 
-  /* ── The medium: water and the free species, kinematic (constant velocity, reflecting at the faces).
-     The box below is still what sets their PERIOD, but it is no longer a container: the vertex shader
-     tiles the swarm around the camera, so the same molecules are drawn in whichever copy of the box you
-     are standing in and the medium never ends. Its wireframe used to be drawn as a cage - that is off
-     now, since it would outline a boundary that no longer exists. */
+  /* ── Container box enclosing every model, with the free molecules flying inside and bouncing off
+     the walls (kinematic — constant velocity, reflect at the faces). They were briefly tiled around the
+     camera instead, so the medium never ended - but pulled back for an overview that left you buried in
+     near molecules with the complexes tiny underneath, so they are contained again. */
   {
     let x0=gMiX,x1=gMaX,y0=gMiY,y1=gMaY,z0=gSceneZmin,z1=gSceneZmax;   // Z from the FLATTENED bounds (gMiZ/gMaZ are the huge pre-flatten range) → box hugs the molecule sheet
     if(lipids.length){ x0=Math.min(x0,bilayerCen.x-bilayerHalf); x1=Math.max(x1,bilayerCen.x+bilayerHalf);
@@ -5521,7 +5509,6 @@ void main(void){
     const E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
     const box=BABYLON.MeshBuilder.CreateLineSystem('cbox',{lines:E.map(e=>[new BABYLON.Vector3(...V[e[0]]), new BABYLON.Vector3(...V[e[1]])])},scene);
     box.color=new BABYLON.Color3(0.42,0.5,0.6); box.alpha=0.5; box.isPickable=false;
-    box.setEnabled(false);   // the swarm tiles past it now, so the cage would mark a wall that is not there
 
     // Spawn plane for hand-dropped atoms: the mid-Z plane through the scene centre, bounded to a
     // region around the models. (The inner reference cage that used to visualise this was removed.)
@@ -5555,10 +5542,6 @@ void main(void){
        60000 matrices every frame cost ~8 ms per frame, which is most of the frame budget. */
     const oR = info(codeO).vr*FILL_SCALE;
     const bLo = new BABYLON.Vector3(x0+oR, y0+oR, z0+oR), bHi = new BABYLON.Vector3(x1-oR, y1-oR, z1-oR);
-    /* The same tiling the shader does, for the JS side. Every gather that recomputes a molecule's
-       position - the water orbitals, the CO2/O2 orbitals, the collision pass - has to wrap exactly as
-       the vertex shader does, or a molecule's lobes are left behind in the copy its atoms just left. */
-    gBoxSpanX = bHi.x-bLo.x; gBoxSpanY = bHi.y-bLo.y; gBoxSpanZ = bHi.z-bLo.z;
     // solid = never turn to glass. The reveal bubble is what makes a molecule go clear inside the crisp
     // zone so its orbitals show through. Only species that HAVE orbitals want it: water, CO2 and O2.
     // Free protons stay solid because a bare nucleus has no electron cloud to reveal.
@@ -5566,7 +5549,7 @@ void main(void){
     // would be invisible everywhere except inside the crisp zone.)
     const wMat=(rad, solid)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad,scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
-        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','camCen','molTexDim','shellCen','shellRot','shellR2'],
+        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2'],
         samplers:['shellTex','molTex'],
         defines: NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
                      : ['#define WATERBOX'] });
@@ -5577,7 +5560,7 @@ void main(void){
       realAlpha(m);
       m.onBindObservable.add(()=>{const eff=m.getEffect();if(!eff)return; eff.setFloat('uT',gWaveT);
         eff.setFloat('bubbleR', solid ? 0 : gCrisp);   // glass only where the orbitals are actually drawn
-        eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi); eff.setVector3('camCen', cam.position);
+        eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi);
         eff.setFloat('molTexDim', MOLTEX_DIM); eff.setTexture('molTex', gMolTex);
         if(NSH){ eff.setTexture('shellTex', gShellTex); eff.setArray3('shellCen', gShellCen);
                  eff.setMatrix3x3('shellRot', gShellRot); eff.setFloatArray('shellR2', gShellR2); }
@@ -5653,8 +5636,9 @@ void main(void){
       return {c, v, ax, n};   // the orbital builder below rides these same bodies
     };
     const cR = info(codeC).vr*FILL_SCALE;
-    // Free protons — crimson, and small: a bare nucleus has no electron cloud to fill a vdW sphere.
-    const FREE_P = mkFree('p', 20000, 91731, [{tag:'H', r:info(codeH).vr*FILL_SCALE*0.42, col:[0.90,0.24,0.30], d:0}], MOLBASE.p, true);
+    // Free protons — crimson, and the SAME radius as a proton drawn inside a nucleus (NUCLEON_R), because
+    // it is the same particle. That makes them very small: sub-pixel except up close, which is honest.
+    const FREE_P = mkFree('p', 20000, 91731, [{tag:'H', r:NUCLEON_R, col:[0.90,0.24,0.30], d:0}], MOLBASE.p, true);
     // CO2 — charcoal carbon between two slate oxygens, C=O 1.16 Å. Reads as grey smoke against the water.
     const FREE_CO2 = mkFree('co2', 20000, 218347, [{tag:'C', r:cR, col:[0.24,0.25,0.28], d:0},
                                   {tag:'Oa', r:oR, col:[0.52,0.55,0.60], d: 1.16},
@@ -5764,11 +5748,11 @@ void main(void){
       const capped = WCAP < NW;
       let n=0, worst=Infinity;
       for(let i=0;i<NW;i++){
-        const px=boxWrap(bnc(wc[i*3]  +wv[i*3]  *T, bLo.x, bHi.x), cp.x, gBoxSpanX);   // tiled around the camera, exactly as the vertex shader does
+        const px=bnc(wc[i*3]  +wv[i*3]  *T, bLo.x, bHi.x);
         const dx=px-cp.x; if(dx*dx>R2) continue;                       // cheap axis reject before the rest
-        const py=boxWrap(bnc(wc[i*3+1]+wv[i*3+1]*T, bLo.y, bHi.y), cp.y, gBoxSpanY);
+        const py=bnc(wc[i*3+1]+wv[i*3+1]*T, bLo.y, bHi.y);
         const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
-        const pz=boxWrap(bnc(wc[i*3+2]+wv[i*3+2]*T, bLo.z, bHi.z), cp.z, gBoxSpanZ);
+        const pz=bnc(wc[i*3+2]+wv[i*3+2]*T, bLo.z, bHi.z);
         const dz=pz-cp.z; const d2=dx*dx+dy*dy+dz*dz; if(d2>R2) continue;
         /* The shader adds the collision displacement and then repels off the protein shells, so this
            mirror must do BOTH in the same order or the lobes drift off the atoms they belong to. */
@@ -5924,11 +5908,11 @@ void main(void){
           for(let spi=0; spi<gSpecies.length; spi++){
             const sp = gSpecies[spi], c = sp.c, v = sp.v, base = sp.base, cnt = sp.n;
             for(let i=0; i<cnt && nAct<SIM_CAP; i++){
-              const px = boxWrap(bnc(c[i*3]   + v[i*3]  *T, bLo.x, bHi.x), cp.x, gBoxSpanX);
+              const px = bnc(c[i*3]   + v[i*3]  *T, bLo.x, bHi.x);
               const dx = px - cp.x; if(dx*dx > R2) continue;
-              const py = boxWrap(bnc(c[i*3+1] + v[i*3+1]*T, bLo.y, bHi.y), cp.y, gBoxSpanY);
+              const py = bnc(c[i*3+1] + v[i*3+1]*T, bLo.y, bHi.y);
               const dy = py - cp.y; if(dx*dx + dy*dy > R2) continue;
-              const pz = boxWrap(bnc(c[i*3+2] + v[i*3+2]*T, bLo.z, bHi.z), cp.z, gBoxSpanZ);
+              const pz = bnc(c[i*3+2] + v[i*3+2]*T, bLo.z, bHi.z);
               const dz = pz - cp.z; if(dx*dx + dy*dy + dz*dz > R2) continue;
               idx[nAct] = base + i; spk[nAct] = spi; mi_[nAct] = i; nAct++;
             }
@@ -5937,12 +5921,9 @@ void main(void){
         const n = nAct;
         for(let k=0;k<n;k++){
           const sp = gSpecies[spk[k]], i = mi_[k], id = idx[k], c = sp.c, v = sp.v;
-          /* Wrapped like everything else. The DISPLACEMENT written back is a difference of two wrapped
-             positions, so the tiling cancels out of it and the shader - which wraps after adding the
-             displacement - lands in the same place. */
-          const px = boxWrap(bnc(c[i*3]   + v[i*3]  *T, bLo.x, bHi.x), cp.x, gBoxSpanX);
-          const py = boxWrap(bnc(c[i*3+1] + v[i*3+1]*T, bLo.y, bHi.y), cp.y, gBoxSpanY);
-          const pz = boxWrap(bnc(c[i*3+2] + v[i*3+2]*T, bLo.z, bHi.z), cp.z, gBoxSpanZ);
+          const px = bnc(c[i*3]   + v[i*3]  *T, bLo.x, bHi.x);
+          const py = bnc(c[i*3+1] + v[i*3+1]*T, bLo.y, bHi.y);
+          const pz = bnc(c[i*3+2] + v[i*3+2]*T, bLo.z, bHi.z);
           ax_[k] = px; ay_[k] = py; az_[k] = pz;
           bx_[k] = v[i*3]; by_[k] = v[i*3+1]; bz_[k] = v[i*3+2];
           sx[k] = px + gMolDisp[id*4];               // analytic path plus whatever deviation it carries
@@ -6110,11 +6091,11 @@ void main(void){
         const T = gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed;
         let n=0;
         for(let i=0;i<F.n;i++){
-          const px=boxWrap(bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x), cp.x, gBoxSpanX);
+          const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x);
           const dx=px-cp.x; if(dx*dx>R2) continue;
-          const py=boxWrap(bnc(F.c[i*3+1]+F.v[i*3+1]*T, bLo.y, bHi.y), cp.y, gBoxSpanY);
+          const py=bnc(F.c[i*3+1]+F.v[i*3+1]*T, bLo.y, bHi.y);
           const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
-          const pz=boxWrap(bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z), cp.z, gBoxSpanZ);
+          const pz=bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z);
           const dz=pz-cp.z; if(dx*dx+dy*dy+dz*dz>R2) continue;
           const md=(F.base+i)*4;   // same mirror, same order: displacement first, then the shells
           _lp[0]=px+gMolDisp[md]; _lp[1]=py+gMolDisp[md+1]; _lp[2]=pz+gMolDisp[md+2];
