@@ -622,7 +622,7 @@ uniform mat4 macroXform; uniform vec3 macroCenter;
 #endif
 #ifdef MODELMOVE
 attribute float modelId;         // which loaded model this instance belongs to (index into modelOff)
-uniform mat4 modelXform[48];     // per-model transform (rotate around centre + translate) for repositioning
+uniform mat4 modelXform[80];     // per-model transform (rotate around centre + translate) for repositioning
 uniform vec3 modelCol[48];       // per-model pastel colour
 uniform float colorMode;         // 1 = colour by model (pastel), 0 = by element
 #endif
@@ -1145,7 +1145,7 @@ attribute vec4 world0; attribute vec4 world1; attribute vec4 world2; attribute v
 attribute float dr;                            // this atom's tube radius in WORLD units, Ångström (0 = its type is toggled off)
 attribute float modelId;                       // which loaded model this cofactor atom belongs to
 uniform mat4 view; uniform mat4 projection;
-uniform mat4 modelXform[48];                   // per-model transform so the cone follows a moved molecule
+uniform mat4 modelXform[80];                   // per-model transform so the cone follows a moved molecule
 varying vec2 vq; varying float vz;
 void main(void){
   vec3 center = vec3(world3.x, world3.y, world3.z);   // instance translation = atom centre
@@ -1182,7 +1182,7 @@ attribute vec4 world0; attribute vec4 world1; attribute vec4 world2; attribute v
 attribute float dr;                            // this atom's vdW radius in world units
 attribute float modelId;                       // which loaded model this cofactor atom belongs to
 uniform mat4 view; uniform mat4 projection;
-uniform mat4 modelXform[48];                   // per-model transform so the silhouette follows a moved molecule
+uniform mat4 modelXform[80];                   // per-model transform so the silhouette follows a moved molecule
 uniform float boilQuad;                        // quad expansion so the boil bulge is not clipped
 uniform float uT; uniform float boil;
 varying vec2 vq; varying vec3 vWC;
@@ -1319,7 +1319,7 @@ uniform float uT;          // thermal-shake time
 uniform mat4 macroXform; uniform vec3 macroCenter;
 #endif
 #ifdef MODELMOVE
-attribute float modelId; uniform mat4 modelXform[48];
+attribute float modelId; uniform mat4 modelXform[80];
 uniform vec3 modelCol[48]; uniform float colorMode;
 #endif
 varying float vMid;      // this instance's model index (-1 = untagged) -> sage selection rim
@@ -1632,7 +1632,7 @@ uniform float uT;          // thermal-shake time
 uniform mat4 macroXform; uniform vec3 macroCenter;  // whole-macromolecule drag offset (only movable materials define this)
 #endif
 #ifdef MODELMOVE
-attribute float modelId; uniform mat4 modelXform[48];
+attribute float modelId; uniform mat4 modelXform[80];
 uniform vec3 modelCol[48]; uniform float colorMode;
 #endif
 varying float vMid;      // this instance's model index (-1 = untagged) -> sage selection rim
@@ -2217,7 +2217,7 @@ attribute vec3 rcol;       // per-ring element colour
 attribute float modelId;   // which model this ring belongs to
 uniform mat4 view;
 uniform mat4 projection;
-uniform mat4 modelXform[48];   // per-model transform - the tori must follow their molecule exactly as its atoms do
+uniform mat4 modelXform[80];   // per-model transform - the tori must follow their molecule exactly as its atoms do
 uniform mat4 macroXform;
 uniform vec3 macroCenter;
 uniform float uT;
@@ -2549,7 +2549,22 @@ async function run(){
       m.cfg = Object.assign({}, src.cfg, cfg); m.cfg._used = true; m.name = cfg.label; m.shuttle = kind; m.shuttleK = k; mols.push(m); };
     const pq = mols.find(m => m.cfg && m.cfg.match === 'plastoquinone'), pc = mols.find(m => m.cfg && m.cfg.match === '1ag6');
     if(pq) for(let k=0;k<10;k++) clone(pq, { match:'pq-shuttle-'+k, label:'Plastokinoni', x:-400 + k*20, y:0, z:-40 + (k%2)*80 }, 'pq', k);
-    if(pc){ pc.shuttle = 'pc'; pc.shuttleK = 0; for(let k=1;k<10;k++) clone(pc, { match:'pc-shuttle-'+k, label:'Plastosyaniini', x:-100 + k*30, y:-190, z:-60 + (k%3)*60 }, 'pc', k); } }
+    if(pc){ pc.shuttle = 'pc'; pc.shuttleK = 0; for(let k=1;k<10;k++) clone(pc, { match:'pc-shuttle-'+k, label:'Plastosyaniini', x:-100 + k*30, y:-190, z:-60 + (k%3)*60 }, 'pc', k); }
+    /* Fill the membrane. The complexes sit in one strip along x at z about 0, while the sheet is 1240
+       deep - so the whole set (the five membrane complexes and the nine loose proteins) is repeated in
+       two more rows at z = -410 and +410. Each copy is a full model of its own (same clone path as the
+       shuttles): it renders, picks, casts a shell, cuts the lipids under it, and the loose ones bounce.
+       Only the first of each label drives the special cases (the ATP synthase rotor, the shuttle sites,
+       the PSII gizmo). The labels are kept, so the info panels work on the copies too. (2026-09-06) */
+    { const DUP = ['Photosystem II','Cytochrome b6f','Photosystem I','NDH-1','ATP synthase','Violaxanthin de-epoxidase','Ferredoxin','FNR','RuBisCO','PGR5','PGRL1','STN7','PPH1','Zeaxanthin epoxidase'];
+      /* MEMORY. Every atom instance carries CPU-side buffers (matrices, colours, orbital lobes, nucleons),
+         so a full extra set of complexes costs on the order of a gigabyte of JS heap. Two extra rows put
+         the heap at 4.6 GB against Chrome's 4 GB limit and the renderer died. DUP_ROWS is therefore what
+         fits, and ?rows=N on the URL overrides it for measuring. */
+      const DUP_ROWS = Math.max(0, Math.min(2, +(new URLSearchParams(location.search).get('rows') ?? 1)));
+      const srcs = mols.filter(m => m.cfg && DUP.includes(m.cfg.label) && !m.shuttle);
+      for(const dz of (DUP_ROWS === 2 ? [-410, 410] : DUP_ROWS === 1 ? [410] : [])) for(const src of srcs)
+        clone(src, { match: src.cfg.match + '-row' + dz, label: src.cfg.label, x: src.cfg.x, y: src.cfg.y, z: (src.cfg.z || 0) + dz }, undefined, 0); } }
 
   // Bake per-model rotation (Euler degrees rx,ry,rz read off the gizmo label) around each model's
   // centroid, so the orientation persists. Uses Babylon's YawPitchRoll(y,x,z) — the inverse of
@@ -3935,7 +3950,7 @@ void main(void){
   const gCut = new Float32Array([0, 1, 0]);   // membrane cross-cut: [cutZ, cutSign, strength] (bound as memCut[])
   const MEM_FADE_S = 1.0;      // seconds the membrane takes to fade fully out / back in
   let memCutOn = false;        // latched threshold state (hysteresis) driving that fade
-  const MAX_MODELS = 48;   // room for the shuttling plastoquinone / plastocyanin copies and the rotor slot
+  const MAX_MODELS = 80;   // room for the shuttles, the rotor slot and the two duplicate rows of complexes (keep in step with modelXform[80] in the shaders)
   const gModelOff = new Float32Array(MAX_MODELS*3);   // per-model translation offset (for picking + the label)
   const gModelXform = new Float32Array(MAX_MODELS*16);   // per-model full transform (rotate around centre + translate) → bound as modelXform[]
   const gModelQuat = new Float32Array(MAX_MODELS*4);     // per-model rotation quaternion (x,y,z,w)
@@ -6095,9 +6110,18 @@ void main(void){
   {
     let x0=gMiX,x1=gMaX,y0=gMiY,y1=gMaY,z0=gSceneZmin,z1=gSceneZmax;   // Z from the FLATTENED bounds (gMiZ/gMaZ are the huge pre-flatten range) → box hugs the molecule sheet
     if(lipids.length){ x0=Math.min(x0,bilayerCen.x-bilayerHalf); x1=Math.max(x1,bilayerCen.x+bilayerHalf);
-      y0=Math.min(y0,bilayerCen.y-30); y1=Math.max(y1,bilayerCen.y+30); }   // box Z keeps hugging the molecule sheet — do NOT stretch it over the bilayer's huge pre-flatten Z span
+      y0=Math.min(y0,bilayerCen.y-30); y1=Math.max(y1,bilayerCen.y+30); }
+    const bw0=(x1-x0)+50, bh0=(y1-y0)+50, bd0=(z1-z0)+50;   // the OLD box (what the particle counts were tuned for), for the fill factor below
+    // The box spans the WHOLE membrane sheet (its full footprint in x and z, not just the detailed patch
+    // or the molecule strip), so the medium fills the space the membrane defines. (2026-09-06)
+    if(lipids.length && gMemFootX < 1e8){ x0=Math.min(x0,bilayerCen.x-gMemFootX); x1=Math.max(x1,bilayerCen.x+gMemFootX);
+      z0=Math.min(z0,bilayerCen.z-gMemFootZ); z1=Math.max(z1,bilayerCen.z+gMemFootZ); }
     const pad=25; x0-=pad;x1+=pad;y0-=pad;y1+=pad;z0-=pad;z1+=pad;
     const bw=x1-x0, bh=y1-y0, bd=z1-z0;
+    /* FILL: the free species were tuned for the old box. The new one is several times the volume, so
+       their counts scale with it - capped at 3x so a fill-limited GPU still keeps up (the protons at 2x,
+       they are simulated on the CPU near the camera). Raise the caps here if the frame rate allows. */
+    const FILL = Math.min(3, Math.max(1, (bw*bh*bd)/(bw0*bh0*bd0)));
     // clean 12-edge wireframe box (no face diagonals)
     const V=[[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1],[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]];
     const E=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
@@ -6111,7 +6135,7 @@ void main(void){
     gSpawnPlaneZ = gcz;
     gSpawnBounds = {x0:gcx-iw, x1:gcx+iw, y0:gcy-ih, y1:gcy+ih};
 
-    const NW=20000, rnd=x=>{ const v=Math.sin(x*127.1)*43758.5453; return v-Math.floor(v); };   // free-floating water filling the container box
+    const NW=Math.round(20000*FILL), NP=Math.round(20000*Math.min(2,FILL)), NCO2=Math.round(20000*FILL), NO2=Math.round(5000*FILL), NNADP=Math.round(500*FILL), rnd=x=>{ const v=Math.sin(x*127.1)*43758.5453; return v-Math.floor(v); };   // free-floating water filling the container box
     const wc=new Float32Array(NW*3), wv=new Float32Array(NW*3), wh1=new Float32Array(NW*3), wh2=new Float32Array(NW*3);
     for(let i=0;i<NW;i++){
       // Seed each axis from its OWN stream (i*3+n, not i+n) — with i+n consecutive molecules share draws
@@ -6128,7 +6152,8 @@ void main(void){
       wh2[i*3]=oh*(ux*ca-qx*sa); wh2[i*3+1]=oh*(uy*ca-qy*sa); wh2[i*3+2]=oh*(uz*ca-qz*sa);
     }
     // Global molecule-id space, shared by the molId attribute and the collision texture.
-    const MOLBASE = { w:0, p:20000, co2:40000, o2:60000, nadp:65000 };   // 65500 molecules into 65536 slots
+    const MOLBASE = { w:0, p:NW, co2:NW+NP, o2:NW+NP+NCO2, nadp:NW+NP+NCO2+NO2 };   // molecule id ranges, laid end to end from the counts (the id texture below is sized to fit)
+    const MOL_TOTAL = MOLBASE.nadp + NNADP;
     const codeO=codeOf('O'), codeH=codeOf('H');
     /* Everything below is uploaded ONCE. The molecules fly and bounce entirely in the vertex shader
        (see WATERBOX), driven by the existing uT clock — which is already advanced by dt × gSpeed, so the
@@ -6260,7 +6285,7 @@ void main(void){
          - a corona: a soft additive red disc well outside the shell, so the glow reaches the surroundings.
        The light they cast on neighbouring atoms is separate - see PLIGHT and the gather below. */
     const hR = info(codeH).vr*FILL_SCALE, hC = info(codeH).c;
-    const FREE_P = mkFree('p', 20000, 91731, [
+    const FREE_P = mkFree('p', NP, 91731, [
       {tag:'H', r:hR,        col:[hC[0],hC[1],hC[2]], d:0},
       /* The core was invisible for two reasons: it ran the same glass logic as the shell, so it turned
          transparent exactly inside the crisp zone where you would look for it, and it had no depth bias,
@@ -6269,11 +6294,11 @@ void main(void){
       {tag:'N', r:NUCLEON_R, col:[0.90,0.24,0.30],    d:0, solid:true, bias:hR, outline:true},
       {tag:'G', r:hR*2.8,    col:[1.0,0.26,0.13],     d:0, glow:true} ], MOLBASE.p, false);
     // CO2 — charcoal carbon between two slate oxygens, C=O 1.16 Å. Reads as grey smoke against the water.
-    const FREE_CO2 = mkFree('co2', 20000, 218347, [{tag:'C', r:cR, col:[0.24,0.25,0.28], d:0},
+    const FREE_CO2 = mkFree('co2', NCO2, 218347, [{tag:'C', r:cR, col:[0.24,0.25,0.28], d:0},
                                   {tag:'Oa', r:oR, col:[0.52,0.55,0.60], d: 1.16},
                                   {tag:'Ob', r:oR, col:[0.52,0.55,0.60], d:-1.16}], MOLBASE.co2, false);
     // O2 — oxygen's own red, the gas photosynthesis puts out. O=O 1.21 Å, so ±0.605 from the centre.
-    const FREE_O2 = mkFree('o2', 5000, 400391, [{tag:'a', r:oR, col:[0.94,0.15,0.15], d: 0.605},
+    const FREE_O2 = mkFree('o2', NO2, 400391, [{tag:'a', r:oR, col:[0.94,0.15,0.15], d: 0.605},
                                 {tag:'b', r:oR, col:[0.94,0.15,0.15], d:-0.605}], MOLBASE.o2, false);
     /* NADP(H): 500 copies of the loaded nadph model as a rigid free species in the stroma (spawned above
        the lipid layer, and the membrane wall keeps them there). Each atom is one mesh of 500 instances,
@@ -6283,7 +6308,7 @@ void main(void){
       if(nm && nm.na){ let cx=0, cy=0, cz=0; for(let k=0;k<nm.na;k++){ cx+=nm.x[k]; cy+=nm.y[k]; cz+=nm.z[k]; } cx/=nm.na; cy/=nm.na; cz/=nm.na;
         const NC = ETC_COL[10];   // NADP's own colour, the same as the displayed model and the bound one in FNR
         const atoms = []; for(let k=0;k<nm.na;k++){ const e = nm.el[k], I = info(e); atoms.push({ tag:'a'+k, r:I.vr*FILL_SCALE, col:[NC[0],NC[1],NC[2]], d:0, p:[nm.x[k]-cx, nm.y[k]-cy, nm.z[k]-cz], el:e }); }
-        FREE_NADP = mkFree('nadp', 500, 771231, atoms, MOLBASE.nadp, false, MEMBRANE_Y + gMemHalfT + 12);
+        FREE_NADP = mkFree('nadp', NNADP, 771231, atoms, MOLBASE.nadp, false, MEMBRANE_Y + gMemHalfT + 12);
         FREE_NADP.atoms = atoms; } }
 
     /* ── Water orbitals inside the crisp zone ───────────────────────────────────────────────────────
@@ -6486,8 +6511,8 @@ void main(void){
        before - no state, no integration, no upload. Only the ones near enough to see are simulated.
        Because the analytic motion is constant-velocity between wall bounces, adding a velocity delta on
        top of it is proper dynamics rather than a fudge: the reference frame just moves with it. */
-    const MOL_N = 65536;                 // texture slots: 256x256, comfortably over the 65000 molecules
-    const MOLTEX_DIM = 256;
+    const MOLTEX_DIM = MOL_TOTAL <= 65536 ? 256 : MOL_TOTAL <= 262144 ? 512 : 1024;   // id texture side: the smallest power of two square that holds every molecule
+    const MOL_N = MOLTEX_DIM*MOLTEX_DIM;
     const SIM_R = 260;                   // simulate within this of the camera
     const SIM_CAP = 2500;                // hard ceiling on simultaneously simulated molecules
     const MOL_R = 1.6;                   // collision radius per molecule (vdW-ish, scene units)

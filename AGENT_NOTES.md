@@ -70,6 +70,15 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 - Free molecules spin (analytic, in the WATERBOX vertex path): angle = per-molecule random mix of the
   bounced coordinates, so every wall bounce and collision changes the spin. Bouncing proteins re-roll
   their tumble axis and rate whenever a collision changes their velocity.
+- The scene is TWO rows deep: the 14 complexes/proteins of MODELS are cloned into a second row at
+  z = +410 (after the shuttle clones, same `clone()` path), 51 models in all, MAX_MODELS 80 (the shaders
+  declare modelXform[80] - keep them in step). DUP_ROWS (URL ?rows=0/1/2 overrides) - two extra rows
+  put the JS heap at 4.6 GB against Chrome's 4 GB limit and the renderer died, one row sits at 3.3 GB.
+  Every atom instance carries CPU-side buffers, so a full set costs about 1.3 GB - do not add models
+  without measuring `performance.memory`. Only the first of a label drives the special cases (ATP
+  rotor, shuttle sites, PSII gizmo). The particle box spans the whole membrane footprint (gMemFootX/Z)
+  and the free-species counts scale with its volume via FILL (cap 3x, protons 2x) - the molecule id
+  bases (MOLBASE) and the id texture size follow the counts. Build time 20-30 s, so a probe must wait.
 - The membrane slab tier is OFF by default (`gSlabLod`, dev button 'laatta-LoD'): lipids at every
   distance, no sheet wrap, slab hidden. The protein hull handover still uses memR.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
