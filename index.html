@@ -601,6 +601,13 @@ attribute vec4 world3;
 #ifdef IMPRAD
 attribute float instR;   // per-instance radius multiplier (vdW LOD spheres — one mesh, mixed elements)
 #endif
+#ifdef LIPTPL
+/* Template-instanced lipid spheres: the mesh holds one quad per ATOM of one lipid rotamer, with that
+   atom's offset, colour and radius baked per vertex, and the instance matrix is a pure translation per
+   LIPID. So a lipid costs one matrix instead of one per atom - which is what lets the sheet carry nine
+   times the lipids for the same memory. */
+attribute vec3 atomOff;
+#endif
 uniform mat4 view;
 uniform mat4 projection;
 uniform float radius;
@@ -736,6 +743,9 @@ void main(void){
 #endif
 #ifdef LIPTILE
   base += tileOff;
+#endif
+#ifdef LIPTPL
+  base += atomOff;   // this vertex's atom, inside the lipid the instance places
 #endif
   // Shake/boil are computed on the ORIGINAL (pre-model-transform) centre, then modelXform is applied to
   // BOTH the shaken point and the centre — exactly the order the orb shader uses. Doing modelXform first
@@ -4129,10 +4139,10 @@ void main(void){
     eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE); eff.setFloat('boil', gBoil);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
-    attributes:['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
+    attributes:['position','atomOff','instanceColor','instR','memAnc','world0','world1','world2','world3'],
     uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR','keyDir'],
     samplers:['cofDepth'],
-    defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPWRAP','#define PLIGHT'] });   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
+    defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPTPL','#define PLIGHT'] });   // LIPTPL: one instance per lipid, atoms baked per vertex   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
   vdwMatStatic.setFloat('radius',1.0); vdwMatStatic.setFloat('isShell',0); vdwMatStatic.setFloat('shellMin',0); vdwMatStatic.setFloat('bubbleR',1e9);
   vdwMatStatic.setFloat('protonOutline',0); vdwMatStatic.setFloat('depthBias',0); vdwMatStatic.setFloat('coneCos',-1.0);
   vdwMatStatic.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); vdwMatStatic.backFaceCulling=false; realAlpha(vdwMatStatic); vdwMatStatic.setFloat('selModel', -1);
@@ -4173,9 +4183,9 @@ void main(void){
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); bindPLight(eff); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
-    ['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
+    ['position','atomOff','instanceColor','instR','memAnc','world0','world1','world2','world3'],
     ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR','keyDir'],
-    ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPWRAP','#define PLIGHT']);
+    ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPTPL','#define PLIGHT']);
   vdwStaticFarMat.onBindObservable.add(mesh=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
     eff.setFloat('memDrift', gMemDrift); bindPLight(eff);
@@ -5001,8 +5011,13 @@ void main(void){
        The patch is made SQUARE because for a fixed area that maximises the half-period, and the
        half-period is exactly how far the sheet reaches before it has to repeat. */
     const MEM_DENSITY = 10;
-    const patchHalf = Math.sqrt(memHalfX*memHalfZ/MEM_DENSITY);
-    const areaPitch = Math.sqrt((4*patchHalf*patchHalf) / Math.max(1, TARGET_LIPIDS/2));   // pitch that spreads the budget over the patch
+    /* MEM_REACH scales the patch's side, so the sheet reaches MEM_REACH times further before it has to
+       repeat and hands over to the slab - at the SAME pitch, which means MEM_REACH squared times the
+       lipids. That was unaffordable when every atom of every lipid was a baked instance. The spheres
+       are template-instanced now, one translation per lipid, so nine times the lipids is a few MB. */
+    const MEM_REACH = 3;
+    const patchHalf = Math.sqrt(memHalfX*memHalfZ/MEM_DENSITY) * MEM_REACH;
+    const areaPitch = Math.sqrt((4*patchHalf*patchHalf) / Math.max(1, (TARGET_LIPIDS*MEM_REACH*MEM_REACH)/2));   // pitch that spreads the budget over the patch
     const S = Math.max(Math.max(xr,zr)*0.46, areaPitch, 5);
     const Gx = Math.max(4, Math.round(2*patchHalf/S)+1), Gz = Math.max(4, Math.round(2*patchHalf/S)+1);
     gMemDrift = S*0.85;   // a lipid wanders most of a lattice spacing, so it visibly passes its neighbours
@@ -5339,57 +5354,133 @@ void main(void){
         return { t:bestT, atom };
       }; }
 
-    /* The gather. One pass over the lipids, wrapping each onto the copy nearest the camera exactly as the
-       cell wrap does, and appending a translation to its template's instance buffer. A lipid costs one
-       matrix here where it used to cost three hundred, which is the whole point. */
-    let gOrbLive = false;
+    /* ── MEMBRANE SPHERES: template instances, gathered per block ─────────────────────────────────
+       Formerly every atom of every lipid was one thin instance in a per-cell mesh: a 16-float matrix,
+       colour, radius and anchor each - 70 MB for 20000 lipids, and a build that took a minute. Now each
+       of the 64 rotamer templates is ONE mesh whose vertices are a quad per atom (offset, colour and
+       radius baked in) and a lipid is a single instance: a translation. Nine times the lipids fit in a
+       few MB and the build is instant, because nothing per lipid is written until it is drawn.
+       The lipids are grouped into BL x BL blocks purely as index ranges with a centre and a radius, so
+       the per-frame pass culls ~10000 blocks rather than testing 180000 lipids, and thins a block by
+       taking a prefix of its STRIDED order - the same even-sample trick the old cells used. */
+    const BL = 4, nbx = Math.ceil(Gx/BL), nbz = Math.ceil(Gz/BL), NBLK = nbx*nbz*2;
+    const blockR = 0.5*Math.hypot(BL*S, ySpan+2*Math.max(xr,zr,1), BL*S) + JIT + S*0.5;   // +S*0.5 = the odd-row stagger
+    gMemCellR = blockR;   // every LOD margin is measured against a whole block, because the ramp is decided per block
+    const blkStart = new Int32Array(NBLK+1), blkCnt = new Int32Array(NBLK);
+    const blkCx = new Float32Array(NBLK), blkCz = new Float32Array(NBLK);
+    const blkOf = i => { const leaf = Math.floor(i/(Gx*Gz)), r = i - leaf*Gx*Gz, gi = Math.floor(r/Gz), gj = r - gi*Gz;
+      return (leaf*nbx + Math.floor(gi/BL))*nbz + Math.floor(gj/BL); };
+    for(let i=0;i<LIPN;i++){ const b=blkOf(i); blkCnt[b]++; blkCx[b]+=lipO[i*3]; blkCz[b]+=lipO[i*3+2]; }
+    for(let b=0;b<NBLK;b++){ blkStart[b+1]=blkStart[b]+blkCnt[b]; if(blkCnt[b]){ blkCx[b]/=blkCnt[b]; blkCz[b]/=blkCnt[b]; } }
+    const blkLip = new Int32Array(LIPN);
+    { const fill = new Int32Array(NBLK), tmp = [];
+      for(let i=0;i<LIPN;i++){ const b=blkOf(i); blkLip[blkStart[b]+fill[b]] = i; fill[b]++; }
+      // strided order inside each block, so any prefix is a spatially even sample of it
+      const gcd=(a,b)=>b?gcd(b,a%b):a;
+      for(let b=0;b<NBLK;b++){ const n=blkCnt[b]; if(n<2) continue;
+        let stride=5; while(stride>1 && gcd(stride,n)!==1) stride--;
+        tmp.length=0; for(let q=0,k=0;q<n;q++,k=(k+stride)%n) tmp.push(blkLip[blkStart[b]+k]);
+        for(let q=0;q<n;q++) blkLip[blkStart[b]+q]=tmp[q]; } }
+
+    // the 64 sphere templates: near (glass-capable) and far (opaque, cheap) twins sharing one geometry
+    const SPH_CAP = 2048;
+    const sphTpl = [];
+    { const corner = [-1,-1, 1,-1, 1,1, -1,1];
+      for(let ty=0; ty<NTY; ty++) for(let leaf=0; leaf<2; leaf++) for(let v=0; v<NV; v++){
+        const P=prep[ty], L=P.lipid, LN=P.LN, tp=tPosV[ty][leaf][v], T=tplIdx(ty,leaf,v);
+        const pos=new Float32Array(LN*4*3), off=new Float32Array(LN*4*3), col=new Float32Array(LN*4*4), rad=new Float32Array(LN*4), idx=new Uint32Array(LN*6);
+        for(let k=0;k<LN;k++){ const el=L.el[k], cc=lipCol(el), r=info(el).vr*FILL_SCALE;
+          gSlabR+=cc[0]; gSlabG+=cc[1]; gSlabB+=cc[2]; gSlabN++;
+          for(let c=0;c<4;c++){ const vtx=k*4+c;
+            pos[vtx*3]=corner[c*2]; pos[vtx*3+1]=corner[c*2+1]; pos[vtx*3+2]=0;
+            off[vtx*3]=tp[k*3]; off[vtx*3+1]=tp[k*3+1]; off[vtx*3+2]=tp[k*3+2];
+            col[vtx*4]=cc[0]; col[vtx*4+1]=cc[1]; col[vtx*4+2]=cc[2]; col[vtx*4+3]=0; rad[vtx]=r; }
+          const b=k*4, q=k*6; idx[q]=b; idx[q+1]=b+1; idx[q+2]=b+2; idx[q+3]=b; idx[q+4]=b+2; idx[q+5]=b+3; }
+        const near = new BABYLON.Mesh('lipTplS'+T, scene);
+        const vd = new BABYLON.VertexData(); vd.positions=pos; vd.indices=idx; vd.applyToMesh(near, false);
+        near.setVerticesData('atomOff', off, false, 3); near.setVerticesData('instanceColor', col, false, 4); near.setVerticesData('instR', rad, false, 1);
+        const far = near.clone('lipTplF'+T);   // shares the geometry - only the material and the instances differ
+        for(const m of [near, far]){ m.isPickable=false; m.alwaysSelectAsActiveMesh=true; m.renderingGroupId=1; m.setEnabled(false); }
+        near.material = vdwMatStatic; far.material = vdwStaticFarMat;
+        const nM=new Float32Array(SPH_CAP*16), fM=new Float32Array(SPH_CAP*16), nA=new Float32Array(SPH_CAP), fA=new Float32Array(SPH_CAP);
+        near.thinInstanceSetBuffer('matrix', nM, 16, false); near.thinInstanceSetBuffer('memAnc', nA, 1, false);
+        far.thinInstanceSetBuffer('matrix', fM, 16, false);  far.thinInstanceSetBuffer('memAnc', fA, 1, false);
+        near.thinInstanceCount = 0; far.thinInstanceCount = 0;
+        sphTpl[T] = { near, far, nM, fM, nA, fA, nn:0, nf:0 };
+      } }
+
+    /* THE GATHER - spheres and orbitals in one pass over the blocks. Each block is wrapped onto the copy
+       nearest the camera (by its centre, so every lipid in it agrees), kept inside the slab's footprint,
+       culled by distance and frustum, then thinned by the density ramp: a prefix of its strided order.
+       Lipids inside the full-density band go to the near (glass) stream, the rest to the far (opaque)
+       one - a lipid simply changes stream as it crosses the line, so there is no material swap and no
+       stall. Blocks within the orbital radius also feed the nearest-N orbital budget, as before. */
+    let gOrbLive = false, gSphLive = false;
+    const _blkOff = new Float32Array(NBLK*2);
     scene.onBeforeRenderObservable.add(()=>{
       const ov = document.getElementById('overlay');
       if(ov && !ov.classList.contains('gone')) return;
-      const live = gMembrane && gGfxMode === 1 && gMemSpanX > 0;
-      if(!live){ if(gOrbLive){ gOrbLive = false;
-          for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.n=0; E.core.setEnabled(false); E.bond.setEnabled(false); } }
+      const cp = cam.position;
+      if(!gMembrane || !(gMemSpanX > 0)){
+        if(gSphLive){ gSphLive=false; for(const E of sphTpl){ if(!E) continue; E.nn=E.nf=0; E.near.setEnabled(false); E.far.setEnabled(false); } }
+        if(gOrbLive){ gOrbLive=false; for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.n=0; E.core.setEnabled(false); E.bond.setEnabled(false); } }
         return; }
-      gOrbLive = true;
-      const cp = cam.position, R = deriveLod().orbR, R2 = R*R;   // the one derived radius - never past full sphere density
-      /* A frustum test as well as a radius. Without it the gather takes every lipid in a SPHERE around
-         the camera, most of which is behind you - at this density that was 4300 lipids where about a
-         quarter are actually on screen, and each one carries some 600 lobes. The old per-cell path
-         tested the frustum for exactly this reason. LOBE_MARGIN covers a lipid's own reach plus its
-         sway, so one is never culled while part of it is still visible. */
+      gSphLive = true;
+      const orbOn = gGfxMode === 1; gOrbLive = orbOn;
+      const L = deriveLod(), memR2 = L.memR*L.memR, full2 = L.memFull*L.memFull, ST = L.step;
+      const oR = L.orbR, oR2 = oR*oR, bR = blockR, bM2 = (bR + 14)*(bR + 14);
       const fp = BABYLON.Frustum.GetPlanes(cam.getTransformationMatrix()), LOBE_MARGIN = 14;
+      for(const E of sphTpl){ if(E){ E.nn=0; E.nf=0; } }
       for(let T=0;T<NTPL;T++) if(orbTpl[T]) orbTpl[T].n = 0;
       let nC = 0;
-      for(let i=0;i<LIPN;i++){
-        const o=i*3, oy=lipO[o+1];
-        const dy=oy-cp.y; if(dy*dy > R2) continue;                        // the sheet is thin in Y - cheapest reject first
-        const ox=lipO[o]   + Math.round((cp.x-lipO[o])/gMemSpanX)*gMemSpanX;
-        const dx=ox-cp.x; if(dx*dx+dy*dy > R2) continue;
-        const oz=lipO[o+2] + Math.round((cp.z-lipO[o+2])/gMemSpanZ)*gMemSpanZ;
-        const dz=oz-cp.z; if(dx*dx+dy*dy+dz*dz > R2) continue;
-        if(Math.abs(ox - bilayerCen.x) > gMemFootX || Math.abs(oz - bilayerCen.z) > gMemFootZ) continue;   // not past the slab
+      const y = bilayerCen.y, dy = y - cp.y, dy2 = dy*dy;
+      if(dy2 <= memR2 + bM2) for(let b=0;b<NBLK;b++){
+        const cnt = blkCnt[b]; if(!cnt) continue;
+        const ox = Math.round((cp.x - blkCx[b])/gMemSpanX)*gMemSpanX, oz = Math.round((cp.z - blkCz[b])/gMemSpanZ)*gMemSpanZ;
+        const wcx = blkCx[b]+ox, wcz = blkCz[b]+oz;
+        if(Math.abs(wcx - bilayerCen.x) > gMemFootX || Math.abs(wcz - bilayerCen.z) > gMemFootZ) continue;   // never past the slab
+        const dx = wcx-cp.x, dz = wcz-cp.z, d2 = dx*dx + dy2 + dz*dz;
+        if(d2 > memR2 + bR*bR) continue;                                                             // megacheap: the slab stands in
         let vis = true;
-        for(let q=0;q<6;q++){ const pl=fp[q];
-          if(pl.normal.x*ox + pl.normal.y*oy + pl.normal.z*oz + pl.d < -LOBE_MARGIN){ vis=false; break; } }
+        for(let q=0;q<6;q++){ const pl=fp[q]; if(pl.normal.x*wcx + pl.normal.y*y + pl.normal.z*wcz + pl.d < -(bR+14)){ vis=false; break; } }
         if(!vis) continue;
-        if(nC < ORB_SCRATCH){ oCand[nC]=i; oD2[nC]=dx*dx+dy*dy+dz*dz; oPx[nC]=ox; oPy[nC]=oy; oPz[nC]=oz; nC++; }
+        const f = d2 > ST[4] ? 0.03125 : d2 > ST[3] ? 0.0625 : d2 > ST[2] ? 0.125 : d2 > ST[1] ? 0.25 : d2 > ST[0] ? 0.5 : 1.0;
+        const take = Math.max(1, Math.round(cnt*f)), near = d2 < full2, st = blkStart[b];
+        for(let q=0;q<take;q++){ const i = blkLip[st+q], o = i*3, E = sphTpl[lipT[i]]; if(!E) continue;
+          const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
+          if(near){ if(E.nn >= SPH_CAP) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nn++; }
+          else    { if(E.nf >= SPH_CAP) continue; const m=E.nf*16, M=E.fM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.fA[E.nf]=lz; E.nf++; }
+        }
+        // orbital candidates: every lipid of a block that reaches into the orbital radius (never thinned there - it is inside the full band)
+        if(orbOn && d2 <= (oR+bR)*(oR+bR)) for(let q=0;q<cnt;q++){ const i = blkLip[st+q], o = i*3;
+          const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
+          const ex = lx-cp.x, ey = ly-cp.y, ez = lz-cp.z, e2 = ex*ex+ey*ey+ez*ez; if(e2 > oR2) continue;
+          let v2 = true; for(let k=0;k<6;k++){ const pl=fp[k]; if(pl.normal.x*lx + pl.normal.y*ly + pl.normal.z*lz + pl.d < -LOBE_MARGIN){ v2=false; break; } }
+          if(!v2) continue;
+          if(nC < ORB_SCRATCH){ oCand[nC]=i; oD2[nC]=e2; oPx[nC]=lx; oPy[nC]=ly; oPz[nC]=lz; nC++; }
+        }
       }
-      /* Keep only the nearest ORB_TOTAL. Sorting a copy of the distances and reading off the cutoff is
-         a few thousand comparisons - far cheaper than drawing the lipids it removes. */
+      // upload the sphere streams
+      for(const E of sphTpl){ if(!E) continue;
+        if(E.nn){ E.near.thinInstancePartialBufferUpdate('matrix', E.nM.subarray(0,E.nn*16), 0); E.near.thinInstancePartialBufferUpdate('memAnc', E.nA.subarray(0,E.nn), 0); }
+        if(E.nf){ E.far.thinInstancePartialBufferUpdate('matrix', E.fM.subarray(0,E.nf*16), 0);  E.far.thinInstancePartialBufferUpdate('memAnc', E.fA.subarray(0,E.nf), 0); }
+        E.near.thinInstanceCount = E.nn; E.far.thinInstanceCount = E.nf;
+        E.near.setEnabled(E.nn>0); E.far.setEnabled(E.nf>0); }
+      if(!orbOn){ for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.core.setEnabled(false); E.bond.setEnabled(false); } return; }
+      // the orbital budget: nearest first, adaptive to the frame rate
       { const f = engine.getFps();
         if(f < 45) gOrbBudget = Math.max(40, gOrbBudget*0.92);
         else if(f > 56) gOrbBudget = Math.min(ORB_TOTAL, gOrbBudget*1.03 + 1); }
       const budget = gOrbBudget|0;
       let cut = Infinity;
-      if(nC > budget){ oSort.set(oD2.subarray(0, nC));
-        const v = oSort.subarray(0, nC); v.sort(); cut = v[budget-1]; }
+      if(nC > budget){ oSort.set(oD2.subarray(0, nC)); const v = oSort.subarray(0, nC); v.sort(); cut = v[budget-1]; }
       for(let k=0;k<nC;k++){
         if(oD2[k] > cut) continue;
         const E = orbTpl[lipT[oCand[k]]]; if(!E || E.n >= ORB_CAP) continue;
         const ox=oPx[k], oy=oPy[k], oz=oPz[k], b = E.n*16;
         E.cM[b]=1; E.cM[b+5]=1; E.cM[b+10]=1; E.cM[b+15]=1; E.cM[b+12]=ox; E.cM[b+13]=oy; E.cM[b+14]=oz;
         E.bM[b]=1; E.bM[b+5]=1; E.bM[b+10]=1; E.bM[b+15]=1; E.bM[b+12]=ox; E.bM[b+13]=oy; E.bM[b+14]=oz;
-        E.cA[E.n]=oz; E.bA[E.n]=oz;                                       // anchor Z for the whole-lipid cross-cut
+        E.cA[E.n]=oz; E.bA[E.n]=oz;
         E.n++;
       }
       for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue;
@@ -5401,55 +5492,6 @@ void main(void){
         E.core.setEnabled(E.n>0); E.bond.setEnabled(E.n>0);
       }
     });
-    // Split the G×G grid (×2 leaflets) into BL×BL-tile BLOCKS, each a cellList entry, so the membrane
-    // frustum-culls and LODs (orbitals near ↔ vdW spheres far) exactly like the protein cells do.
-    const BL = 4, nbx = Math.ceil(Gx/BL), nbz = Math.ceil(Gz/BL);
-    const blockR = 0.5*Math.hypot(BL*S, ySpan+2*Math.max(xr,zr,1), BL*S) + JIT + S*0.5;   // +S*0.5 = the odd-row stagger
-    gMemCellR = blockR;   // every LOD margin is measured against a whole cell, because the ramp is decided per cell
-    for(let bgi=0;bgi<nbx;bgi++){ for(let bgj=0;bgj<nbz;bgj++){
-      const gi0=bgi*BL, gj0=bgj*BL, gi1=Math.min(Gx,gi0+BL), gj1=Math.min(Gz,gj0+BL), nt=(gi1-gi0)*(gj1-gj0);
-      for(let leaf=0;leaf<2;leaf++){
-        // The lobe COUNT is identical across rotamer variants but DIFFERS between species, so size
-        // the buffers for the biggest species and pack the tiles back to back. The draw count is
-        // whatever was actually written, so the slack at the end is never rendered.
-        const cnA=TV.map(T=>T[leaf][0].core.m.length/16), bnA=TV.map(T=>T[leaf][0].bond.m.length/16);
-        // Only the vdW spheres are baked per lipid now. The orbital lobes come from the shared templates
-        // above, gathered per frame - which is where the 480 MB went.
-        const lnX=Math.max(...prep.map(P=>P.LN));
-        const sM=new Float32Array(lnX*nt*16), sC=new Float32Array(lnX*nt*4), sR=new Float32Array(lnX*nt), sAnc=new Float32Array(lnX*nt);   // per-instance lipid anchor Z (whole-molecule cross-cut)
-        let si=0, bcx=0, bcz=0;
-        // Pack the tiles in an INTERLEAVED order (a stride coprime with the tile count) instead of row by
-        // row, so any PREFIX of the sphere buffer is a spatially even sample of the whole block. The
-        // distance LOD below then thins the membrane just by lowering thinInstanceCount — no rebuild, and
-        // no hole punched in one corner the way plain truncation of a row-ordered buffer would.
-        const tiles=[]; for(let gi=gi0;gi<gi1;gi++) for(let gj=gj0;gj<gj1;gj++) tiles.push([gi,gj]);
-        const gcd=(a,b)=>b?gcd(b,a%b):a;
-        let stride=5; if(tiles.length>1){ while(stride>1 && gcd(stride,tiles.length)!==1) stride--; } else stride=1;
-        const order=[]; for(let n=0,kk=0;n<tiles.length;n++,kk=(kk+stride)%tiles.length) order.push(tiles[kk]);
-        const sphEnd=new Int32Array(order.length); let tIdx=0;
-        for(const tile of order){ const gi=tile[0], gj=tile[1];
-          const ty=tileType(gi,gj,leaf), P=prep[ty], lipid=P.lipid, LN=P.LN;   // per-tile species
-          const v=tileVar(gi,gj,leaf), tp=tPosV[ty][leaf][v];   // per-tile rotamer
-          const og=tileOrg(gi,gj,leaf), ox=og[0], oy=og[1], oz=og[2]; bcx+=ox; bcz+=oz;
-          for(let k=0;k<LN;k++){ const el=lipid.el[k], cc=lipCol(el), o=si*16;
-            sM[o]=1;sM[o+5]=1;sM[o+10]=1;sM[o+15]=1;
-            sM[o+12]=tp[k*3]+ox; sM[o+13]=tp[k*3+1]+oy; sM[o+14]=tp[k*3+2]+oz;
-            sC[si*4]=cc[0];sC[si*4+1]=cc[1];sC[si*4+2]=cc[2];sC[si*4+3]=0; sR[si]=info(el).vr*FILL_SCALE; sAnc[si]=oz; si++;
-            gSlabR+=cc[0]; gSlabG+=cc[1]; gSlabB+=cc[2]; gSlabN++; }
-          sphEnd[tIdx++]=si;   // instance count after each whole tile → LOD truncates only on tile boundaries
-        }
-        const bcX=bcx/nt, bcZ=bcz/nt;
-        const sphMesh=BABYLON.MeshBuilder.CreatePlane('lipSp'+bgi+'_'+bgj+'_'+leaf,{size:2},scene);
-        sphMesh.material=vdwMatStatic; sphMesh.isPickable=false; sphMesh.alwaysSelectAsActiveMesh=true; sphMesh.renderingGroupId=1;
-        sphMesh.thinInstanceSetBuffer('matrix',sM,16,true); sphMesh.thinInstanceSetBuffer('instanceColor',sC,4,true); sphMesh.thinInstanceSetBuffer('instR',sR,1,true); sphMesh.thinInstanceSetBuffer('memAnc',sAnc,1,true); sphMesh.thinInstanceCount=si;
-        sphMesh.setEnabled(false);
-        /* One offset object per cell, for the wrap - the shader picks it up through mesh.metadata. */
-        const off = new BABYLON.Vector3(0,0,0);
-        sphMesh.metadata = {off};
-        cellList.push({ cx:bcX, cy:bilayerCen.y, cz:bcZ, meshes:[], nuc:null, sphere:sphMesh, macro:false, r:blockR, visOn:false, nucOn:false, sphOn:false, sphEnd, sphFull:si, sphCount:si, off });
-      }
-      await yield_();
-    } }
     await yield_();
     /* Nucleons would be ~2 M instances across the whole membrane, so instead a small POOL of
        meshes SHARES one nucleon template buffer per leaflet and is re-positioned (via the imp
