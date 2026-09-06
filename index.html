@@ -3405,6 +3405,8 @@ void main(void){
   const BUBBLE_R = 49.5;      // camera reveal-sphere radius (Å) — atoms within it go translucent
   let gWaveT = 0;             // global thermal-shake clock (bound as uT in every atom shader)
   let gSpeed = 1;             // master speed (wiggle + camera), driven by the bottom-left slider
+  let gPaused = false;        // space bar: everything gSpeed drives stops dead and resumes where it left off
+  let gApplySpeed = () => {};  // set by the speed slider below, so the space bar can re-apply it
   let gBright = 0.63;         // global brightness multiplier (dev "lighting" slider → brightness post-process)
   let gZoomPull = 1.0;        // how far the view slides toward the cursor when wheel-zooming (0 = straight in, 1 = cursor stays pinned). Dev slider.
   let gSat = 1.66;            // saturation, dev slider
@@ -3419,7 +3421,8 @@ void main(void){
   let gCofOutCol = 0.05;      // grey level of a see-through atom's outline: 0 = black → 1 = white. Dev slider.
   let gConeReach = 0.0;       // how far BEHIND the cofactor atom the cone still clears (Å). Dev slider.
   let gCofLineW = 2.2;        // cofactor silhouette outline thickness (px). Dev slider.
-  let gDepthK = 0.75;         // front-to-back depth-shading amount 0..1 on the molecules. Dev slider.
+  let gDepthK = 0.00;         // front-to-back depth-shading amount 0..1 on the molecules. OFF: flat lighting means
+                              // no shading at all, and at 0.75 this darkened half the scene like a shadow. Dev slider.
   let gDepthLo = 0.40;        // darkest floor the depth-shading reaches (lower = more contrast). Dev slider.
   let gDepthStart = 0.0;      // where the darkening begins, WORLD units from the shading plane. Dev slider.
   let gDepthSpread = 120.0;   // world distance over which it fades to the floor. Dev slider.
@@ -5112,8 +5115,14 @@ void main(void){
   // Speed slider (bottom-left) → drives ONLY molecule movement + boil/wiggle speed (both via gSpeed).
   // Camera rotate / pan / zoom stay constant (independent of the slider).
   { const sEl = document.getElementById('speed'), sVal = document.getElementById('speedval');
-    const apply = () => { gSpeed = (+sEl.value)/10; sVal.textContent = gSpeed.toFixed(1)+'×'; };
-    sEl.addEventListener('input', apply); apply();
+    /* Pausing sets gSpeed to 0 rather than freezing a clock: gWaveT, the free molecules, the wiggle and
+       the collision pass all advance by dt*gSpeed, so zero stops every one of them at once and releasing
+       it carries straight on from where they were. The slider keeps its own value throughout. */
+    const apply = () => { gSpeed = gPaused ? 0 : (+sEl.value)/10;
+      sVal.textContent = gPaused ? 'seis' : gSpeed.toFixed(1)+'×'; };
+    gApplySpeed = apply;
+    sEl.addEventListener('input', () => { gPaused = false; apply(); });   // touching the slider resumes
+    apply();
   }
 
   /* ── Container box enclosing every model, with water molecules flying inside and
@@ -6487,6 +6496,12 @@ void main(void){
   };
   window.addEventListener('keydown', e => {
     if((e.ctrlKey||e.metaKey) && !e.shiftKey && !e.altKey && (e.key==='z'||e.key==='Z')){ e.preventDefault(); undoModel(); }
+    // Space = stop / resume everything that moves. preventDefault, or the browser scrolls the page and
+    // a focused button would fire instead.
+    if(e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey){
+      if(e.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return;
+      e.preventDefault(); gPaused = !gPaused; gApplySpeed();
+    }
   });
   let _modelPickT = Infinity;   // ray-entry distance to the last model picked (Infinity = miss) → close/far test
   const pickModelAtCursor = () => {   // accurate: nearest model whose CURRENT bounding box the cursor ray enters
@@ -6653,8 +6668,8 @@ void main(void){
   fpSld.oninput = () => { const o = +fpSld.value/100; fpValEl.textContent = o.toFixed(2);
     const fm = scene.getMaterialByName('rtsFloorMat'); if(fm) fm.alpha = o; };
   // Depth shading on the molecules (front-to-back darkening) — 0 = flat, higher = more 3D.
-  const dsRow = document.createElement('div'); dsRow.innerHTML = 'syvyysvarjostus: <b id="dev-ds-val">0.75</b>';
-  const dsSld = document.createElement('input'); dsSld.type='range'; dsSld.min='0'; dsSld.max='100'; dsSld.value='75'; dsSld.style.cssText='width:100%;cursor:pointer;';   // amount 0…1
+  const dsRow = document.createElement('div'); dsRow.innerHTML = 'syvyysvarjostus: <b id="dev-ds-val">0.00</b>';
+  const dsSld = document.createElement('input'); dsSld.type='range'; dsSld.min='0'; dsSld.max='100'; dsSld.value='0'; dsSld.style.cssText='width:100%;cursor:pointer;';   // amount 0…1 - starts OFF (flat)
   const dsValEl = dsRow.querySelector('#dev-ds-val');
   dsSld.oninput = () => { gDepthK = +dsSld.value/100; dsValEl.textContent = gDepthK.toFixed(2); };
   // CONTRAST: how dark the far side goes (higher slider = lower floor = more contrast).
