@@ -2641,9 +2641,7 @@ async function run(){
     return Math.min(SS_MAX, Math.max(Math.max(SS_MIN, 1/(dpr*1.5)), w/lim, h/lim, Math.sqrt((w*h)/PIX_BUDGET)));
   };
   engine.setHardwareScalingLevel(chooseScale());
-  // Only ever REDUCE the pixel count on resize, so this cannot undo the adaptive backoff below.
-  window.addEventListener('resize', () => { const sc2 = chooseScale();
-    if(sc2 > engine.getHardwareScalingLevel() + 1e-3) engine.setHardwareScalingLevel(sc2); });
+  // (No resize adjustment either: the quality slider's choice stands whatever the window does.)
   const scene = new BABYLON.Scene(engine);
   scene.skipPointerMovePicking = true;   // perf: we never auto-pick on pointer-move (all picking is done manually in our own handlers)
   scene.clearColor = new BABYLON.Color4(0.055,0.135,0.082,1);   // static dark green (matches the bg quad)
@@ -7121,14 +7119,8 @@ void main(void){
       const want = (dx*dx+dy*dy+dz*dz) < reach*reach;
       if(rc.on !== want){ rc.on = want; for(const m of rc.meshes) m.setEnabled(want); }
     }
-    /* 12 fps sustained for 90 frames meant anything between 13 and 40 — every case that actually feels
-       laggy — never backed off at all and simply stayed slow forever. */
-    if(engine.getFps() < 45){
-      if(++lowFrames > 40){ lowFrames = 0;
-        const cur = engine.getHardwareScalingLevel();
-        if(cur < SS_MAX) engine.setHardwareScalingLevel(Math.min(cur + 0.12, SS_MAX));
-      }
-    } else lowFrames = 0;
+    // (The adaptive supersample back-off that lived here is gone: the quality slider is the only thing
+    //  that sets the render scale, so a slow stretch no longer quietly lowers the resolution.)
   });
 
   /* ── Hover highlight + double-click flash/focus ──────────────────────────
@@ -7286,8 +7278,19 @@ void main(void){
      selection centre are then rebuilt from the live lobes, so they stay ON the orbitals as the molecule
      travels. Registered here, after the free-molecule gathers, so it reads this frame's buffers. If the
      molecule has left the crisp zone its lobes are not drawn, so the outline hides with them. */
+  /* A protein atom on a MOVING model (a shuttle, a bouncing protein) renders through its model's live
+     transform, but its outline, highlight nucleus and selection centre were built once, at pick time -
+     so they fell behind the atom. Recompute its world position from the transform every frame, exactly
+     as the pick does, and rebuild when it has moved. */
+  const _fwM = new BABYLON.Matrix(), _fwV = new BABYLON.Vector3();
+  const followModelAtom = a => { if(a.track || a.spawn || !(a.idx >= 0) || !a.world) return false;
+    const mi = modelOf(a.center.x, a.center.y, a.center.z); BABYLON.Matrix.FromArrayToRef(gModelXform, mi*16, _fwM);
+    BABYLON.Vector3.TransformCoordinatesToRef(a.center, _fwM, _fwV); _fwV.addInPlace(gPsiiOffset);
+    if(Math.abs(_fwV.x - a.world.x) + Math.abs(_fwV.y - a.world.y) + Math.abs(_fwV.z - a.world.z) < 1e-4) return false;
+    a.world.copyFrom(_fwV); return true; };
   scene.onBeforeRenderObservable.add(() => {
-    const a = selAtom; if(!a || !a.track) return;
+    const a = selAtom; if(!a) return;
+    if(!a.track){ if(followModelAtom(a)){ setSelOut(a); setSelNuc(a); selCenter.copyFrom(a.world); if(orbitLocked) orbitCenter.copyFrom(a.world); } return; }
     if(!a.track()){ selOut.setEnabled(false); selMask.setEnabled(false); return; }
     setSelOut(a); setSelNuc(a);
     selCenter.copyFrom(a.center);                 // the shaders compare ocen (unswayed) to this
@@ -7692,10 +7695,22 @@ void main(void){
     if(b6fMi >= 0 && psiMi >= 0){
       const hs = groupsOf(b6fMi, 4); if(hs.length){ hs.sort((a,b) => a.cy - b.cy); pcA = grpC(hs[0]); }
       const c = mInfo[psiMi]; pcB = [c.cx, c.y0, c.cz]; }
+    /* A protein docks IN CONTACT with its host: from the site, march down (into the lumen) until just
+       outside the host's collision shell, then place the shuttle's centre one radius below that, minus
+       4 units, so its shell overlaps the host's a little. A quinone sits in its pocket, at the site. */
+    const hullOf = mi => gHulls.findIndex(h => h.mi === mi);
+    const contact = (host, site, R) => { const hs = hullOf(host); if(hs < 0) return [0, -(R + 4), 0];
+      // the shell lives in WORLD space, the site is BAKED - take the site through the host's transform first (a host can carry an offset, b6f does)
+      const m = gModelXform, o = host*16, wx = m[o]*site[0] + m[o+4]*site[1] + m[o+8]*site[2] + m[o+12], wy0 = m[o+1]*site[0] + m[o+5]*site[1] + m[o+9]*site[2] + m[o+13], wz = m[o+2]*site[0] + m[o+6]*site[1] + m[o+10]*site[2] + m[o+14];
+      let y = wy0;
+      if(insideShell(hs, wx, y, wz)){ for(let k=0;k<300 && insideShell(hs, wx, y, wz); k++) y -= 1; }   // inside: down to the underside
+      else { let k = 0; for(; k<300 && !insideShell(hs, wx, y, wz); k++) y += 1; if(k < 300) y -= 1; }   // outside (a bounding-box bottom): up to the underside
+      return [0, (y - (R - 4)) - wy0, 0]; };   // an offset in world units, added after the site's own transform
+    const siteOcc = { pqA:-1, pqB:-1, pcA:-1, pcB:-1 };   // the one shuttle docked at each site (model index), -1 = free
     for(const h of gHulls){ const m = mols[h.mi]; if(!m || !m.shuttle) continue;
       const pq = m.shuttle === 'pq'; const A = pq ? pqA : pcA, B = pq ? pqB : pcB, hostA = pq ? psiiMi : b6fMi, hostB = pq ? b6fMi : psiMi;
       if(!A || !B) continue;
-      const R = h.maxR; const offA = pq ? [0,0,0] : [0, -(R + 8), 0], offB = pq ? [0,0,0] : [0, -(R + 4), 0];   // a protein docks on the surface, a quinone sits in its pocket
+      const R = h.maxR; const offA = pq ? [0,0,0] : contact(hostA, A, R), offB = pq ? [0,0,0] : contact(hostB, B, R);
       gShuttles.push({ mi:h.mi, R, pq, A, B, hostA, hostB, offA, offB, speed: pq ? 26 : 38, phase: (m.shuttleK % 2) ? 'toA' : 'toB', t: (m.shuttleK/10)*0.9, dock: 2.5 + (m.shuttleK % 4)*0.8, cur:[0,0,0], h:[1,0,0] });
     }
     { const src = mols.find(x => x.cfg && x.cfg.match === 'plastoquinone'); if(src){ const si = mols.indexOf(src); for(const sh of gShuttles) if(sh.pq){ gModelCol[sh.mi*3]=gModelCol[si*3]; gModelCol[sh.mi*3+1]=gModelCol[si*3+1]; gModelCol[sh.mi*3+2]=gModelCol[si*3+2]; } } }
@@ -7714,9 +7729,14 @@ void main(void){
         siteW(sh.hostA, sh.A, sh.offA, _a); siteW(sh.hostB, sh.B, sh.offB, _b);
         const from = sh.phase === 'toB' || sh.phase === 'dockA' ? _a : _b, to = sh.phase === 'toB' || sh.phase === 'dockA' ? _b : _a;
         if(sh.phase === 'dockA' || sh.phase === 'dockB'){ sh.t += dt; const at = sh.phase === 'dockA' ? _a : _b; sh.cur[0]=at[0]; sh.cur[1]=at[1]; sh.cur[2]=at[2];
-          if(sh.t >= sh.dock){ sh.t = 0; sh.phase = sh.phase === 'dockA' ? 'toB' : 'toA'; } }
-        else { const dx = to[0]-sh.cur[0], dy = to[1]-sh.cur[1], dz = to[2]-sh.cur[2], d = Math.hypot(dx,dy,dz), step = sh.speed*dt;
-          if(d <= Math.max(step, 3)){ sh.cur[0]=to[0]; sh.cur[1]=to[1]; sh.cur[2]=to[2]; sh.phase = sh.phase === 'toB' ? 'dockB' : 'dockA'; sh.t = 0; }
+          if(sh.t >= sh.dock){ sh.t = 0; siteOcc[(sh.pq ? 'pq' : 'pc') + (sh.phase === 'dockA' ? 'A' : 'B')] = -1; sh.phase = sh.phase === 'dockA' ? 'toB' : 'toA'; } }   // leaving frees the site
+        else { const key = (sh.pq ? 'pq' : 'pc') + (sh.phase === 'toB' ? 'B' : 'A'), occ = siteOcc[key], blocked = occ !== -1 && occ !== sh.mi, holdR = 2.3*sh.R + 6, step = sh.speed*dt;
+          let dx = to[0]-sh.cur[0], dy = to[1]-sh.cur[1], dz = to[2]-sh.cur[2], d = Math.hypot(dx,dy,dz); const dSite = d;
+          /* One carrier per site. While the site is taken the arriving shuttle aims at a point holdR out
+             from it along its own bearing, so it hangs about outside the docked one - still wandering -
+             and moves in the moment the site frees. */
+          if(blocked && dSite < holdR*1.1){ const k = holdR/Math.max(dSite, 1e-3); const tx = to[0]-dx*k, ty = to[1]-dy*k, tz = to[2]-dz*k; dx = tx-sh.cur[0]; dy = ty-sh.cur[1]; dz = tz-sh.cur[2]; d = Math.hypot(dx,dy,dz) || 1e-3; }
+          if(!blocked && dSite <= Math.max(step, 3)){ sh.cur[0]=to[0]; sh.cur[1]=to[1]; sh.cur[2]=to[2]; sh.phase = sh.phase === 'toB' ? 'dockB' : 'dockA'; sh.t = 0; siteOcc[key] = sh.mi; }
           else {
             /* A wandering approach, not a bee-line: the heading is kicked about at random every frame and
                pulled toward the site - gently from afar, hard once close - so the molecule diffuses its
@@ -8505,7 +8525,8 @@ void main(void){
      a frame, and sat still while the pointer rested. Rebuild it every frame from the live position, as the
      selection follower does. Protein atoms have no track() and need none. */
   scene.onBeforeRenderObservable.add(() => {
-    const a = gHoverAtom; if(!a || !a.track || !hl.isEnabled()) return;
+    const a = gHoverAtom; if(!a || !hl.isEnabled()) return;
+    if(!a.track){ if(followModelAtom(a)) setHL(a); return; }   // a protein atom on a moving model
     if(a.track()) setHL(a); else hl.setEnabled(false);
   });
 
