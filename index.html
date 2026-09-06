@@ -908,10 +908,13 @@ uniform vec3 keyDir;
 float keyLight(vec3 nW){ if(dot(keyDir, keyDir) < 0.5) return 1.0;
   return 0.72 + 0.28 * max(dot(normalize(nW), keyDir), 0.0); }
 vec3 protonLight(vec3 p){ vec3 acc = vec3(0.0);
+  /* A compact falloff, exactly zero at pLightR. The old 1/(1+4d*d) never reached zero, and since the
+     lights are the protons nearest the CAMERA, every atom you approached picked up their red - the
+     'atoms turn red as I get close' that had nothing to do with what was behind them. */
   for(int i=0; i<PL_N; i++){ if(float(i) >= pLightN) break;
-    float d = distance(p, pLight[i]) / pLightR;
-    acc += vec3(1.0, 0.24, 0.12) / (1.0 + 4.0*d*d); }
-  return acc * 0.7; }
+    float w = max(0.0, 1.0 - distance(p, pLight[i]) / pLightR);
+    acc += vec3(1.0, 0.24, 0.12) * (w*w); }
+  return acc * 0.9; }
 #endif
 varying vec2 vUV;
 varying vec3 vCenterV;
@@ -3809,8 +3812,10 @@ void main(void){
     for(let i=0;i<MAX_MODELS;i++){ const h=(i/N)%1, s=0.5, l=0.74, a=s*Math.min(l,1-l);
       const f=n=>{ const k=(n+h*12)%12; return l - a*Math.max(-1, Math.min(k-3, 9-k, 1)); };
       gModelCol[i*3]=f(0); gModelCol[i*3+1]=f(8); gModelCol[i*3+2]=f(4); } }
-  { const ni = mols.findIndex(m => m.cfg && m.cfg.match === 'nadph');   // NADPH → pink (override its auto pastel)
-    if(ni >= 0){ gModelCol[ni*3]=0.95; gModelCol[ni*3+1]=0.45; gModelCol[ni*3+2]=0.72; } }
+  // The displayed single molecules take their cofactor TYPE's colour, the same one their bound copies
+  // inside the complexes and the free copies in the medium wear: one colour per molecule type.
+  for(const [key, type] of [['nadph', 10], ['plastoquinone', 3], ['chlorophyll', 7]]){ const ni = mols.findIndex(m => m.cfg && m.cfg.match === key);
+    if(ni >= 0){ const c = ETC_COL[type]; gModelCol[ni*3]=c[0]; gModelCol[ni*3+1]=c[1]; gModelCol[ni*3+2]=c[2]; } }
   { const cb = document.getElementById('color-btn');   // colour by element ↔ per-model pastel
     if(cb) cb.addEventListener('click', () => { gColorMode = !gColorMode;
       const lab=document.getElementById('color-label'); if(lab) lab.textContent = gColorMode ? 'Mallit' : 'Alkuaineet'; }); }
@@ -4192,7 +4197,7 @@ void main(void){
       // A cofactor / bound molecule gets ONE colour of its own, keyed on its residue instance, so every
       // atom of that molecule matches and the neighbouring one differs. Alpha 1 marks it as carrying its
       // own identity, which stops colour-by-model overwriting it in the shader.
-      if(cf && cf[a]){ const mc=molCol(rs[a]); c.sphC.push(mc[0],mc[1],mc[2],1); }
+      if(cf && cf[a]){ const mc=ETC_COL[cf[a]]||molCol(rs[a]); c.sphC.push(mc[0],mc[1],mc[2],1); }   // one colour per cofactor TYPE - every bound quinone blue, every chlorophyll green
       else c.sphC.push(ec[0],ec[1],ec[2],0);
       c.sphR.push(vr);
       if(cf && cf[a]){ const cc=ETC_COL[cf[a]]||ec; pushN(etcM, sb, a*16, 16); etcC.push(cc[0],cc[1],cc[2],0); etcR.push(vr*1.15); etcT.push(cf[a]); etcS.push(rs[a]); etcEl.push(e); etcIdx.push(a); }   // cofactor → overlay, coloured by type, slightly enlarged to pop (etcEl/etcIdx = element + its orbBuf index for the info panel)
@@ -6120,7 +6125,8 @@ void main(void){
     let FREE_NADP = null;
     { const nm = mols.find(m => m.cfg && m.cfg.match === 'nadph');
       if(nm && nm.na){ let cx=0, cy=0, cz=0; for(let k=0;k<nm.na;k++){ cx+=nm.x[k]; cy+=nm.y[k]; cz+=nm.z[k]; } cx/=nm.na; cy/=nm.na; cz/=nm.na;
-        const atoms = []; for(let k=0;k<nm.na;k++){ const e = nm.el[k], I = info(e); atoms.push({ tag:'a'+k, r:I.vr*FILL_SCALE, col:[I.c[0],I.c[1],I.c[2]], d:0, p:[nm.x[k]-cx, nm.y[k]-cy, nm.z[k]-cz], el:e }); }
+        const NC = ETC_COL[10];   // NADP's own colour, the same as the displayed model and the bound one in FNR
+        const atoms = []; for(let k=0;k<nm.na;k++){ const e = nm.el[k], I = info(e); atoms.push({ tag:'a'+k, r:I.vr*FILL_SCALE, col:[NC[0],NC[1],NC[2]], d:0, p:[nm.x[k]-cx, nm.y[k]-cy, nm.z[k]-cz], el:e }); }
         FREE_NADP = mkFree('nadp', 500, 771231, atoms, MOLBASE.nadp, false, MEMBRANE_Y + gMemHalfT + 12);
         FREE_NADP.atoms = atoms; } }
 
@@ -7680,7 +7686,7 @@ void main(void){
       const pq = m.shuttle === 'pq'; const A = pq ? pqA : pcA, B = pq ? pqB : pcB, hostA = pq ? psiiMi : b6fMi, hostB = pq ? b6fMi : psiMi;
       if(!A || !B) continue;
       const R = h.maxR; const offA = pq ? [0,0,0] : [0, -(R + 8), 0], offB = pq ? [0,0,0] : [0, -(R + 4), 0];   // a protein docks on the surface, a quinone sits in its pocket
-      gShuttles.push({ mi:h.mi, R, pq, A, B, hostA, hostB, offA, offB, speed: pq ? 26 : 38, phase: (m.shuttleK % 2) ? 'toA' : 'toB', t: (m.shuttleK/10)*0.9, dock: 2.5 + (m.shuttleK % 4)*0.8, cur:[0,0,0] });
+      gShuttles.push({ mi:h.mi, R, pq, A, B, hostA, hostB, offA, offB, speed: pq ? 26 : 38, phase: (m.shuttleK % 2) ? 'toA' : 'toB', t: (m.shuttleK/10)*0.9, dock: 2.5 + (m.shuttleK % 4)*0.8, cur:[0,0,0], h:[1,0,0] });
     }
     { const src = mols.find(x => x.cfg && x.cfg.match === 'plastoquinone'); if(src){ const si = mols.indexOf(src); for(const sh of gShuttles) if(sh.pq){ gModelCol[sh.mi*3]=gModelCol[si*3]; gModelCol[sh.mi*3+1]=gModelCol[si*3+1]; gModelCol[sh.mi*3+2]=gModelCol[si*3+2]; } } }
     { const src = mols.find(x => x.cfg && x.cfg.match === '1ag6'); if(src){ const si = mols.indexOf(src); for(const sh of gShuttles) if(!sh.pq){ gModelCol[sh.mi*3]=gModelCol[si*3]; gModelCol[sh.mi*3+1]=gModelCol[si*3+1]; gModelCol[sh.mi*3+2]=gModelCol[si*3+2]; } } }
@@ -7700,8 +7706,27 @@ void main(void){
         if(sh.phase === 'dockA' || sh.phase === 'dockB'){ sh.t += dt; const at = sh.phase === 'dockA' ? _a : _b; sh.cur[0]=at[0]; sh.cur[1]=at[1]; sh.cur[2]=at[2];
           if(sh.t >= sh.dock){ sh.t = 0; sh.phase = sh.phase === 'dockA' ? 'toB' : 'toA'; } }
         else { const dx = to[0]-sh.cur[0], dy = to[1]-sh.cur[1], dz = to[2]-sh.cur[2], d = Math.hypot(dx,dy,dz), step = sh.speed*dt;
-          if(d <= step){ sh.cur[0]=to[0]; sh.cur[1]=to[1]; sh.cur[2]=to[2]; sh.phase = sh.phase === 'toB' ? 'dockB' : 'dockA'; sh.t = 0; }
-          else { const k = step/d; sh.cur[0]+=dx*k; sh.cur[1]+=dy*k; sh.cur[2]+=dz*k;
+          if(d <= Math.max(step, 3)){ sh.cur[0]=to[0]; sh.cur[1]=to[1]; sh.cur[2]=to[2]; sh.phase = sh.phase === 'toB' ? 'dockB' : 'dockA'; sh.t = 0; }
+          else {
+            /* A wandering approach, not a bee-line: the heading is kicked about at random every frame and
+               pulled toward the site - gently from afar, hard once close - so the molecule diffuses its
+               way to the pocket. A quinone keeps to the membrane plane (its heading has no vertical part
+               and its height eases onto the pocket's), a plastocyanin keeps below the lipid layer. Both
+               bounce off the box and are pushed out of every complex except the two they shuttle between. */
+            const pull = 0.5 + 70/Math.max(d, 15), wob = 2.6, rs = Math.sqrt(dt);
+            let hx = sh.h[0] + (dx/d)*pull*dt + (Math.random()-0.5)*wob*rs, hy = sh.h[1] + (dy/d)*pull*dt + (Math.random()-0.5)*wob*rs, hz = sh.h[2] + (dz/d)*pull*dt + (Math.random()-0.5)*wob*rs;
+            if(sh.pq) hy = 0;
+            const hl = Math.hypot(hx,hy,hz)||1; hx/=hl; hy/=hl; hz/=hl;
+            let x = sh.cur[0]+hx*step, y = sh.cur[1]+hy*step, z = sh.cur[2]+hz*step;
+            if(sh.pq) y = to[1] + (sh.cur[1]-to[1])*Math.max(0, 1-dt*0.6);
+            else { const cap = MEMBRANE_Y - gMemHalfT - sh.R; if(y > cap){ y = cap; hy = -Math.abs(hy); } if(gBoxLo && y < gBoxLo.y + sh.R){ y = gBoxLo.y + sh.R; hy = Math.abs(hy); } }
+            if(gBoxLo){ if(x < gBoxLo.x+sh.R){ x = gBoxLo.x+sh.R; hx = Math.abs(hx); } else if(x > gBoxHi.x-sh.R){ x = gBoxHi.x-sh.R; hx = -Math.abs(hx); }
+              if(z < gBoxLo.z+sh.R){ z = gBoxLo.z+sh.R; hz = Math.abs(hz); } else if(z > gBoxHi.z-sh.R){ z = gBoxHi.z-sh.R; hz = -Math.abs(hz); } }
+            for(let sI=0;sI<gHulls.length;sI++){ const hh=gHulls[sI]; if(!gMemBound[hh.mi] || mols[hh.mi].shuttle || hh.mi === sh.hostA || hh.mi === sh.hostB) continue;
+              const ox=gShellCen[sI*3], oy=gShellCen[sI*3+1], oz=gShellCen[sI*3+2]; const ex=x-ox, ey=y-oy, ez=z-oz, dd=Math.hypot(ex,ey,ez), minD=sh.R+hh.maxR; if(dd >= minD || dd < 1e-6) continue;
+              const nx=ex/dd, ny=ey/dd, nz=ez/dd; x=ox+nx*minD; if(!sh.pq) y=oy+ny*minD; z=oz+nz*minD;
+              const hn=hx*nx+hy*ny+hz*nz; if(hn < 0){ hx-=2*hn*nx; hy-=2*hn*ny; hz-=2*hn*nz; if(sh.pq) hy = 0; } }
+            sh.h[0]=hx; sh.h[1]=hy; sh.h[2]=hz; sh.cur[0]=x; sh.cur[1]=y; sh.cur[2]=z;
             if(!sh.pq){ _q.set(gModelQuat[sh.mi*4], gModelQuat[sh.mi*4+1], gModelQuat[sh.mi*4+2], gModelQuat[sh.mi*4+3]);   // a protein tumbles a little as it goes
               BABYLON.Quaternion.RotationAxisToRef(_axv, 0.25*dt, _dq); _dq.multiplyToRef(_q, _q); _q.normalize();
               gModelQuat[sh.mi*4]=_q.x; gModelQuat[sh.mi*4+1]=_q.y; gModelQuat[sh.mi*4+2]=_q.z; gModelQuat[sh.mi*4+3]=_q.w; } } }
