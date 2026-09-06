@@ -5324,16 +5324,18 @@ void main(void){
           swayCPU(org[0], org[2], sid, sw);
           const cx = org[0]+tp[bk*3], cy = org[1]+tp[bk*3+1], cz = org[2]+tp[bk*3+2];
           atom.center.set(cx,cy,cz); atom.world.set(cx+sw[0], cy+sw[1], cz+sw[2]); return true; };
-        atom.fill = (buf, cap) => { let n = 0;
+        atom.fill = (buf, cap, foc) => { let n = 0; if(foc === undefined) foc = -1;
           const ax=tp[bk*3], ay=tp[bk*3+1], az=tp[bk*3+2];
+          const keep = (O,q) => foc < 0 || Math.abs(O[q] - foc) < 0.5;
           const nearL = (C,q) => { const dx=C[q*3]-ax, dy=C[q*3+1]-ay, dz=C[q*3+2]-az; return dx*dx+dy*dy+dz*dz < 1e-4; };
           const place = (M, q, w) => { const oo=n*16, sr=q*16; for(let j=0;j<16;j++) buf[oo+j]=M[sr+j];
             buf[oo+12]+=org[0]+sw[0]; buf[oo+13]+=org[1]+sw[1]; buf[oo+14]+=org[2]+sw[2];
             buf[oo]*=w; buf[oo+1]*=w; buf[oo+2]*=w; buf[oo+8]*=w; buf[oo+9]*=w; buf[oo+10]*=w; n++; };
           const cn = tpl.core.m.length/16, bn = tpl.bond.m.length/16;
-          for(let q=0; q<cn && n<cap; q++) if(nearL(tpl.core.cen, q)) place(tpl.core.m, q, 1.0);
-          for(let q=0; q<bn && n<cap; q++) if(nearL(tpl.bond.cen, q)) place(tpl.bond.m, q, tpl.bond.tap[q]);
+          for(let q=0; q<cn && n<cap; q++) if(nearL(tpl.core.cen, q) && keep(tpl.core.oid, q)) place(tpl.core.m, q, 1.0);
+          for(let q=0; q<bn && n<cap; q++) if(nearL(tpl.bond.cen, q) && keep(tpl.bond.oid, q)) place(tpl.bond.m, q, tpl.bond.tap[q]);
           return n; };
+        atom.track();   // as for the free molecules: the card preview fills from this before the follower runs
         return { t:bestT, atom };
       }; }
 
@@ -6207,12 +6209,13 @@ void main(void){
        and bond buffers, into the outline buffer. tap widens bond lobes as the fill shader does. prof marks
        a sigma horn - the outline mesh has no horn profile, so it is approximated by a narrower ellipsoid
        nudged toward the mouth. */
-    const copyLobes = (buf, cap, k, cx,cy,cz, cM,cC,coreN, bM,bC,bondN, tap, prof) => {
+    const copyLobes = (buf, cap, k, cx,cy,cz, cM,cC,coreN, bM,bC,bondN, tap, prof, cOid, bOid, foc) => {
       let n = 0;
       const near = (C, s) => { const dx=C[s*3]-cx, dy=C[s*3+1]-cy, dz=C[s*3+2]-cz; return dx*dx+dy*dy+dz*dz < 0.01; };
-      for(let q=0; q<coreN && n<cap; q++){ const sl=k*coreN+q; if(!near(cC, sl)) continue;
+      const keep = (O, q) => foc < 0 || !O || Math.abs(O[q] - foc) < 0.5;   // isolating: exact orbital-id match, as fillOutline does
+      for(let q=0; q<coreN && n<cap; q++){ const sl=k*coreN+q; if(!near(cC, sl) || !keep(cOid, q)) continue;
         const o=n*16, sr=sl*16; for(let j=0;j<16;j++) buf[o+j]=cM[sr+j]; n++; }
-      for(let q=0; q<bondN && n<cap; q++){ const sl=k*bondN+q; if(!near(bC, sl)) continue;
+      for(let q=0; q<bondN && n<cap; q++){ const sl=k*bondN+q; if(!near(bC, sl) || !keep(bOid, q)) continue;
         const o=n*16, sr=sl*16; for(let j=0;j<16;j++) buf[o+j]=bM[sr+j];
         let w = tap ? tap[q] : 1.0;
         if(prof && prof[q] > 0.5){ w *= 0.62; buf[o+12]+=buf[o+4]*0.12; buf[o+13]+=buf[o+5]*0.12; buf[o+14]+=buf[o+6]*0.12; }
@@ -6256,8 +6259,8 @@ void main(void){
           if(src.role===1){ x+=wh1[src.i*3]; y+=wh1[src.i*3+1]; z+=wh1[src.i*3+2]; }
           else if(src.role===2){ x+=wh2[src.i*3]; y+=wh2[src.i*3+1]; z+=wh2[src.i*3+2]; }
           atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
-        atom.fill = (buf, cap) => k < 0 ? 0 : copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
-          wCoreM, wCoreC, wCoreN, wBondM, wBondC, wBondN, wOrbBond.tap, null); }
+        atom.fill = (buf, cap, foc) => k < 0 ? 0 : copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
+          wCoreM, wCoreC, wCoreN, wBondM, wBondC, wBondN, wOrbBond.tap, null, wOrbCore.oid, wOrbBond.oid, foc === undefined ? -1 : foc); }
       else if(src.kind === 'co2' || src.kind === 'o2'){ let k = -1;
         atom.track = () => { const O = ORB_LIN[src.kind]; if(!O) return false;
           const cnt = O.cMesh.thinInstanceCount / O.coreN; k = -1;
@@ -6265,11 +6268,12 @@ void main(void){
           if(k < 0) return false;
           const F = src.F, x = O.pos[k*3] + F.ax[src.i*3]*src.off, y = O.pos[k*3+1] + F.ax[src.i*3+1]*src.off, z = O.pos[k*3+2] + F.ax[src.i*3+2]*src.off;
           atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
-        atom.fill = (buf, cap) => { const O = ORB_LIN[src.kind]; if(!O || k < 0) return 0;
+        atom.fill = (buf, cap, foc) => { const O = ORB_LIN[src.kind]; if(!O || k < 0) return 0;
           return copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
-            O.cM, O.cC, O.coreN, O.bM, O.bC, O.bondN, O.bond.tap, O.bond.prof); }; }
+            O.cM, O.cC, O.coreN, O.bM, O.bC, O.bondN, O.bond.tap, O.bond.prof, O.core.oid, O.bond.oid, foc === undefined ? -1 : foc); }; }
       else { atom.track = () => { const q = centre(src.F.c, src.F.v, src.i, MOLBASE.p); atom.center.set(q[0],q[1],q[2]); atom.world.set(q[0],q[1],q[2]); return true; };
         atom.fill = () => 0; }
+      atom.track();   // locate it NOW: the card's orbital preview is built once at selection, from fill(), before the follower's first frame
       return { t:bestT, atom };
     };
 
@@ -6753,7 +6757,12 @@ void main(void){
     return mat;
   };
   const SAGE = new BABYLON.Color3(0.60,0.72,0.53);                                              // muted sage green — the one selection colour, everywhere
-  const hlMat  = mkOutlineMat('hlMat',  new BABYLON.Color3(1,1,1), 0.85, 0.66, 2.6);            // hover = thin white, hugs the lobe edge
+  // Hover = a MILDER green than the selection: lighter, thinner, no glow. The same material dims the
+  // lobes that are NOT the isolated orbital while one is picked in the card, so 'mild green' means one
+  // thing everywhere: 'this is an orbital, but not the one in focus'.
+  const MILD_GREEN = new BABYLON.Color3(0.50, 0.92, 0.58);
+  const hlMat  = mkOutlineMat('hlMat',  MILD_GREEN, 0.85, 0.66, 5.0);                          // hover = mild green, hugs the lobe edge
+  const dimMat = mkOutlineMat('dimMat', MILD_GREEN, 0.85, 0.66, 5.0);                          // the rest of a selected atom while one orbital is isolated
   const selMat = mkOutlineMat('selMat', new BABYLON.Color3(0.11, 0.48, 0.16), 0.85, 0.66, 8.0);   // cofactor selection outline (etcSelOut) = clear green
   // Atom selection = the SAME bright green as the protein/cofactor ring the seloutline pass draws
   // (0.16, 1.0, 0.34). The old 0.05/0.30/0.08 was so dark it read as a black stroke.
@@ -6795,7 +6804,7 @@ void main(void){
        out of the buffers the renderer drew this frame. The spawn branch below draws a generic unbonded
        atomic set at a fixed point, which is right for a hand-dropped atom and wrong for these - a water
        oxygen is bonded, oriented per molecule and moving, so that outline sat still in the wrong shape. */
-    if(atom.fill) return atom.fill(buf, OUT_MAX);
+    if(atom.fill) return atom.fill(buf, OUT_MAX, foc);   // foc >= 0 isolates one orbital id, as for protein atoms
     if(atom.spawn){                                             // hand-spawned atom → its own lobe list
       const lobes = spawnLobeList(atom.sym, atom.center.x, atom.center.y, atom.center.z); let m = 0;
       for(const L of lobes){ if(foc >= 0 && Math.abs(L.oid - foc) > 0.5) continue; const o=m*16; for(let j=0;j<16;j++) buf[o+j]=L.m[j]; m++; }
@@ -6848,6 +6857,13 @@ void main(void){
   selOut.renderingGroupId = 3;                                 // same topmost group as the hover outline
   selOut.alwaysSelectAsActiveMesh = true;
   const selOutBuf = new Float32Array(160*16);   // atomic orbital lobes + bonding lobes
+  /* Second layer, drawn under selOut: when an orbital is isolated from the card, selOut carries only the
+     isolated lobe(s) in full green and this carries EVERY lobe of the atom in the mild green - so the
+     rest of the atom stays readable as context instead of vanishing. Off whenever nothing is isolated. */
+  const selOutDim = BABYLON.MeshBuilder.CreateSphere('selOutDim', {diameter:1, segments:8}, scene);
+  selOutDim.material = dimMat; selOutDim.isPickable = false; selOutDim.setEnabled(false);
+  selOutDim.renderingGroupId = 3; selOutDim.alwaysSelectAsActiveMesh = true;
+  const selOutDimBuf = new Float32Array(160*16);
   const _selD = new BABYLON.Vector3();
   // fillOutline moves the lobes from the atom's baked spot to where it renders. Hand that same shift to
   // the shaders so they can undo it before sampling the shake, which is what keeps the outline and the
@@ -6858,10 +6874,15 @@ void main(void){
   const setSelOut = atom => {
     const n = fillOutline(selOutBuf, atom);
     outlineDelta(atom, _selD);
-    flashMat.setVector3('selDelta', _selD); focusMat.setVector3('selDelta', _selD); maskMat.setVector3('selDelta', _selD);
+    flashMat.setVector3('selDelta', _selD); focusMat.setVector3('selDelta', _selD); maskMat.setVector3('selDelta', _selD); dimMat.setVector3('selDelta', _selD);
     selOut.thinInstanceSetBuffer('matrix', selOutBuf, 16, true);
     selOut.thinInstanceCount = n;
     selOut.setEnabled(true);
+    if(gFocusId >= 0){   // an orbital is isolated: the whole atom in mild green underneath the full-green isolate
+      const nd = fillOutline(selOutDimBuf, atom, false);
+      selOutDim.thinInstanceSetBuffer('matrix', selOutDimBuf, 16, true);
+      selOutDim.thinInstanceCount = nd; selOutDim.setEnabled(nd > 0);
+    } else selOutDim.setEnabled(false);
     // The mask reuses the very same lobes (solid) → the nucleus later shows only where one of them is frontmost.
     selMask.thinInstanceSetBuffer('matrix', selOutBuf, 16, true);
     selMask.thinInstanceCount = n;
@@ -9253,7 +9274,7 @@ void main(void){
       d.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:3px 5px;'   // tight → the 4-column table fits the narrow right module
         + (col>0 ? 'border-left:2px solid var(--brown);' : '') + (css||'');
       return d; };
-    ['orbitaali','muoto','elektroneja','energia'].forEach((t,i)=>{ const c = gcell(i,'font-size:10.5px;font-weight:bold;opacity:.72;padding-bottom:4px;');
+    ['orbitaali','muoto','elektronit','energia'].forEach((t,i)=>{ const c = gcell(i,'font-size:10.5px;font-weight:bold;opacity:.72;padding-bottom:4px;');
       c.textContent = t; grid.appendChild(c); });
     // Group the atom's real orbitals by shell n (hybrids / π / lone pairs sit in the valence shell).
     const shellN = oid => oid >= 900 ? maxN : Math.floor(oid/100);
@@ -9273,7 +9294,9 @@ void main(void){
       grid.appendChild(gap);
       for(const {oid, ev} of rows.filter(r => r.n===n).sort((a,b)=> a.ev - b.ev)){
         const ne = orbElectrons(e, oid);
-        const nameC = gcell(0,'font-size:13px;font-weight:bold;'); nameC.innerHTML = '<span class="orb-name">'+orbLabel(oid, hyb, maxN)+'</span>';
+        const nameC = gcell(0,'font-size:13px;font-weight:bold;');
+    // the axis (or d-lobe) designation is a subscript: 2p<sub>x</sub>, 3d<sub>xy</sub> - not part of the shell number
+    nameC.innerHTML = '<span class="orb-name">'+orbLabel(oid, hyb, maxN).replace(/^(\d+[pd])([a-z][a-z0-9\u00b2\-]*)$/i, '$1<sub>$2</sub>')+'</span>';
         const shapeC = gcell(1); shapeC.innerHTML = orbShapeSVG(+oid, rgbCss(info(e).c));   // muoto = the orbital's real shape
         const box = document.createElement('span'); box.className = 'orb-box';
         const isBond = (oid >= 1000 && oid < 2000) || oid === 900;   // σ hybrid or π → one of the two electrons comes from the OTHER atom
@@ -9289,8 +9312,8 @@ void main(void){
           c.onmouseleave = () => { hovOid = -1; repaint(); };
           c.onclick = () => { gFocusId = (gFocusId===oid) ? -1 : oid;
             clearTimeout(flashTimer); flashTimer = null;   // isolating an orbital cancels the select-flash
-            if(gFocusId >= 0){ selOut.material = focusMat; setSelOut(atom); }   // persistent dark-brown outline on the isolated orbital
-            else { setSelOut(atom); selOut.setEnabled(false); }                 // de-isolate → rebuild the mask, hide the outline
+            selOut.material = flashMat;   // the isolated orbital keeps the full selection green - the others drop to mild (setSelOut)
+            setSelOut(atom);              // isolate: full on the one, mild on the rest - de-isolate: every lobe full green again
             repaint(); };
           grid.appendChild(c); }
       }
@@ -9327,7 +9350,7 @@ void main(void){
   // Clear the current ATOM selection (outline / nucleus / electron poke-through / config panel).
   const clearAtomSel = () => {
     clearTimeout(flashTimer); flashTimer = null;   // stop a running flash so it can't re-show the outline
-    selCenter.set(1e6,1e6,1e6); selOut.setEnabled(false); selNuc.setEnabled(false); selMask.setEnabled(false);
+    selCenter.set(1e6,1e6,1e6); selOut.setEnabled(false); selOutDim.setEnabled(false); selNuc.setEnabled(false); selMask.setEnabled(false);
     hideSelElec(); orbitLocked = false; orbitCenter.set(1e6,1e6,1e6); selAtom = null; gFocusId = -1; hideConfig();
     hideCenterAtom(); if(gSel.size) updateSelectionUI();   // restore the RTS selection panel if one is active
   };
