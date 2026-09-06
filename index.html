@@ -5284,12 +5284,38 @@ void main(void){
             const r=info(L.el[k]).vr*FILL_SCALE;
             const px=ax-ox, py=ay-oy, pz=az-oz, tca=px*dx+py*dy+pz*dz; if(tca<=0) continue;
             const d2=px*px+py*py+pz*pz-tca*tca; if(d2>r*r) continue;
-            const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e:L.el[k]}; }
+            const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e:L.el[k], i, k}; }
           }
         }
         if(!best) return null;
         const c = new BABYLON.Vector3(best.ax,best.ay,best.az);
-        return { t:bestT, atom:{ spawn:true, lipid:true, sym:EL_LIST[best.e], e:best.e, idx:-1, center:c, world:c.clone(), si:-1 } };
+        const atom = { spawn:true, lipid:true, sym:EL_LIST[best.e], e:best.e, idx:-1, center:c, world:c.clone(), si:-1 };
+        /* The template's lobes, placed as the LIPBAKE shader places them: the wrapped tile origin plus the
+           sway evaluated ONCE at the origin for the whole lipid. center is the unswayed atom centre, which
+           is what the lobe shaders compare selCenter against (ocen + instance origin); world adds the sway,
+           which is where the nucleus and outline have to sit. */
+        const bi = best.i, bk = best.k, o = bi*3;
+        const Tt=lipT[bi], v=Tt%NV, leaf=((Tt-v)/NV)%2, ty=Math.floor(Tt/(2*NV));
+        const tpl = TV[ty][leaf][v], tp = tPosV[ty][leaf][v], sid = lipO[o+2];
+        const org = [0,0,0], sw = [0,0,0];
+        atom.track = () => { const cp = cam.position;
+          org[0] = lipO[o]   + Math.round((cp.x-lipO[o])/gMemSpanX)*gMemSpanX;
+          org[1] = lipO[o+1];
+          org[2] = lipO[o+2] + Math.round((cp.z-lipO[o+2])/gMemSpanZ)*gMemSpanZ;
+          swayCPU(org[0], org[2], sid, sw);
+          const cx = org[0]+tp[bk*3], cy = org[1]+tp[bk*3+1], cz = org[2]+tp[bk*3+2];
+          atom.center.set(cx,cy,cz); atom.world.set(cx+sw[0], cy+sw[1], cz+sw[2]); return true; };
+        atom.fill = (buf, cap) => { let n = 0;
+          const ax=tp[bk*3], ay=tp[bk*3+1], az=tp[bk*3+2];
+          const nearL = (C,q) => { const dx=C[q*3]-ax, dy=C[q*3+1]-ay, dz=C[q*3+2]-az; return dx*dx+dy*dy+dz*dz < 1e-4; };
+          const place = (M, q, w) => { const oo=n*16, sr=q*16; for(let j=0;j<16;j++) buf[oo+j]=M[sr+j];
+            buf[oo+12]+=org[0]+sw[0]; buf[oo+13]+=org[1]+sw[1]; buf[oo+14]+=org[2]+sw[2];
+            buf[oo]*=w; buf[oo+1]*=w; buf[oo+2]*=w; buf[oo+8]*=w; buf[oo+9]*=w; buf[oo+10]*=w; n++; };
+          const cn = tpl.core.m.length/16, bn = tpl.bond.m.length/16;
+          for(let q=0; q<cn && n<cap; q++) if(nearL(tpl.core.cen, q)) place(tpl.core.m, q, 1.0);
+          for(let q=0; q<bn && n<cap; q++) if(nearL(tpl.bond.cen, q)) place(tpl.bond.m, q, tpl.bond.tap[q]);
+          return n; };
+        return { t:bestT, atom };
       }; }
 
     /* The gather. One pass over the lipids, wrapping each onto the copy nearest the camera exactly as the
@@ -6157,13 +6183,30 @@ void main(void){
     /* PICKING the free molecules. Same positioning the vertex shader does - analytic path, collision
        displacement, protein shells, then the atom's rigid offset - so a click lands on the sphere that is
        actually on screen. Only molecules inside the reveal bubble are considered, as for protein atoms. */
+    const ORB_LIN = {};   // filled below by linearOrb: the live lobe buffers of CO2 and O2
+    /* Copy every lobe of one molecule slot k that belongs to the atom at (cx,cy,cz), from a gather's core
+       and bond buffers, into the outline buffer. tap widens bond lobes as the fill shader does. prof marks
+       a sigma horn - the outline mesh has no horn profile, so it is approximated by a narrower ellipsoid
+       nudged toward the mouth. */
+    const copyLobes = (buf, cap, k, cx,cy,cz, cM,cC,coreN, bM,bC,bondN, tap, prof) => {
+      let n = 0;
+      const near = (C, s) => { const dx=C[s*3]-cx, dy=C[s*3+1]-cy, dz=C[s*3+2]-cz; return dx*dx+dy*dy+dz*dz < 0.01; };
+      for(let q=0; q<coreN && n<cap; q++){ const sl=k*coreN+q; if(!near(cC, sl)) continue;
+        const o=n*16, sr=sl*16; for(let j=0;j<16;j++) buf[o+j]=cM[sr+j]; n++; }
+      for(let q=0; q<bondN && n<cap; q++){ const sl=k*bondN+q; if(!near(bC, sl)) continue;
+        const o=n*16, sr=sl*16; for(let j=0;j<16;j++) buf[o+j]=bM[sr+j];
+        let w = tap ? tap[q] : 1.0;
+        if(prof && prof[q] > 0.5){ w *= 0.62; buf[o+12]+=buf[o+4]*0.12; buf[o+13]+=buf[o+5]*0.12; buf[o+14]+=buf[o+6]*0.12; }
+        buf[o]*=w; buf[o+1]*=w; buf[o+2]*=w; buf[o+8]*=w; buf[o+9]*=w; buf[o+10]*=w; n++; }
+      return n;
+    };
     gPickFree = (ox,oy,oz, dx,dy,dz, cp) => {
       const T = gWaveT, R = BUBBLE_R, R2 = R*R, _p=[0,0,0];
-      let bestT = Infinity, best = null;
-      const test = (ax,ay,az, r, e) => {
+      let bestT = Infinity, best = null, src = null;
+      const test = (ax,ay,az, r, e, s) => {
         const px=ax-ox, py=ay-oy, pz=az-oz, tca=px*dx+py*dy+pz*dz; if(tca<=0) return;
         const d2=px*px+py*py+pz*pz-tca*tca; if(d2>r*r) return;
-        const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e}; } };
+        const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e}; src=s; } };
       const centre = (c,v,i,base) => {
         _p[0]=bnc(c[i*3]  +v[i*3]  *T, bLo.x, bHi.x); _p[1]=bnc(c[i*3+1]+v[i*3+1]*T, bLo.y, bHi.y); _p[2]=bnc(c[i*3+2]+v[i*3+2]*T, bLo.z, bHi.z);
         const md=(base+i)*4; _p[0]+=gMolDisp[md]; _p[1]+=gMolDisp[md+1]; _p[2]+=gMolDisp[md+2];
@@ -6173,17 +6216,42 @@ void main(void){
         const pz=bnc(c[i*3+2]+v[i*3+2]*T,bLo.z,bHi.z)-cp.z; return px*px+py*py+pz*pz<=R2; };
       const hRad = info(codeH).vr*FILL_SCALE, oRad = info(codeO).vr*FILL_SCALE, cRad = info(codeC).vr*FILL_SCALE;
       for(let i=0;i<NW;i++){ if(!near(wc,wv,i)) continue; const q=centre(wc,wv,i,MOLBASE.w);
-        test(q[0],q[1],q[2], oRad, codeO);
-        test(q[0]+wh1[i*3],q[1]+wh1[i*3+1],q[2]+wh1[i*3+2], hRad, codeH);
-        test(q[0]+wh2[i*3],q[1]+wh2[i*3+1],q[2]+wh2[i*3+2], hRad, codeH); }
-      const lin = (F, base, els, offs, rads) => { for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,base);
-        for(let k=0;k<els.length;k++) test(q[0]+F.ax[i*3]*offs[k], q[1]+F.ax[i*3+1]*offs[k], q[2]+F.ax[i*3+2]*offs[k], rads[k], els[k]); } };
-      lin(FREE_P,   MOLBASE.p,   [codeH],             [0],             [hRad]);
-      lin(FREE_CO2, MOLBASE.co2, [codeC,codeO,codeO], [0,1.16,-1.16],  [cRad,oRad,oRad]);
-      lin(FREE_O2,  MOLBASE.o2,  [codeO,codeO],       [0.605,-0.605],  [oRad,oRad]);
+        test(q[0],q[1],q[2], oRad, codeO, {kind:'w', i, role:0});
+        test(q[0]+wh1[i*3],q[1]+wh1[i*3+1],q[2]+wh1[i*3+2], hRad, codeH, {kind:'w', i, role:1});
+        test(q[0]+wh2[i*3],q[1]+wh2[i*3+1],q[2]+wh2[i*3+2], hRad, codeH, {kind:'w', i, role:2}); }
+      const lin = (F, base, els, offs, rads, key) => { for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,base);
+        for(let k=0;k<els.length;k++) test(q[0]+F.ax[i*3]*offs[k], q[1]+F.ax[i*3+1]*offs[k], q[2]+F.ax[i*3+2]*offs[k], rads[k], els[k], {kind:key, i, k, F, off:offs[k]}); } };
+      lin(FREE_P,   MOLBASE.p,   [codeH],             [0],             [hRad],           'p');
+      lin(FREE_CO2, MOLBASE.co2, [codeC,codeO,codeO], [0,1.16,-1.16],  [cRad,oRad,oRad], 'co2');
+      lin(FREE_O2,  MOLBASE.o2,  [codeO,codeO],       [0.605,-0.605],  [oRad,oRad],      'o2');
       if(!best) return null;
       const c = new BABYLON.Vector3(best.ax,best.ay,best.az);
-      return { t:bestT, atom:{ spawn:true, free:true, sym:EL_LIST[best.e], e:best.e, idx:-1, center:c, world:c.clone(), si:-1 } };
+      const atom = { spawn:true, free:true, sym:EL_LIST[best.e], e:best.e, idx:-1, center:c, world:c.clone(), si:-1 };
+      /* track(): find this molecule in the gather that ran this frame and move the atom to it. fill(): its
+         lobes from that gather's buffers. A proton has no lobes, so it tracks but outlines nothing. */
+      if(src.kind === 'w'){ let k = -1;
+        atom.track = () => { const cnt = wCoreMesh.thinInstanceCount / wCoreN; k = -1;
+          for(let m=0;m<cnt;m++) if(wPick[m] === src.i){ k = m; break; }
+          if(k < 0) return false;
+          let x=wPos[k*3], y=wPos[k*3+1], z=wPos[k*3+2];
+          if(src.role===1){ x+=wh1[src.i*3]; y+=wh1[src.i*3+1]; z+=wh1[src.i*3+2]; }
+          else if(src.role===2){ x+=wh2[src.i*3]; y+=wh2[src.i*3+1]; z+=wh2[src.i*3+2]; }
+          atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
+        atom.fill = (buf, cap) => k < 0 ? 0 : copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
+          wCoreM, wCoreC, wCoreN, wBondM, wBondC, wBondN, wOrbBond.tap, null); }
+      else if(src.kind === 'co2' || src.kind === 'o2'){ let k = -1;
+        atom.track = () => { const O = ORB_LIN[src.kind]; if(!O) return false;
+          const cnt = O.cMesh.thinInstanceCount / O.coreN; k = -1;
+          for(let m=0;m<cnt;m++) if(O.pick[m] === src.i){ k = m; break; }
+          if(k < 0) return false;
+          const F = src.F, x = O.pos[k*3] + F.ax[src.i*3]*src.off, y = O.pos[k*3+1] + F.ax[src.i*3+1]*src.off, z = O.pos[k*3+2] + F.ax[src.i*3+2]*src.off;
+          atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
+        atom.fill = (buf, cap) => { const O = ORB_LIN[src.kind]; if(!O || k < 0) return 0;
+          return copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
+            O.cM, O.cC, O.coreN, O.bM, O.bC, O.bondN, O.bond.tap, O.bond.prof); }; }
+      else { atom.track = () => { const q = centre(src.F.c, src.F.v, src.i, MOLBASE.p); atom.center.set(q[0],q[1],q[2]); atom.world.set(q[0],q[1],q[2]); return true; };
+        atom.fill = () => 0; }
+      return { t:bestT, atom };
     };
 
     /* Orbitals for the linear free species (CO2, O2). Same idea as the water above: build ONE canonical
@@ -6341,10 +6409,11 @@ void main(void){
         cMesh.thinInstanceCount = n*coreN; bMesh.thinInstanceCount = n*bondN;
         cMesh.setEnabled(n>0); bMesh.setEnabled(n>0);
       });
+      return { cM, cC, bM, bC, pick, pos, coreN, bondN, core, bond, cMesh };   // live buffers, for the selection outline
     };
     FREE_CO2.base = MOLBASE.co2; FREE_O2.base = MOLBASE.o2;   // for the displacement lookup above
-    linearOrb('co2', FREE_CO2, [codeC, codeO, codeO], [0, 1.16, -1.16]);
-    linearOrb('o2',  FREE_O2,  [codeO, codeO],        [0.605, -0.605]);
+    ORB_LIN.co2 = linearOrb('co2', FREE_CO2, [codeC, codeO, codeO], [0, 1.16, -1.16]);
+    ORB_LIN.o2  = linearOrb('o2',  FREE_O2,  [codeO, codeO],        [0.605, -0.605]);
   }
 
   // Headlight follows the camera; fog darkens fragments by distance (front→back)
@@ -6680,6 +6749,11 @@ void main(void){
   const OUT_MAX = 160;
   const fillOutline = (buf, atom, applyFoc = true) => {
     const foc = applyFoc ? gFocusId : -1;       // hover passes false → always outline the whole atom (focus only isolates the SELECTED atom)
+    /* Free molecules and membrane lipids carry fill(): it copies the atom's ACTUAL, CURRENT lobe matrices
+       out of the buffers the renderer drew this frame. The spawn branch below draws a generic unbonded
+       atomic set at a fixed point, which is right for a hand-dropped atom and wrong for these - a water
+       oxygen is bonded, oriented per molecule and moving, so that outline sat still in the wrong shape. */
+    if(atom.fill) return atom.fill(buf, OUT_MAX);
     if(atom.spawn){                                             // hand-spawned atom → its own lobe list
       const lobes = spawnLobeList(atom.sym, atom.center.x, atom.center.y, atom.center.z); let m = 0;
       for(const L of lobes){ if(foc >= 0 && Math.abs(L.oid - foc) > 0.5) continue; const o=m*16; for(let j=0;j<16;j++) buf[o+j]=L.m[j]; m++; }
@@ -6751,6 +6825,18 @@ void main(void){
     selMask.thinInstanceCount = n;
     selMask.setEnabled(true);
   };
+  /* Atoms that move (free molecules) or sway (lipids) carry track(): each frame it re-derives where the
+     atom is now and refreshes its lobe source. The outline, the stencil mask, the nucleus and the shader
+     selection centre are then rebuilt from the live lobes, so they stay ON the orbitals as the molecule
+     travels. Registered here, after the free-molecule gathers, so it reads this frame's buffers. If the
+     molecule has left the crisp zone its lobes are not drawn, so the outline hides with them. */
+  scene.onBeforeRenderObservable.add(() => {
+    const a = selAtom; if(!a || !a.track) return;
+    if(!a.track()){ selOut.setEnabled(false); selMask.setEnabled(false); return; }
+    setSelOut(a); setSelNuc(a);
+    selCenter.copyFrom(a.center);                 // the shaders compare ocen (unswayed) to this
+    if(orbitLocked) orbitCenter.copyFrom(a.world);
+  });
   // Atom-select highlight: a thick dark-green outline that FLASHES 3× then vanishes (no persistent
   // orbital outline). The nucleus/electron/mask stay; only this stroke blinks.
   let flashTimer = null;
