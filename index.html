@@ -764,10 +764,17 @@ void main(void){
   }
 #endif
 #ifdef MEMFADE
+  /* The sway phase is seeded from the LIPID's origin, never the atom's own position. Seeding it from
+     base (which already carries the atom's offset inside the lipid) gave every atom of one lipid its own
+     phase, so the shells drifted up to a lattice spacing away from the lipid's orbital lobes - which sway
+     as one from the origin (as do the mask, the outlines and the CPU mirror). That was the long-standing
+     'orbitals without a vdW shell' - the shell was there, a few units to the side. */
 #ifdef LIPTILE
-  wc += memSway(base, tileOff.z);   // pooled nucleons: the tile origin IS the lipid id
+  wc += memSway(tileOff, tileOff.z);   // pooled nucleons: the tile origin IS the lipid origin and id
+#elif defined(LIPTPL)
+  wc += memSway(W[3].xyz, memAnc);     // the instance IS the lipid: its translation is the origin the orbital templates sway from
 #else
-  wc += memSway(base, memAnc);      // membrane fluid sway - kept in BOTH tiers so the sheet moves as one
+  wc += memSway(base, memAnc);         // membrane fluid sway - kept in BOTH tiers so the sheet moves as one
 #endif
 #ifdef LIPTILE
   vMemAnc = tileOff.z;   // pooled nucleons: the tile origin IS the lipid anchor (one tile per mesh)
