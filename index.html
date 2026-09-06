@@ -1278,6 +1278,14 @@ uniform vec3 tileOff;    // membrane wrap - see the imp shader
    which normalize(position) can no longer recover, and ocen, which is now lipid-local. */
 attribute vec3 localDir;
 #endif
+#ifdef HORNPROF
+/* Sigma lobes as p-orbital HORNS. cylTo puts the lobe's local -Y at its start (the nucleus) and +Y at
+   its end, so along Y the cross-section grows from a needle at the nucleus to full width at the far
+   end, on a concave flare - the old telephone earpiece. Two of them meet mouth to mouth at the bond's
+   midpoint, which is the picture of two p orbitals overlapping head-on. prof = 1 asks for it - the
+   back knobs, pi lobes and lone pairs stay symmetric ellipsoids. */
+attribute float prof;
+#endif
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/orb shaders exactly so a lipid's bonds ride with its atoms.
@@ -1303,6 +1311,9 @@ void main(void){
                          // it HERE means every downstream use (centre, shake, sway, reveal cone) follows
 #endif
   float wsc = taper;   // per-lobe overall width multiplier (electronegative atom's lobe is wider → pair forms a cone)
+#ifdef HORNPROF
+  if(prof > 0.5){ float hp = 0.5*(position.y + 1.0); wsc *= 0.05 + 0.95*pow(hp, 1.9); }
+#endif
   vec3 pos = vec3(position.x*wsc, position.y, position.z*wsc);
   vec3 nrm = normal;
   vec4 wp = W * vec4(pos, 1.0); wp.xyz += shakeOff(W[3].xyz);
@@ -4867,6 +4878,7 @@ void main(void){
   let gMemDrift = 0;          // how far a lipid wanders sideways past its neighbours (set from the pitch)
   let gMemFullR = 1e9;        // radius out to which the sheet keeps FULL lipid density - orbitals never go past it
   let gWorldReach = 0;        // how far the furthest thing in the scene actually is - the far clip must clear it
+  let gMemFootX = 1e9, gMemFootZ = 1e9;   // the slab's half-footprint - the wrapped sheet must not reach past it
   let gMemCellR = 0;          // radius of one membrane cell - every margin below has to clear a whole one
   /* ── ONE derived set of membrane LOD radii ────────────────────────────────────────────────────────
      These are not independent numbers, and every time they were written out separately one of them
@@ -4961,7 +4973,7 @@ void main(void){
        lipid spheres look like anyway.
        It is deliberately much THINNER than the bilayer (25%), so seen edge-on it hides inside the lipid
        band instead of occluding the middle of it. */
-    const MEGA_SCALE = 10;                     // how much further the slab reaches than the detailed sheet
+    const MEGA_SCALE = 1;                      // the slab is the sheet's own footprint - it spans the complexes and no further
     { const slab = BABYLON.MeshBuilder.CreateBox('memSlab', {
         width: 2*memHalfX*MEGA_SCALE, height: Math.max(1, ySpan*0.25), depth: 2*memHalfZ*MEGA_SCALE }, scene);
       slab.position.copyFrom(bilayerCen);
@@ -4975,6 +4987,7 @@ void main(void){
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); });
       slab.material = sm; gMemSlab = slab;
       gWorldReach = Math.hypot(memHalfX*MEGA_SCALE, memHalfZ*MEGA_SCALE);   // the slab's far corner - the far clip must reach it
+      gMemFootX = memHalfX*MEGA_SCALE; gMemFootZ = memHalfZ*MEGA_SCALE;   // nothing membrane-shaped is drawn outside this
     }
     buildMembrane = async () => {   // deferred: runs after the scene is revealed, so the complexes show first and the membrane fills in
     await yield_();
@@ -5245,6 +5258,7 @@ void main(void){
         const dx=ox-cp.x; if(dx*dx+dy*dy > R2) continue;
         const oz=lipO[o+2] + Math.round((cp.z-lipO[o+2])/gMemSpanZ)*gMemSpanZ;
         const dz=oz-cp.z; if(dx*dx+dy*dy+dz*dz > R2) continue;
+        if(Math.abs(ox - bilayerCen.x) > gMemFootX || Math.abs(oz - bilayerCen.z) > gMemFootZ) continue;   // not past the slab
         let vis = true;
         for(let q=0;q<6;q++){ const pl=fp[q];
           if(pl.normal.x*ox + pl.normal.y*oy + pl.normal.z*oz + pl.d < -LOBE_MARGIN){ vis=false; break; } }
@@ -5737,9 +5751,10 @@ void main(void){
         put(0,0,0, d[0]*0.75,d[1]*0.75,d[2]*0.75, LOBE_W, cO, 0,0,0, 2000);
     }
     const wCoreN = wOrbCore.m.length/16, wBondN = wOrbBond.m.length/16;
-    const wOrbMat = (nm, shader, attrs, extra) => {
+    const wOrbMat = (nm, shader, attrs, extra, defs) => {
       const m = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs,
-        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec'].concat(extra||[]) });
+        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec'].concat(extra||[]),
+        defines: defs||[] });
       m.setFloat('bubbleR',1e9); m.setFloat('nElec',2); m.setFloat('coneCos',-1.0); m.setFloat('drawElec',1);
       m.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); m.setFloat('focusId',-1); m.backFaceCulling=true;
       m.onBindObservable.add(()=>{ const eff=m.getEffect(); if(!eff) return; eff.setFloat('uT',gWaveT);
@@ -6081,14 +6096,15 @@ void main(void){
        The free protons deliberately get none: H+ is a bare nucleus with its electron stripped off, so it
        genuinely has no orbitals to draw. A cloud on it would be wrong chemistry, not a missing feature. */
     const linearOrb = (nm, F, els, offs) => {
-      const core = { m:[], col:[], cen:[], oid:[] }, bond = { m:[], tap:[], col:[], cen:[], oid:[] };
+      const core = { m:[], col:[], cen:[], oid:[] }, bond = { m:[], tap:[], col:[], cen:[], oid:[], prof:[] };
       { const tmp = new Float32Array(16);
         const at = offs.map(d => [0, 0, d]);
         const pushCore = (c,cx,cy,cz,oid) => { for(let j=0;j<16;j++) core.m.push(tmp[j]);
           core.col.push(c[0],c[1],c[2]); core.cen.push(cx,cy,cz); core.oid.push(oid); };
-        const put = (sx,sy,sz, ex,ey,ez, wid, c, cx,cy,cz, oid, tap) => { cylTo(sx,sy,sz, ex,ey,ez, tmp, 0, wid);
+        const put = (sx,sy,sz, ex,ey,ez, wid, c, cx,cy,cz, oid, tap, prof) => { cylTo(sx,sy,sz, ex,ey,ez, tmp, 0, wid);
           for(let j=0;j<16;j++) bond.m.push(tmp[j]);
-          bond.tap.push(tap === undefined ? 1.0 : tap); bond.col.push(c[0],c[1],c[2]); bond.cen.push(cx,cy,cz); bond.oid.push(oid); };
+          bond.tap.push(tap === undefined ? 1.0 : tap); bond.col.push(c[0],c[1],c[2]); bond.cen.push(cx,cy,cz); bond.oid.push(oid);
+          bond.prof.push(prof ? 1.0 : 0.0); };
         for(let k=0;k<els.length;k++){ const e=els[k], cfg=econf(e), maxNe=cfg.reduce((mx,sh)=>Math.max(mx,sh[0]),0);
           const q=at[k], c=info(e).c;
           for(const sh of cfg){ const n2=sh[0], ty=sh[1], R=n2*SHELL_STEP, oid=n2*100+ty*10;
@@ -6109,8 +6125,10 @@ void main(void){
           const bx=q[0]-p0[0], by=q[1]-p0[1], bz=q[2]-p0[2];   // the real bond vector: atom 0 is NOT the origin for O2
           const BL=Math.hypot(bx,by,bz), u=[bx/BL, by/BL, bz/BL];
           const c0=info(els[0]).c, ck=info(els[k]).c;
-          put(p0[0],p0[1],p0[2], p0[0]+bx*f,p0[1]+by*f,p0[2]+bz*f, LOBE_W, c0, p0[0],p0[1],p0[2], 1000);   // sigma
-          put(q[0],q[1],q[2], q[0]-bx*f,q[1]-by*f,q[2]-bz*f, LOBE_W, ck, q[0],q[1],q[2], 1001);
+          // sigma: one horn from each nucleus, needle at the nucleus, full width where the two mouths meet
+          const fs = 0.52;
+          put(p0[0],p0[1],p0[2], p0[0]+bx*fs,p0[1]+by*fs,p0[2]+bz*fs, LOBE_W*1.25, c0, p0[0],p0[1],p0[2], 1000, 1.0, true);
+          put(q[0],q[1],q[2], q[0]-bx*fs,q[1]-by*fs,q[2]-bz*fs, LOBE_W*1.25, ck, q[0],q[1],q[2], 1001, 1.0, true);
           put(p0[0],p0[1],p0[2], p0[0]-u[0]*kL,p0[1]-u[1]*kL,p0[2]-u[2]*kL, kW, c0, p0[0],p0[1],p0[2], 1000);   // back knobs
           put(q[0],q[1],q[2], q[0]+u[0]*kL,q[1]+u[1]*kL,q[2]+u[2]*kL, kW, ck, q[0],q[1],q[2], 1001);
           // pi cloud. The axis is linear, so the two bond directions never cross to give a p normal -
@@ -6136,7 +6154,7 @@ void main(void){
       if(!coreN && !bondN) return;
       const CAP = F.n;
       const cMat = wOrbMat(nm+'OrbCore','orb',['position','normal','ocol','ocen','oid','world0','world1','world2','world3']);
-      const bMat = wOrbMat(nm+'OrbBond','bond',['position','normal','taper','ocen','bcol','oid','world0','world1','world2','world3'],['opacity']);
+      const bMat = wOrbMat(nm+'OrbBond','bond',['position','normal','taper','prof','ocen','bcol','oid','world0','world1','world2','world3'],['opacity'],['#define HORNPROF']);
       bMat.setFloat('nElec',1);
       const cMesh = BABYLON.MeshBuilder.CreateSphere(nm+'OrbC',{segments:6,diameter:1},scene);
       cMesh.material=cMat; cMesh.isPickable=false; cMesh.alwaysSelectAsActiveMesh=true;
@@ -6144,16 +6162,16 @@ void main(void){
       bMesh.material=bMat; bMesh.isPickable=false; bMesh.alwaysSelectAsActiveMesh=true;
       gFreeMeshes.push(cMesh, bMesh);
       { const cc=new Float32Array(CAP*coreN*3), co=new Float32Array(CAP*coreN);
-        const bc=new Float32Array(CAP*bondN*3), bo=new Float32Array(CAP*bondN), bt=new Float32Array(CAP*bondN);
+        const bc=new Float32Array(CAP*bondN*3), bo=new Float32Array(CAP*bondN), bt=new Float32Array(CAP*bondN), bp=new Float32Array(CAP*bondN);
         for(let k=0;k<CAP;k++){
           for(let q=0;q<coreN;q++){ const d=(k*coreN+q)*3;
             cc[d]=core.col[q*3]; cc[d+1]=core.col[q*3+1]; cc[d+2]=core.col[q*3+2]; co[k*coreN+q]=core.oid[q]; }
           for(let q=0;q<bondN;q++){ const d=(k*bondN+q)*3;
             bc[d]=bond.col[q*3]; bc[d+1]=bond.col[q*3+1]; bc[d+2]=bond.col[q*3+2];
-            bo[k*bondN+q]=bond.oid[q]; bt[k*bondN+q]=bond.tap[q]; } }
+            bo[k*bondN+q]=bond.oid[q]; bt[k*bondN+q]=bond.tap[q]; bp[k*bondN+q]=bond.prof[q]; } }
         cMesh.thinInstanceSetBuffer('ocol',cc,3,true); cMesh.thinInstanceSetBuffer('oid',co,1,true);
         bMesh.thinInstanceSetBuffer('bcol',bc,3,true); bMesh.thinInstanceSetBuffer('oid',bo,1,true);
-        bMesh.thinInstanceSetBuffer('taper',bt,1,true); }
+        bMesh.thinInstanceSetBuffer('taper',bt,1,true); bMesh.thinInstanceSetBuffer('prof',bp,1,true); }
       const cM=new Float32Array(CAP*coreN*16), cC=new Float32Array(CAP*coreN*3);
       const bM=new Float32Array(CAP*bondN*16), bC=new Float32Array(CAP*bondN*3);
       cMesh.thinInstanceSetBuffer('matrix',cM,16,false); cMesh.thinInstanceSetBuffer('ocen',cC,3,false);
@@ -6400,7 +6418,7 @@ void main(void){
       }
       const cR = cell.r;
       const cM = cR + 14;   // frustum margin: the atoms' orbital clouds + thermal jitter reach BEYOND the cell box, so cull only when the cell is clearly outside — otherwise edge cells vanish while their orbitals are still on screen
-      let wcx, wcy, wcz;
+      let wcx, wcy, wcz, offSlab = false;
       if(cell.macro){ const mm=gModelXform, mo=(cell.mi|0)*16, bx=cell.cx, by=cell.cy, bz=cell.cz;   // 1) per-model transform (flatten to floor + drag/rotate) FIRST — exactly what the shaders apply
         const px=mm[mo]*bx+mm[mo+4]*by+mm[mo+8]*bz+mm[mo+12], py=mm[mo+1]*bx+mm[mo+5]*by+mm[mo+9]*bz+mm[mo+13], pz=mm[mo+2]*bx+mm[mo+6]*by+mm[mo+10]*bz+mm[mo+14];
         const lx=px-cx0, ly=py-cy0, lz=pz-cz0;   // 2) then the PSII macro transform about macroCenter
@@ -6417,6 +6435,8 @@ void main(void){
           const oz = Math.round((cp.z - cell.cz)/gMemSpanZ)*gMemSpanZ;
           if(cell.off.x !== ox || cell.off.z !== oz) cell.off.set(ox, 0, oz);
           wcx=cell.cx+ox; wcy=cell.cy; wcz=cell.cz+oz;
+          // the sheet wraps to follow the camera, but never past the slab it sits on
+          offSlab = Math.abs(wcx - bilayerCen.x) > gMemFootX || Math.abs(wcz - bilayerCen.z) > gMemFootZ;
         } else { wcx=cell.cx; wcy=cell.cy; wcz=cell.cz; }   // membrane cells don't follow the PSII gizmo
       }
       const vx=wcx-cp.x, vy=wcy-cp.y, vz=wcz-cp.z, d2=vx*vx+vy*vy+vz*vz;
@@ -6436,7 +6456,7 @@ void main(void){
          outright by the slab underneath it, which costs two triangles for the whole sheet instead of
          a few thousand impostors per cell. Proteins are the content, so they are never dropped - they
          just thin much harder (see the instance count below). */
-      const mega = d2 > (cell.macro ? MEGA2 : MEMR2) + cR*cR;
+      const mega = d2 > (cell.macro ? MEGA2 : MEMR2) + cR*cR || offSlab;
       const wantSph = vis && !!cell.sphere && (!gCullOnly || d2 < closeR*closeR) && !(mega && !cell.macro);
       const nucR = gCrisp*0.5 + cR + 8;                     // nuclei use their OWN tight range, not the orbital one
       const wantNuc = vis && gGfxMode === 1 && d2 < nucR*nucR;   // nuclei: mode 1, genuinely up close only
