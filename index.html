@@ -3346,7 +3346,7 @@ void main(void){
   // and the speed ramps 0 → max over RAMP_S seconds, then holds. Releasing every key of that kind drops
   // the ramp straight back to 0, so a tap is a small nudge and a long hold is a full-speed sweep.
   let gPanSpeed  = 0.21;   // multiplier on the pan speed (W/A/S/D - screen-space pan)
-  let gSelEnabled = true;  // dev switch: clicks and double-clicks select nothing while off
+  let gSelEnabled = false;  // dev switch 'valinnat', OFF by default: clicks and double-clicks select nothing, and nothing gets a hover outline or hover brightening
   let gPhotonsOn = true;   // dev switch: the photon beams (and their glows) off
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
   let gZoomMax = 60;       // the wheel's MAXIMUM: world units per full notch - the ramp is a percentage of this, never of a distance
@@ -8254,7 +8254,10 @@ void main(void){
   // Selections on/off: while off, clicks, double-clicks and drag boxes select nothing (turning it off also clears what is selected).
   const selRow = document.createElement('div'); const selBtn = document.createElement('button');
   const syncSel = () => { selBtn.textContent = gSelEnabled ? 'valinnat: ON' : 'valinnat: OFF'; selBtn.style.cssText = cullStyle(gSelEnabled); };
-  selBtn.onclick = () => { gSelEnabled = !gSelEnabled; if(!gSelEnabled){ clearAtomSel(); clearEtcSel(); deselectModel(); gSel.clear(); gSelMol.clear(); updateSelectionUI(); } syncSel(); };
+  selBtn.onclick = () => { gSelEnabled = !gSelEnabled;
+    if(!gSelEnabled){ clearAtomSel(); clearEtcSel(); deselectModel(); gSel.clear(); gSelMol.clear(); updateSelectionUI();
+      hl.setEnabled(false); gHoverAtom = null; gHoverGroup = -1; }   // and drop whatever is hovered right now
+    syncSel(); };
   syncSel(); selRow.appendChild(selBtn);
   // Photons on/off: the beams, their absorption flashes and the chlorophyll glows.
   const phRow = document.createElement('div'); const phBtn = document.createElement('button');
@@ -10211,6 +10214,8 @@ void main(void){
       const now = performance.now();
       if(now - hoverT < 80) return;   // throttle only the heavier highlight picking below
       hoverT = now;
+      // selections OFF → no hover feedback of any kind: no atom outline, no cofactor brightening, no protein hover
+      if(!gSelEnabled){ hl.setEnabled(false); gHoverAtom = null; gHoverGroup = -1; return; }
       if(wholeInView()){ macroHover(); hl.setEnabled(false); return; }   // zoomed out → hover the whole protein (white box), not atoms
       if(gMacroHover){ gMacroHover=false; if(!gMacroSel) setOutline(false); }
       const a = pickAtom();
