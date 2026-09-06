@@ -3268,7 +3268,7 @@ void main(void){
   // Camera feel, tunable from the dev panel. Each is a MAX rate that the camera eases up to: hold a key
   // and the speed ramps 0 → max over RAMP_S seconds, then holds. Releasing every key of that kind drops
   // the ramp straight back to 0, so a tap is a small nudge and a long hold is a full-speed sweep.
-  let gPanSpeed  = 1.0;    // multiplier on the pan speed (W/A/S/D - screen-space pan)
+  let gPanSpeed  = 0.05;   // multiplier on the pan speed (W/A/S/D - screen-space pan) - the slider's minimum
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
   let gRotSpeed  = 2.2;    // max yaw/pitch rate in rad/s (WASD) — 2.2 ≈ 126 deg/s
   const RAMP_S = 7.0;      // seconds from the initial nudge to full speed
@@ -7096,7 +7096,13 @@ void main(void){
         // cells in one frame — which is exactly what a big zoom change causes — stalls hard (a measured
         // ~1.2 s frame). Spend a small budget per frame instead: the boundary still moves, just over a few
         // frames, and each cell keeps rendering with its old material until its turn comes.
-        const far = !near;
+        /* Hysteresis: a cell goes far only once it is a full band past the crisp radius and comes back
+           only once it is inside it - a moving model (a shuttle) whose cells sit on the line would
+           otherwise flip material every frame, and each flip re-prepares the binding. */
+        let far = cell.farOn;
+        if(far === undefined) far = !near;
+        else if(far && vis && d2 < nr*nr) far = false;
+        else if(!far && !(vis && d2 < (nr+24)*(nr+24))) far = true;
         if(cell.farOn !== far && matSwaps < 12){ matSwaps++; cell.farOn = far;
           cell.sphere.material = far ? (cell.macro ? vdwFarMat : vdwStaticFarMat)
                                      : (cell.macro ? vdwMat : vdwMatStatic); }
@@ -7621,11 +7627,15 @@ void main(void){
     refreshModelLabel(); highlightModel(mid); });
   // Rebuild a model's baked transform matrix straight from gModelOff/gModelQuat (used by undo, which
   // may target a model that isn't the currently-selected one, so it can't go through modelNode).
+  // No allocation per call: the shuttles and bouncers rebuild their transforms every frame, and three
+  // fresh matrices plus a quaternion each time was steady garbage - the periodic GC pauses read as lag.
+  const _rmQ = new BABYLON.Quaternion(), _rmA = new BABYLON.Matrix(), _rmB = new BABYLON.Matrix(), _rmC = new BABYLON.Matrix(), _rmD = new BABYLON.Matrix();
   const rebuildModelXform = mid => { const mi=mInfo[mid];
-    const q=new BABYLON.Quaternion(gModelQuat[mid*4],gModelQuat[mid*4+1],gModelQuat[mid*4+2],gModelQuat[mid*4+3]);
-    q.toRotationMatrix(_tmpR);
+    _rmQ.set(gModelQuat[mid*4],gModelQuat[mid*4+1],gModelQuat[mid*4+2],gModelQuat[mid*4+3]);
+    _rmQ.toRotationMatrix(_tmpR);
     const nx=mi.cx+gModelOff[mid*3], ny=mi.cy+gModelOff[mid*3+1], nz=mi.cz+gModelOff[mid*3+2];
-    BABYLON.Matrix.Translation(-mi.cx,-mi.cy,-mi.cz).multiply(_tmpR).multiply(BABYLON.Matrix.Translation(nx,ny,nz)).copyToArray(gModelXform, mid*16); };
+    BABYLON.Matrix.TranslationToRef(-mi.cx,-mi.cy,-mi.cz, _rmA); BABYLON.Matrix.TranslationToRef(nx,ny,nz, _rmB);
+    _rmA.multiplyToRef(_tmpR, _rmC); _rmC.multiplyToRef(_rmB, _rmD); _rmD.copyToArray(gModelXform, mid*16); };
   /* ── Loose proteins drift and bounce ─────────────────────────────────────────────────────────
      The proteins that are not in the membrane (plastocyanin, ferredoxin, FNR, RuBisCO) move like the free
      molecules: constant velocity plus a slow tumble, reflected off the box walls, the lipid layer, the
@@ -7746,19 +7756,36 @@ void main(void){
     chl.forEach((o, k) => { const g = o.g; chB[k*3]=g.cx; chB[k*3+1]=g.cy; chB[k*3+2]=g.cz; chMi[k] = modelOf(chB[k*3], chB[k*3+1], chB[k*3+2]); });
     const N_PH = 90, PH_SPEED = 420, HIT_R = 7, GLOW_S = 5, HALO_MAX = 48;
     const px = new Float32Array(N_PH*3), pd = new Float32Array(N_PH*3), alive = new Uint8Array(N_PH);
-    /* Photons as ELECTRIC ARCS: per photon two thin jagged lines, 27 units long, running along the
-       flight direction, their points re-jittered every frame so they rattle like a spark - six spectral
-       colours as vertex colours, translucent. One updatable line system holds them all - the points are
-       persistent Vector3s rewritten in place, so nothing is allocated per frame. */
+    /* ELECTRIC photons. One line system carries everything that crackles: per photon a white core, two
+       coloured arcs and a flickering fork (27 units long, points re-jittered every frame so they rattle),
+       then the absorption SPARKS (a burst of radial lines where a chlorophyll swallowed a photon) and the
+       FORCE FIELD - arcs crawling over each glowing chlorophyll's halo, new every frame. Positions are
+       written straight into one typed array and uploaded once per frame - nothing is allocated. */
     const PH_COLS = [[0.62,0.32,1.0],[0.30,0.52,1.0],[0.30,1.0,0.42],[1.0,0.95,0.30],[1.0,0.60,0.20],[1.0,0.26,0.26]];
-    const PH_LEN = 27, PH_JIT = 1.6, PH_K = 10, PH_ARCS = 2;
-    const phLines = [], phCols = [];
-    for(let i=0;i<N_PH;i++) for(let a=0;a<PH_ARCS;a++){ const pts = [], cs = []; const col = PH_COLS[i % PH_COLS.length];
-      for(let k=0;k<PH_K;k++){ pts.push(new BABYLON.Vector3(0, -1e5, 0)); cs.push(new BABYLON.Color4(col[0], col[1], col[2], a === 0 ? 0.55 : 0.32)); }
-      phLines.push(pts); phCols.push(cs); }
-    const phMesh = BABYLON.MeshBuilder.CreateLineSystem('photons', { lines: phLines, colors: phCols, useVertexColor: true, updatable: true }, scene);
-    phMesh.isPickable = false; phMesh.alwaysSelectAsActiveMesh = true; phMesh.renderingGroupId = 2; phMesh.alpha = 0.85;
-    const phCol = new Uint8Array(N_PH); for(let i=0;i<N_PH;i++) phCol[i] = i % PH_COLS.length;
+    const PH_LEN = 27, PH_K = 10, SPK_MAX = 12, SPK_N = 10, SPK_T = 0.35, FF_ARCS = 6, FF_K = 5;
+    /* Every arc is a chain of SEGMENTS, each one a thin instanced cylinder: nine meshes (the six photon
+       colours, the white core, spark white, field green), their matrices built straight from one point
+       array every frame. Depth test off, so the crackle shows through the glass shells and the halos.
+       (Babylon's LinesMesh was tried first and drew nothing with vertex colours.) */
+    const lines = [], lineOff = [], lineCls = []; let nPts = 0;
+    const addLine = (k, cls) => { lineOff.push(nPts); nPts += k; lines.push(k); lineCls.push(cls); return lines.length-1; };
+    const CLS_CORE = 6, CLS_SPARK = 7, CLS_FIELD = 8;
+    const segCols = PH_COLS.concat([[1,1,1],[1,0.97,0.7],[0.72,1.0,0.5]]), segW = [0.28,0.28,0.28,0.28,0.28,0.28, 0.42, 0.32, 0.30], segA = [0.55,0.55,0.55,0.55,0.55,0.55, 0.9, 0.85, 0.6];
+    const phL = []; for(let i=0;i<N_PH;i++){ const cl = i % PH_COLS.length; phL.push([addLine(PH_K, CLS_CORE), addLine(PH_K, cl), addLine(PH_K, cl), addLine(4, cl)]); }
+    const spkL = []; for(let b=0;b<SPK_MAX;b++){ const arr = []; for(let q=0;q<SPK_N;q++) arr.push(addLine(2, CLS_SPARK)); spkL.push(arr); }
+    const ffL = []; for(let h=0;h<HALO_MAX;h++){ const arr = []; for(let q=0;q<FF_ARCS;q++) arr.push(addLine(FF_K, CLS_FIELD)); ffL.push(arr); }
+    const segCap = new Int32Array(9); for(let L=0;L<lines.length;L++) segCap[lineCls[L]] += lines[L]-1;
+    const segMeshes = segCols.map((col, ci) => {
+      const m = BABYLON.MeshBuilder.CreateCylinder('zap'+ci, {height:1, diameter:1, tessellation:5, cap:BABYLON.Mesh.NO_CAP}, scene);
+      const mat = new BABYLON.StandardMaterial('zapMat'+ci, scene); mat.emissiveColor = new BABYLON.Color3(col[0],col[1],col[2]); mat.disableLighting = true; mat.alpha = segA[ci]; mat.alphaMode = BABYLON.Constants.ALPHA_COMBINE; mat.disableDepthWrite = true; mat.backFaceCulling = false;
+      m.material = mat; m.isPickable = false; m.alwaysSelectAsActiveMesh = true; m.renderingGroupId = 2;
+      m.onBeforeRenderObservable.add(() => engine.setDepthFunction(BABYLON.Constants.ALWAYS)); m.onAfterRenderObservable.add(() => engine.setDepthFunction(BABYLON.Constants.LEQUAL));
+      const buf = new Float32Array(Math.max(1, segCap[ci])*16); m.thinInstanceSetBuffer('matrix', buf, 16, false); m.thinInstanceCount = 0; m.setEnabled(false);
+      return { m, buf, n:0, cap:segCap[ci], w:segW[ci] }; });
+    const phPos = new Float32Array(nPts*3); for(let q=1;q<phPos.length;q+=3) phPos[q] = -1e5;
+    const P = (L, k, x, y, z) => { const o = (lineOff[L]+k)*3; phPos[o]=x; phPos[o+1]=y; phPos[o+2]=z; };
+    const park = L => { const n = lines[L]; for(let k=0;k<n;k++) P(L, k, 0, -1e5, 0); };
+    const sparks = [];   // absorption bursts: {x,y,z,t,dirs}
     const haloMesh = BABYLON.MeshBuilder.CreateSphere('chlHalo', {diameter:1, segments:10}, scene);
     const haloMat = new BABYLON.StandardMaterial('chlHaloMat', scene); haloMat.emissiveColor = new BABYLON.Color3(0.62, 1.0, 0.36); haloMat.disableLighting = true; haloMat.alpha = 0.32; haloMat.alphaMode = BABYLON.Constants.ALPHA_ADD; haloMat.disableDepthWrite = true; haloMat.backFaceCulling = false;
     haloMesh.material = haloMat; haloMesh.isPickable = false; haloMesh.alwaysSelectAsActiveMesh = true; haloMesh.renderingGroupId = 2;
@@ -7785,24 +7812,57 @@ void main(void){
         let hit = -1;
         if(step > 0) for(let k=0;k<N_CH;k++){ const cx=chW[k*3]-x0, cy=chW[k*3+1]-y0, cz=chW[k*3+2]-z0; const t = cx*dx+cy*dy+cz*dz; if(t < -HIT_R || t > step + HIT_R) continue;
           const tc = Math.max(0, Math.min(step, t)), ex = cx-dx*tc, ey = cy-dy*tc, ez = cz-dz*tc; if(ex*ex+ey*ey+ez*ez < HIT_R*HIT_R){ hit = k; break; } }
-        if(hit >= 0){ glows.set(hit, GLOW_S); alive[i] = 0; continue; }
+        if(hit >= 0){ glows.set(hit, GLOW_S); alive[i] = 0;
+          const dirs = []; for(let q=0;q<SPK_N;q++){ const th = Math.random()*6.283, ph = Math.acos(2*Math.random()-1); dirs.push([Math.sin(ph)*Math.cos(th), Math.cos(ph), Math.sin(ph)*Math.sin(th)]); }
+          sparks.push({ x:x0, y:y0, z:z0, t:0, dirs }); if(sparks.length > SPK_MAX) sparks.shift();   // the zap where it was swallowed
+          continue; }
         const x=x0+dx*step, y=y0+dy*step, z=z0+dz*step;
         if(x < lo.x-2 || x > hi.x+2 || y < lo.y-2 || y > hi.y+2 || z < lo.z-2 || z > hi.z+2){ alive[i] = 0; continue; }
         px[o]=x; px[o+1]=y; px[o+2]=z;
-        // the arcs: points from the head back along the direction, each kicked sideways at random this frame
+        // the electric photon: a white core (small jitter), two coloured arcs (wide jitter), a flickering fork
         let ux=0, uy=1, uz=0; if(Math.abs(dy) > 0.9){ ux=1; uy=0; }
         let vx=uy*dz-uz*dy, vy=uz*dx-ux*dz, vz=ux*dy-uy*dx; const vl=Math.hypot(vx,vy,vz)||1; vx/=vl; vy/=vl; vz/=vl; const wx=dy*vz-dz*vy, wy=dz*vx-dx*vz, wz=dx*vy-dy*vx;
-        for(let a=0;a<PH_ARCS;a++){ const pts = phLines[i*PH_ARCS+a];
-          for(let k=0;k<PH_K;k++){ const t = k/(PH_K-1), end = (k === 0 || k === PH_K-1) ? 0.3 : 1.0, j1 = (Math.random()-0.5)*2*PH_JIT*end, j2 = (Math.random()-0.5)*2*PH_JIT*end;
-            pts[k].set(x - dx*PH_LEN*t + vx*j1 + wx*j2, y - dy*PH_LEN*t + vy*j1 + wy*j2, z - dz*PH_LEN*t + vz*j1 + wz*j2); } }
+        const Ls = phL[i];
+        for(let a=0;a<3;a++){ const L = Ls[a], amp = a === 0 ? 0.45 : 1.8;
+          for(let k=0;k<PH_K;k++){ const t = k/(PH_K-1), end = (k === 0 || k === PH_K-1) ? 0.3 : 1.0, j1 = (Math.random()-0.5)*2*amp*end, j2 = (Math.random()-0.5)*2*amp*end;
+            P(L, k, x - dx*PH_LEN*t + vx*j1 + wx*j2, y - dy*PH_LEN*t + vy*j1 + wy*j2, z - dz*PH_LEN*t + vz*j1 + wz*j2); } }
+        if(Math.random() < 0.35){ const t0 = 0.25 + Math.random()*0.5, ang = Math.random()*6.283, fl = 5 + Math.random()*7, sa = Math.cos(ang), sb = Math.sin(ang);
+          const bx0 = x - dx*PH_LEN*t0, by0 = y - dy*PH_LEN*t0, bz0 = z - dz*PH_LEN*t0, ex = vx*sa + wx*sb, ey = vy*sa + wy*sb, ez = vz*sa + wz*sb;
+          for(let k=0;k<4;k++){ const f = k/3, jj = k ? (Math.random()-0.5)*1.5 : 0;
+            P(Ls[3], k, bx0 + ex*fl*f - dx*fl*f*0.4 + wx*jj, by0 + ey*fl*f - dy*fl*f*0.4 + wy*jj, bz0 + ez*fl*f - dz*fl*f*0.4 + wz*jj); } }
+        else park(Ls[3]);
         n++;
       }
-      for(let i=0;i<N_PH;i++) if(!alive[i]) for(let a=0;a<PH_ARCS;a++) for(const q of phLines[i*PH_ARCS+a]) q.set(0, -1e5, 0);   // a dead photon's arcs are parked far below the scene
-      BABYLON.MeshBuilder.CreateLineSystem('photons', { lines: phLines, instance: phMesh });
+      for(let i=0;i<N_PH;i++) if(!alive[i]) for(const L of phL[i]) park(L);   // a dead photon's lines are parked far below the scene
+      // the sparks: radial lines that shoot out over SPK_T seconds, then the burst is dropped
+      for(let b=0;b<SPK_MAX;b++){ const S = sparks[b];
+        if(!S){ for(const L of spkL[b]) park(L); continue; }
+        S.t += dt; const age = Math.min(1, S.t/SPK_T), len = 3 + 16*age;
+        for(let q=0;q<SPK_N;q++){ const d = S.dirs[q], L = spkL[b][q], jx = (Math.random()-0.5)*1.4, jz = (Math.random()-0.5)*1.4;
+          P(L, 0, S.x + d[0]*len*0.3, S.y + d[1]*len*0.3, S.z + d[2]*len*0.3); P(L, 1, S.x + d[0]*len + jx, S.y + d[1]*len + jz, S.z + d[2]*len - jx); } }
+      for(let b=sparks.length-1;b>=0;b--) if(sparks[b].t >= SPK_T) sparks.splice(b, 1);
       // the halos: shrink and fade out over GLOW_S seconds
       let hn = 0; for(const [k, left] of glows){ const nl = left - dt; if(nl <= 0){ glows.delete(k); continue; } glows.set(k, nl);
-        if(hn >= HALO_MAX) continue; const f = nl/GLOW_S, r = 9 + 10*Math.sqrt(f), m = hn*16;
-        haloM[m]=r; haloM[m+1]=0; haloM[m+2]=0; haloM[m+3]=0; haloM[m+4]=0; haloM[m+5]=r; haloM[m+6]=0; haloM[m+7]=0; haloM[m+8]=0; haloM[m+9]=0; haloM[m+10]=r; haloM[m+11]=0; haloM[m+12]=chW[k*3]; haloM[m+13]=chW[k*3+1]; haloM[m+14]=chW[k*3+2]; haloM[m+15]=1; hn++; }
+        if(hn >= HALO_MAX) continue; const f = nl/GLOW_S, r = 9 + 10*Math.sqrt(f), m = hn*16, cx = chW[k*3], cy = chW[k*3+1], cz = chW[k*3+2];
+        haloM[m]=r; haloM[m+1]=0; haloM[m+2]=0; haloM[m+3]=0; haloM[m+4]=0; haloM[m+5]=r; haloM[m+6]=0; haloM[m+7]=0; haloM[m+8]=0; haloM[m+9]=0; haloM[m+10]=r; haloM[m+11]=0; haloM[m+12]=cx; haloM[m+13]=cy; haloM[m+14]=cz; haloM[m+15]=1;
+        // the force field: arcs crawling over the halo's surface, new every frame, bulging in and out
+        const arr = ffL[hn]; for(let q=0;q<FF_ARCS;q++){ const L = arr[q], th1 = Math.random()*6.283, ph1 = Math.acos(2*Math.random()-1), th2 = th1 + (Math.random()-0.5)*1.6, ph2 = ph1 + (Math.random()-0.5)*1.2;
+          const ax = Math.sin(ph1)*Math.cos(th1), ay = Math.cos(ph1), az = Math.sin(ph1)*Math.sin(th1), bx = Math.sin(ph2)*Math.cos(th2), by = Math.cos(ph2), bz = Math.sin(ph2)*Math.sin(th2);
+          for(let kk=0;kk<FF_K;kk++){ const g = kk/(FF_K-1); let qx = ax + (bx-ax)*g, qy = ay + (by-ay)*g, qz = az + (bz-az)*g; const ql = Math.hypot(qx,qy,qz)||1; const rr = r*(1 + ((kk === 0 || kk === FF_K-1) ? 0 : (Math.random()-0.5)*0.3));
+            P(L, kk, cx + qx/ql*rr, cy + qy/ql*rr, cz + qz/ql*rr); } }
+        hn++; }
+      for(let h=hn;h<HALO_MAX;h++) for(const L of ffL[h]) park(L);
+      // points -> segments -> thin instances, per colour class
+      for(const S of segMeshes) S.n = 0;
+      for(let L=0;L<lines.length;L++){ const S = segMeshes[lineCls[L]], npt = lines[L], o0 = lineOff[L]*3;
+        for(let k=0;k<npt-1;k++){ const a = o0+k*3, b = a+3; if(phPos[a+1] < -1e4 || phPos[b+1] < -1e4) continue; if(S.n >= S.cap) break;
+          const sx = phPos[b]-phPos[a], sy = phPos[b+1]-phPos[a+1], sz = phPos[b+2]-phPos[a+2], len = Math.hypot(sx,sy,sz); if(len < 1e-4) continue;
+          const ex = sx/len, ey = sy/len, ez = sz/len; let hx = 0, hy = 1, hz = 0; if(Math.abs(ey) > 0.9){ hx = 1; hy = 0; }
+          let ux = hy*ez-hz*ey, uy = hz*ex-hx*ez, uz = hx*ey-hy*ex; const ul = Math.hypot(ux,uy,uz)||1; ux/=ul; uy/=ul; uz/=ul; const vx = ey*uz-ez*uy, vy = ez*ux-ex*uz, vz = ex*uy-ey*ux;
+          const w = S.w, m = S.n*16, B = S.buf;
+          B[m]=ux*w; B[m+1]=uy*w; B[m+2]=uz*w; B[m+3]=0; B[m+4]=sx; B[m+5]=sy; B[m+6]=sz; B[m+7]=0; B[m+8]=vx*w; B[m+9]=vy*w; B[m+10]=vz*w; B[m+11]=0;
+          B[m+12]=(phPos[a]+phPos[b])*0.5; B[m+13]=(phPos[a+1]+phPos[b+1])*0.5; B[m+14]=(phPos[a+2]+phPos[b+2])*0.5; B[m+15]=1; S.n++; } }
+      for(const S of segMeshes){ if(S.n) S.m.thinInstancePartialBufferUpdate('matrix', S.buf.subarray(0, S.n*16), 0); S.m.thinInstanceCount = S.n; S.m.setEnabled(S.n > 0); }
       if(hn){ haloMesh.thinInstancePartialBufferUpdate('matrix', haloM.subarray(0, hn*16), 0); } haloMesh.thinInstanceCount = hn; haloMesh.setEnabled(hn > 0);
     });
     window.__photons = () => ({ chlorophylls: N_CH, photons: N_PH, glowing: glows.size, gSpeed, chlSample: [0, (N_CH/2)|0, N_CH-1].map(k => [chW[k*3]|0, chW[k*3+1]|0, chW[k*3+2]|0]), photonSample: [0,1].map(i => [px[i*3]|0, px[i*3+1]|0, px[i*3+2]|0]), shuttles: gShuttles.map(s => ({mi:s.mi, pq:s.pq, phase:s.phase, at:s.cur.map(v=>v|0)})) });
@@ -7910,9 +7970,9 @@ void main(void){
     + 'border-radius:12px;box-shadow:0 4px 0 var(--brown);padding:12px 14px;user-select:none;min-width:230px;bottom:246px;max-height:none;overflow-y:auto;';
   // Camera feel: max fly speed (arrow keys) and max turn rate (WASD). Both ease 0 → max over 1 s.
   const mvRow = document.createElement('div');
-  mvRow.innerHTML = 'panorointinopeus: <b id="dev-mv-val">1.00×</b>';
+  mvRow.innerHTML = 'panorointinopeus: <b id="dev-mv-val">0.05×</b>';
   const mvSld = document.createElement('input');
-  mvSld.type='range'; mvSld.min='5'; mvSld.max='400'; mvSld.value='100'; mvSld.style.cssText='width:100%;cursor:pointer;';
+  mvSld.type='range'; mvSld.min='5'; mvSld.max='400'; mvSld.value='5'; mvSld.style.cssText='width:100%;cursor:pointer;';
   const mvValEl = mvRow.querySelector('#dev-mv-val');
   mvSld.oninput = () => { gPanSpeed = +mvSld.value/100; mvValEl.textContent = gPanSpeed.toFixed(2)+'×'; };
   const zmRow = document.createElement('div');
