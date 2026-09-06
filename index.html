@@ -2930,10 +2930,8 @@ void main(void){
       refD = Math.max(0.5 * Math.hypot(mi.x1-mi.x0, mi.y1-mi.y0, mi.z1-mi.z0), 6.0); }
     else if(gSel && gSel.size){ let cx=0,cy=0,cz=0; for(const mi of gSel){ cx+=mInfo[mi].cx+gModelOff[mi*3]; cy+=mInfo[mi].cy+gModelOff[mi*3+1]; cz+=mInfo[mi].cz+gModelOff[mi*3+2]; }   // RTS complex selection → centroid
       const n=gSel.size; sc = _zSel.set(cx/n, cy/n, cz/n); refD = Math.max(fitRadius*0.06, 6.0); }
-    if(sc){
-      const d = BABYLON.Vector3.Distance(cam.position, sc);
-      delta *= Math.max(0.05, Math.min(1.0, d / refD));   // 5% speed right at the object → smooth arrival
-    }
+    // (No arrival easing near a selection any more: it made the same notch a twentieth of itself near
+    //  the selected thing, which read as the wheel being randomly slow. A notch is a notch.)
     const hi = cam.upperRadiusLimit ?? 1e9, minR = Math.max(0.3, fitRadius * 0.0006);
     const oldR = cam.radius, r = oldR + delta;
     // Always dolly THROUGH (even after a double-click) → infinite zoom in and out the far side.
@@ -3517,17 +3515,16 @@ void main(void){
      instead of resetting mid-gesture. A deliberate pause between two separate nudges is rarely under
      ~300 ms, so it still resets when the user means it to. At a typical ~80 ms per detent, full speed
      arrives after roughly half a second of rolling. */
-  const WHEEL_CHAIN_MS = 400, WHEEL_STEPS = 7, WHEEL_DECAY_MS = 110;
+  /* The wheel ramp is DETERMINISTIC: the first notch of a gesture is 10 percent of the full step, the
+     second 20, and so on up to the tenth and every notch after it at 100 percent. Only a real pause
+     (WHEEL_CHAIN_MS without a notch) resets it. A full step closes 12 percent of the distance to the
+     point under the cursor, so the same notch feels the same at every scale. */
+  const WHEEL_CHAIN_MS = 400, WHEEL_STEPS = 10;
   let wheelStep = 0, wheelLastT = 0;
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     const nowT = performance.now(), gap = nowT - wheelLastT;
-    /* The ramp EASES DOWN on a hesitation instead of holding at full until a 400 ms silence. A free-spinning
-       wheel or a trackpad never leaves a 400 ms gap, so the old rule pinned the ramp at 7/7 for the whole
-       gesture and it felt like the speed jumped to high and stuck there. Now each ~110 ms of hesitation
-       drops it a step, and a real pause still resets it. */
     if(gap > WHEEL_CHAIN_MS) wheelStep = 0;
-    else if(gap > WHEEL_DECAY_MS) wheelStep = Math.max(0, wheelStep - Math.floor(gap / WHEEL_DECAY_MS));
     wheelLastT = nowT;
     if(wheelStep < WHEEL_STEPS) wheelStep++;
     /* The pivot is ALWAYS the point under the cursor. It used to be the cursor ray's hit on the floor plane
@@ -3555,21 +3552,14 @@ void main(void){
       if(t > 0 && t < Math.abs(cam.radius)*4 + 50) zp = ray.origin.add(ray.direction.scale(t)); }
     if(!zp) zp = ray.origin.add(ray.direction.scale(Math.max(1, Math.abs(cam.radius))));
     gZoomP = zp;
-    const slow = (e.buttons & 4) === 4;   // MIDDLE button held while scrolling → extremely slow, smooth creep zoom
-    const mag = slow ? Math.max(fitRadius * 0.004, Math.abs(cam.radius) * 0.008)
-                     : Math.max(fitRadius * 0.03,  Math.abs(cam.radius) * 0.06);
-    gZoomEase = slow ? 0.05 : 0.16;   // slow mode bleeds out over many more frames
-    /* Acceleration that actually arrives: the per-notch impulse grows with the square of the ramp (a
-       single notch is a quarter notch, a sustained roll one and a half), and the pending cap below grows
-       with the ramp too - it used to sit at 2.2 notches whatever the ramp said, so a fast roll saturated
-       after two notches and never got faster. */
-    const rampF = wheelStep / WHEEL_STEPS;
-    gZoomVel += Math.sign(e.deltaY) * mag * (0.25 + 1.25*rampF*rampF) * gZoomSpeed;
-    /* Cap the PENDING impulse. Events arrive faster than the 16%-a-frame bleed drains them, so a quick
-       wheel banked seconds of travel and the camera kept flying after the hand stopped - far enough to
-       carry it through the floor plane, which is what turned the pivot null above. About two notches'
-       worth can be queued now, which keeps the inertia and drops the coasting. */
-    const capV = mag * (1.2 + 4.0*rampF) * Math.max(0.3, gZoomSpeed);
+    const slow = (e.buttons & 4) === 4;   // MIDDLE button held while scrolling → slow creep zoom
+    // a full step: 12 percent of the way to the pivot (2 percent in creep mode), never below a tiny floor
+    const mag = Math.max(fitRadius * 0.0008, Math.abs(cam.radius) * (slow ? 0.02 : 0.12));
+    gZoomEase = slow ? 0.05 : 0.16;   // creep mode bleeds out over many more frames
+    const pct = wheelStep / WHEEL_STEPS;   // 0.1, 0.2, ... 1.0
+    gZoomVel += Math.sign(e.deltaY) * mag * pct * gZoomSpeed;
+    // at most three full steps banked, so a stopped hand stops the camera within a few frames
+    const capV = mag * 3.0 * Math.max(0.3, gZoomSpeed);
     if(Math.abs(gZoomVel) > capV) gZoomVel = Math.sign(gZoomVel) * capV;
     showTips(); hideTipsSoon();
   }, {passive:false});
