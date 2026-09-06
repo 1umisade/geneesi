@@ -671,6 +671,7 @@ vec3 molDisp(){
   float x = mod(molId, molTexDim), y = floor(molId / molTexDim);
   return texture2D(molTex, vec2((x + 0.5)/molTexDim, (y + 0.5)/molTexDim)).xyz;
 }
+float hsh(uint x){ x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return float(x & 0xffffffu) / 16777216.0; }   // lowbias32, bit-identical to spinS in JS
 float bnc(float x, float lo, float hi){
   float s = hi - lo;
   float t = mod(x - lo, 2.0*s);
@@ -744,23 +745,25 @@ void main(void){
   vec3 wCen = vec3(bnc(wOrig.x + wVel.x*uT, boxLo.x, boxHi.x),
                    bnc(yO + wVel.y*uT, yLo, yHi),
                    bnc(wOrig.z + wVel.z*uT, boxLo.z, boxHi.z));
-  wCen += molDisp();          // collision deviation, zero for anything the CPU is not simulating
-#ifdef NSHELL
-  wCen = repelShells(wCen);   // the protein shells still win: they are applied last
-#endif
   /* SPIN. Every free molecule tumbles about its own random axis. The angle is a signed mix of the
-     molecule's bounced coordinates, so it is continuous in time, its rate is a per-molecule random
-     combination of the velocity components, and every wall bounce flips one component - the spin
-     changes speed and direction at each collision for free, with no state. The shell push-out and the
-     simulated molecule collisions move wCen too, so those kick the spin as well. One-atom species
-     (the protons) have a zero offset and are unaffected. */
-  { float h1 = fract(sin(molId * 12.9898 + 1.0) * 43758.5453), h2 = fract(sin(molId * 78.233 + 2.0) * 43758.5453), h3 = fract(sin(molId * 37.719 + 3.0) * 43758.5453);
-    float h4 = fract(sin(molId * 51.117 + 4.0) * 43758.5453), h5 = fract(sin(molId * 23.317 + 5.0) * 43758.5453), h6 = fract(sin(molId * 91.377 + 6.0) * 43758.5453);
+     molecule's ANALYTIC bounced coordinates (before the displacement and the shells, so the CPU can
+     reproduce it exactly), so it is continuous in time, its rate is a per-molecule random combination
+     of the velocity components, and every wall bounce flips one component - the spin changes speed
+     and direction at each collision for free, with no state. The hash is an integer one (lowbias32)
+     and the same code runs in JS (spinS), so the orbitals, outlines and picking the CPU places on
+     these molecules land exactly where the GPU draws the atoms. One-atom species (the protons) have a
+     zero offset and are unaffected. */
+  { uint sid = uint(molId + 0.5);
+    float h1 = hsh(sid * 7u + 1u), h2 = hsh(sid * 7u + 2u), h3 = hsh(sid * 7u + 3u), h4 = hsh(sid * 7u + 4u), h5 = hsh(sid * 7u + 5u), h6 = hsh(sid * 7u + 6u);
     vec3 ax = normalize(vec3(h1, h2, h3) - 0.5 + vec3(0.001, 0.0, 0.0));
     vec3 sk = (vec3(h4, h5, h6) - 0.5) * 0.16;   // rad per world unit, per axis - with speeds of 30-70 units per second that is a few radians per second
     float th = dot(sk, wCen);
     float c = cos(th), sn = sin(th); vec3 v = W[3].xyz;
     W[3].xyz = v * c + cross(ax, v) * sn + ax * dot(ax, v) * (1.0 - c); }
+  wCen += molDisp();          // collision deviation, zero for anything the CPU is not simulating
+#ifdef NSHELL
+  wCen = repelShells(wCen);   // the protein shells still win: they are applied last
+#endif
   base = wCen + W[3].xyz;
 #endif
 #ifdef LIPTILE
@@ -6393,6 +6396,22 @@ void main(void){
     const cA=[wh1[0],wh1[1],wh1[2]], cB=[wh2[0],wh2[1],wh2[2]];
     const cU=nrm(cA), cW=nrm(crs(cA,cB)), cV=crs(cW,cU);
     const bnc=(x,lo,hi)=>{ const sp=hi-lo; let t=(x-lo)%(2*sp); if(t<0) t+=2*sp; return lo+(t<sp?t:2*sp-t); };
+    /* The CPU mirror of the shader's SPIN (see the WATERBOX vertex path): the same lowbias32 hash, the
+       same axis and rate, the same Rodrigues rotation - so everything the CPU places on a free molecule
+       (its orbital lobes, the hover and selection outlines, the pick test) turns with the atoms. spinS
+       fills S (row-major 3x3) for molecule molId at its ANALYTIC centre (bx,by,bz). */
+    const hsh = x => { x = (x ^ (x >>> 16)) >>> 0; x = Math.imul(x, 0x7feb352d) >>> 0; x = (x ^ (x >>> 15)) >>> 0; x = Math.imul(x, 0x846ca68b) >>> 0; x = (x ^ (x >>> 16)) >>> 0; return (x & 0xffffff) / 16777216; };
+    const _S9 = new Float64Array(9), _a3 = [0,0,0], _R9 = new Float64Array(9);
+    const spinS = (molId, bx,by,bz, S) => { const id = molId >>> 0;
+      const h1=hsh((id*7+1)>>>0), h2=hsh((id*7+2)>>>0), h3=hsh((id*7+3)>>>0), h4=hsh((id*7+4)>>>0), h5=hsh((id*7+5)>>>0), h6=hsh((id*7+6)>>>0);
+      let kx=h1-0.5+0.001, ky=h2-0.5, kz=h3-0.5; const kl=Math.hypot(kx,ky,kz)||1; kx/=kl; ky/=kl; kz/=kl;
+      const th=((h4-0.5)*bx+(h5-0.5)*by+(h6-0.5)*bz)*0.16, c=Math.cos(th), sn=Math.sin(th), t=1-c;
+      S[0]=t*kx*kx+c;    S[1]=t*kx*ky-sn*kz; S[2]=t*kx*kz+sn*ky;
+      S[3]=t*kx*ky+sn*kz; S[4]=t*ky*ky+c;    S[5]=t*ky*kz-sn*kx;
+      S[6]=t*kx*kz-sn*ky; S[7]=t*ky*kz+sn*kx; S[8]=t*kz*kz+c; };
+    const anaC = (c,v,i,T,out) => { out[0]=bnc(c[i*3]+v[i*3]*T,bLo.x,bHi.x); out[1]=bncY(c[i*3+1],v[i*3+1],T); out[2]=bnc(c[i*3+2]+v[i*3+2]*T,bLo.z,bHi.z); };
+    const spinAt = (molId, c,v,i,T) => { anaC(c,v,i,T,_a3); spinS(molId, _a3[0],_a3[1],_a3[2], _S9); return _S9; };   // S for molecule i of a species at time T
+    const gatherT = () => gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed;   // the clock the per-frame gathers place at
     const wPick=new Int32Array(WCAP), wPickD=new Float32Array(WCAP), wPos=new Float32Array(WCAP*3);
     const _wp=[0,0,0];
     let wPartial = typeof wCoreMesh.thinInstancePartialBufferUpdate === 'function';   // see the upload below
@@ -6449,9 +6468,13 @@ void main(void){
         let wx=a1y*a2z-a1z*a2y, wy=a1z*a2x-a1x*a2z, wz=a1x*a2y-a1y*a2x;
         const wl=Math.hypot(wx,wy,wz)||1e-6; wx/=wl; wy/=wl; wz/=wl;
         const vx=wy*uz-wz*uy, vy=wz*ux-wx*uz, vz=wx*uy-wy*ux;
-        const r00=ux*cU[0]+vx*cV[0]+wx*cW[0], r01=ux*cU[1]+vx*cV[1]+wx*cW[1], r02=ux*cU[2]+vx*cV[2]+wx*cW[2];
-        const r10=uy*cU[0]+vy*cV[0]+wy*cW[0], r11=uy*cU[1]+vy*cV[1]+wy*cW[1], r12=uy*cU[2]+vy*cV[2]+wy*cW[2];
-        const r20=uz*cU[0]+vz*cV[0]+wz*cW[0], r21=uz*cU[1]+vz*cV[1]+wz*cW[1], r22=uz*cU[2]+vz*cV[2]+wz*cW[2];
+        const a00=ux*cU[0]+vx*cV[0]+wx*cW[0], a01=ux*cU[1]+vx*cV[1]+wx*cW[1], a02=ux*cU[2]+vx*cV[2]+wx*cW[2];
+        const a10=uy*cU[0]+vy*cV[0]+wy*cW[0], a11=uy*cU[1]+vy*cV[1]+wy*cW[1], a12=uy*cU[2]+vy*cV[2]+wy*cW[2];
+        const a20=uz*cU[0]+vz*cV[0]+wz*cW[0], a21=uz*cU[1]+vz*cV[1]+wz*cW[1], a22=uz*cU[2]+vz*cV[2]+wz*cW[2];
+        const S = spinAt(MOLBASE.w+i, wc, wv, i, T);   // the spin, exactly as the shader turns the atoms
+        const r00=S[0]*a00+S[1]*a10+S[2]*a20, r01=S[0]*a01+S[1]*a11+S[2]*a21, r02=S[0]*a02+S[1]*a12+S[2]*a22;
+        const r10=S[3]*a00+S[4]*a10+S[5]*a20, r11=S[3]*a01+S[4]*a11+S[5]*a21, r12=S[3]*a02+S[4]*a12+S[5]*a22;
+        const r20=S[6]*a00+S[7]*a10+S[8]*a20, r21=S[6]*a01+S[7]*a11+S[8]*a21, r22=S[6]*a02+S[7]*a12+S[8]*a22;
         for(let q=0;q<wCoreN;q++){ const s0=q*16, d0=(k*wCoreN+q)*16;
           for(let c=0;c<3;c++){ const ax=wOrbCore.m[s0+c*4], ay=wOrbCore.m[s0+c*4+1], az=wOrbCore.m[s0+c*4+2];
             wCoreM[d0+c*4]  =r00*ax+r01*ay+r02*az;
@@ -6804,17 +6827,21 @@ void main(void){
         const py=bncY(c[i*3+1], v[i*3+1], T)-cp.y; if(px*px+py*py>R2) return false;
         const pz=bnc(c[i*3+2]+v[i*3+2]*T,bLo.z,bHi.z)-cp.z; return px*px+py*py+pz*pz<=R2; };
       const hRad = info(codeH).vr*FILL_SCALE, oRad = info(codeO).vr*FILL_SCALE, cRad = info(codeC).vr*FILL_SCALE;
-      for(let i=0;i<NW;i++){ if(!near(wc,wv,i)) continue; const q=centre(wc,wv,i,MOLBASE.w);
+      const rot = (S, x,y,z, out) => { out[0]=S[0]*x+S[1]*y+S[2]*z; out[1]=S[3]*x+S[4]*y+S[5]*z; out[2]=S[6]*x+S[7]*y+S[8]*z; return out; };
+      const _o3 = [0,0,0];
+      for(let i=0;i<NW;i++){ if(!near(wc,wv,i)) continue; const q=centre(wc,wv,i,MOLBASE.w); const S = spinAt(MOLBASE.w+i, wc, wv, i, T);
         test(q[0],q[1],q[2], oRad, codeO, {kind:'w', i, role:0});
-        test(q[0]+wh1[i*3],q[1]+wh1[i*3+1],q[2]+wh1[i*3+2], hRad, codeH, {kind:'w', i, role:1});
-        test(q[0]+wh2[i*3],q[1]+wh2[i*3+1],q[2]+wh2[i*3+2], hRad, codeH, {kind:'w', i, role:2}); }
+        rot(S, wh1[i*3],wh1[i*3+1],wh1[i*3+2], _o3); test(q[0]+_o3[0],q[1]+_o3[1],q[2]+_o3[2], hRad, codeH, {kind:'w', i, role:1});
+        rot(S, wh2[i*3],wh2[i*3+1],wh2[i*3+2], _o3); test(q[0]+_o3[0],q[1]+_o3[1],q[2]+_o3[2], hRad, codeH, {kind:'w', i, role:2}); }
       const lin = (F, base, els, offs, rads, key) => { for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,base);
-        for(let k=0;k<els.length;k++) test(q[0]+F.ax[i*3]*offs[k], q[1]+F.ax[i*3+1]*offs[k], q[2]+F.ax[i*3+2]*offs[k], rads[k], els[k], {kind:key, i, k, F, off:offs[k]}); } };
+        const S = spinAt(base+i, F.c, F.v, i, T); rot(S, F.ax[i*3],F.ax[i*3+1],F.ax[i*3+2], _o3); const ax=_o3[0], ay=_o3[1], az=_o3[2];
+        for(let k=0;k<els.length;k++) test(q[0]+ax*offs[k], q[1]+ay*offs[k], q[2]+az*offs[k], rads[k], els[k], {kind:key, i, k, F, off:offs[k], base}); } };
       lin(FREE_P,   MOLBASE.p,   [codeH],             [0],             [hRad],           'p');
-      if(FREE_NADP){ const F = FREE_NADP, A = F.atoms;   // rigid species: every atom at its offset in the molecule frame
-        for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,MOLBASE.nadp);
+      if(FREE_NADP){ const F = FREE_NADP, A = F.atoms;   // rigid species: every atom at its offset in the molecule frame, turned by the spin
+        for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,MOLBASE.nadp); const S = spinAt(MOLBASE.nadp+i, F.c, F.v, i, T);
           for(let k=0;k<A.length;k++){ const a=A[k], o=i*3;
-            test(q[0]+F.fu[o]*a.p[0]+F.fv[o]*a.p[1]+F.ax[o]*a.p[2], q[1]+F.fu[o+1]*a.p[0]+F.fv[o+1]*a.p[1]+F.ax[o+1]*a.p[2], q[2]+F.fu[o+2]*a.p[0]+F.fv[o+2]*a.p[1]+F.ax[o+2]*a.p[2], a.r, a.el, {kind:'nadp', i, k, F, p:a.p, base:MOLBASE.nadp}); } } }
+            const lx=F.fu[o]*a.p[0]+F.fv[o]*a.p[1]+F.ax[o]*a.p[2], ly=F.fu[o+1]*a.p[0]+F.fv[o+1]*a.p[1]+F.ax[o+1]*a.p[2], lz=F.fu[o+2]*a.p[0]+F.fv[o+2]*a.p[1]+F.ax[o+2]*a.p[2];
+            rot(S, lx,ly,lz, _o3); test(q[0]+_o3[0], q[1]+_o3[1], q[2]+_o3[2], a.r, a.el, {kind:'nadp', i, k, F, p:a.p, base:MOLBASE.nadp}); } } }
       lin(FREE_CO2, MOLBASE.co2, [codeC,codeO,codeO], [0,1.16,-1.16],  [cRad,oRad,oRad], 'co2');
       lin(FREE_O2,  MOLBASE.o2,  [codeO,codeO],       [0.605,-0.605],  [oRad,oRad],      'o2');
       if(!best) return null;
@@ -6827,24 +6854,30 @@ void main(void){
           for(let m=0;m<cnt;m++) if(wPick[m] === src.i){ k = m; break; }
           if(k < 0) return false;
           let x=wPos[k*3], y=wPos[k*3+1], z=wPos[k*3+2];
-          if(src.role===1){ x+=wh1[src.i*3]; y+=wh1[src.i*3+1]; z+=wh1[src.i*3+2]; }
-          else if(src.role===2){ x+=wh2[src.i*3]; y+=wh2[src.i*3+1]; z+=wh2[src.i*3+2]; }
+          if(src.role){ const h = src.role===1 ? wh1 : wh2, o = src.i*3, S = spinAt(MOLBASE.w+src.i, wc, wv, src.i, gatherT());   // the hydrogen's offset, turned by the spin
+            x += S[0]*h[o]+S[1]*h[o+1]+S[2]*h[o+2]; y += S[3]*h[o]+S[4]*h[o+1]+S[5]*h[o+2]; z += S[6]*h[o]+S[7]*h[o+1]+S[8]*h[o+2]; }
           atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
         atom.fill = (buf, cap, foc) => k < 0 ? 0 : copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
           wCoreM, wCoreC, wCoreN, wBondM, wBondC, wBondN, wOrbBond.tap, null, wOrbCore.oid, wOrbBond.oid, foc === undefined ? -1 : foc); }
-      else if(src.kind === 'co2' || src.kind === 'o2'){ let k = -1;
+      else if((src.kind === 'co2' || src.kind === 'o2' || src.kind === 'nadp') && ORB_LIN[src.kind]){ let k = -1;
         atom.track = () => { const O = ORB_LIN[src.kind]; if(!O) return false;
           const cnt = O.cMesh.thinInstanceCount / O.coreN; k = -1;
           for(let m=0;m<cnt;m++) if(O.pick[m] === src.i){ k = m; break; }
           if(k < 0) return false;
-          const F = src.F, x = O.pos[k*3] + F.ax[src.i*3]*src.off, y = O.pos[k*3+1] + F.ax[src.i*3+1]*src.off, z = O.pos[k*3+2] + F.ax[src.i*3+2]*src.off;
+          const F = src.F, o = src.i*3, S = spinAt(src.base+src.i, F.c, F.v, src.i, O.T);   // O.T: the clock the gather placed these lobes at
+          let lx, ly, lz;
+          if(src.p){ const pp=src.p; lx=F.fu[o]*pp[0]+F.fv[o]*pp[1]+F.ax[o]*pp[2]; ly=F.fu[o+1]*pp[0]+F.fv[o+1]*pp[1]+F.ax[o+1]*pp[2]; lz=F.fu[o+2]*pp[0]+F.fv[o+2]*pp[1]+F.ax[o+2]*pp[2]; }
+          else { lx=F.ax[o]*src.off; ly=F.ax[o+1]*src.off; lz=F.ax[o+2]*src.off; }
+          const x = O.pos[k*3] + S[0]*lx+S[1]*ly+S[2]*lz, y = O.pos[k*3+1] + S[3]*lx+S[4]*ly+S[5]*lz, z = O.pos[k*3+2] + S[6]*lx+S[7]*ly+S[8]*lz;
           atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
         atom.fill = (buf, cap, foc) => { const O = ORB_LIN[src.kind]; if(!O || k < 0) return 0;
           return copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
             O.cM, O.cC, O.coreN, O.bM, O.bC, O.bondN, O.bond.tap, O.bond.prof, O.core.oid, O.bond.oid, foc === undefined ? -1 : foc); }; }
       else { const base = src.base !== undefined ? src.base : MOLBASE.p;
         atom.track = () => { const q = centre(src.F.c, src.F.v, src.i, base); let x=q[0], y=q[1], z=q[2];
-          if(src.p){ const F=src.F, o=src.i*3, pp=src.p; x += F.fu[o]*pp[0]+F.fv[o]*pp[1]+F.ax[o]*pp[2]; y += F.fu[o+1]*pp[0]+F.fv[o+1]*pp[1]+F.ax[o+1]*pp[2]; z += F.fu[o+2]*pp[0]+F.fv[o+2]*pp[1]+F.ax[o+2]*pp[2]; }
+          if(src.p){ const F=src.F, o=src.i*3, pp=src.p, S = spinAt(base+src.i, F.c, F.v, src.i, T);
+            const lx=F.fu[o]*pp[0]+F.fv[o]*pp[1]+F.ax[o]*pp[2], ly=F.fu[o+1]*pp[0]+F.fv[o+1]*pp[1]+F.ax[o+1]*pp[2], lz=F.fu[o+2]*pp[0]+F.fv[o+2]*pp[1]+F.ax[o+2]*pp[2];
+            x += S[0]*lx+S[1]*ly+S[2]*lz; y += S[3]*lx+S[4]*ly+S[5]*lz; z += S[6]*lx+S[7]*ly+S[8]*lz; }
           atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
         atom.fill = () => 0; }
       atom.track();   // locate it NOW: the card's orbital preview is built once at selection, from fill(), before the follower's first frame
@@ -6858,6 +6891,62 @@ void main(void){
        rotation carries +Z onto that axis.
        The free protons deliberately get none: H+ is a bare nucleus with its electron stripped off, so it
        genuinely has no orbitals to draw. A cloud on it would be wrong chemistry, not a missing feature. */
+    /* Frame providers for freeOrb. Each writes the row-major 3x3 that carries the canonical lobe set
+       onto molecule i at time T: the molecule's own rotation, with the spin composed on the left. */
+    const linFrame = F => (i, T, R) => {   // linear species: canonical +Z onto the (spun) axis
+      const S = spinAt(F.base+i, F.c, F.v, i, T);
+      const ox=F.ax[i*3], oy=F.ax[i*3+1], oz=F.ax[i*3+2];
+      const zx=S[0]*ox+S[1]*oy+S[2]*oz, zy=S[3]*ox+S[4]*oy+S[5]*oz, zz=S[6]*ox+S[7]*oy+S[8]*oz;
+      let tx=0, ty=0, tz=1; if(Math.abs(zz)>0.9){ tx=1; tz=0; }
+      let ux=ty*zz-tz*zy, uy=tz*zx-tx*zz, uz=tx*zy-ty*zx;
+      const ul=Math.hypot(ux,uy,uz)||1e-6; ux/=ul; uy/=ul; uz/=ul;
+      const vx=zy*uz-zz*uy, vy=zz*ux-zx*uz, vz=zx*uy-zy*ux;
+      R[0]=ux; R[1]=vx; R[2]=zx; R[3]=uy; R[4]=vy; R[5]=zy; R[6]=uz; R[7]=vz; R[8]=zz; };
+    const rigidFrame = F => (i, T, R) => {   // rigid species: columns fu, fv, ax (the frame the atoms were placed in), spun
+      const S = spinAt(F.base+i, F.c, F.v, i, T), o = i*3;
+      const m00=F.fu[o], m01=F.fv[o], m02=F.ax[o], m10=F.fu[o+1], m11=F.fv[o+1], m12=F.ax[o+1], m20=F.fu[o+2], m21=F.fv[o+2], m22=F.ax[o+2];
+      R[0]=S[0]*m00+S[1]*m10+S[2]*m20; R[1]=S[0]*m01+S[1]*m11+S[2]*m21; R[2]=S[0]*m02+S[1]*m12+S[2]*m22;
+      R[3]=S[3]*m00+S[4]*m10+S[5]*m20; R[4]=S[3]*m01+S[4]*m11+S[5]*m21; R[5]=S[3]*m02+S[4]*m12+S[5]*m22;
+      R[6]=S[6]*m00+S[7]*m10+S[8]*m20; R[7]=S[6]*m01+S[7]*m11+S[8]*m21; R[8]=S[6]*m02+S[7]*m12+S[8]*m22; };
+    /* The canonical orbital set of a RIGID free species, from its parsed model: the same picture every
+       bonded atom in the scene gets - core shells (a bonded hydrogen's 1s leaning into its bond), a
+       sigma horn from each end of every bond with a back knob behind each nucleus, a pi cloud above and
+       below every double or triple bond, and VSEPR lone pairs. Offsets are from the model's centroid,
+       exactly as its atoms were placed. */
+    const rigidOrbSet = m => {
+      const core = { m:[], col:[], cen:[], oid:[] }, bond = { m:[], tap:[], col:[], cen:[], oid:[], prof:[] };
+      const tmp = new Float32Array(16), N = m.na, at = [], els = [];
+      let cx=0, cy=0, cz=0; for(let k=0;k<N;k++){ cx+=m.x[k]; cy+=m.y[k]; cz+=m.z[k]; } cx/=N; cy/=N; cz/=N;
+      for(let k=0;k<N;k++){ at.push([m.x[k]-cx, m.y[k]-cy, m.z[k]-cz]); els.push(m.el[k]); }
+      const pushCore = (c,x,y,z,oid) => { for(let j=0;j<16;j++) core.m.push(tmp[j]); core.col.push(c[0],c[1],c[2]); core.cen.push(x,y,z); core.oid.push(oid); };
+      const put = (sx,sy,sz, ex,ey,ez, wid, c, x,y,z, oid, tap, prof) => { cylTo(sx,sy,sz, ex,ey,ez, tmp, 0, wid);
+        for(let j=0;j<16;j++) bond.m.push(tmp[j]);
+        bond.tap.push(tap === undefined ? 1.0 : tap); bond.col.push(c[0],c[1],c[2]); bond.cen.push(x,y,z); bond.oid.push(oid); bond.prof.push(prof ? 1.0 : 0.0); };
+      const bd = at.map(() => []);
+      for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b]; if(i<0||j<0||i>=N||j>=N) continue;
+        const d = nrm([at[j][0]-at[i][0], at[j][1]-at[i][1], at[j][2]-at[i][2]]); bd[i].push(d); bd[j].push([-d[0],-d[1],-d[2]]); }
+      for(let k=0;k<N;k++){ const e=els[k], cfg=econf(e), maxNe=cfg.reduce((mx,sh)=>Math.max(mx,sh[0]),0), q=at[k], c=info(e).c, bonded=bd[k].length>0;
+        for(const sh of cfg){ const n2=sh[0], ty=sh[1], R=n2*SHELL_STEP, oid=n2*100+ty*10;
+          if(bonded && maxNe>1 && n2===maxNe && ty<=1) continue;   // valence s/p of a bonded atom → the bonds represent them
+          if(ty===0){ if(bonded && EL_LIST[e]==='H') h1sMat(q[0],q[1],q[2], R*0.72, bd[k][0], tmp, 0); else sphereMat(q[0],q[1],q[2], R*0.72, tmp, 0); pushCore(c,q[0],q[1],q[2],oid); }
+          else for(const d of OTMPL[ty]){ cylTo(q[0],q[1],q[2], q[0]+d[0]*R,q[1]+d[1]*R,q[2]+d[2]*R, tmp,0,R*0.34); pushCore(c,q[0],q[1],q[2],oid); } } }
+      const pn = bd.map(dirs => { for(let a=0;a<dirs.length;a++) for(let b=a+1;b<dirs.length;b++){ const cr=crs(dirs[a],dirs[b]), l=Math.hypot(cr[0],cr[1],cr[2]); if(l>0.3) return [cr[0]/l,cr[1]/l,cr[2]/l]; } return null; });
+      const f=0.62, kL=0.24, kW=LOBE_W*0.5, pw=LOBE_W*0.42, pR=0.62; let hyb=0;
+      for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b]; if(i<0||j<0||i>=N||j>=N) continue; const bo=m.bo ? m.bo[b] : 1;
+        const p1=at[i], p2=at[j], bx=p2[0]-p1[0], by=p2[1]-p1[1], bz=p2[2]-p1[2], BL=Math.hypot(bx,by,bz)||1e-6, u=[bx/BL,by/BL,bz/BL];
+        const c1=info(els[i]).c, c2=info(els[j]).c;
+        put(p1[0],p1[1],p1[2], p1[0]+bx*f,p1[1]+by*f,p1[2]+bz*f, LOBE_W*1.35, c1, p1[0],p1[1],p1[2], 1000+(hyb++), 1.0, true);
+        put(p2[0],p2[1],p2[2], p2[0]-bx*f,p2[1]-by*f,p2[2]-bz*f, LOBE_W*1.35, c2, p2[0],p2[1],p2[2], 1000+(hyb++), 1.0, true);
+        put(p1[0],p1[1],p1[2], p1[0]-u[0]*kL,p1[1]-u[1]*kL,p1[2]-u[2]*kL, kW, c1, p1[0],p1[1],p1[2], 1000);
+        put(p2[0],p2[1],p2[2], p2[0]+u[0]*kL,p2[1]+u[1]*kL,p2[2]+u[2]*kL, kW, c2, p2[0],p2[1],p2[2], 1000);
+        if(bo >= 2){ const nv = pn[i] || pn[j] || nrm(crs([bx,by,bz], Math.abs(bx)<0.9*BL ? [1,0,0] : [0,1,0]));
+          const mx=(p1[0]+p2[0])/2, my=(p1[1]+p2[1])/2, mz=(p1[2]+p2[2])/2, cm=[(c1[0]+c2[0])*0.5,(c1[1]+c2[1])*0.5,(c1[2]+c2[2])*0.5];
+          for(const sg of [1,-1]){ const ex=nv[0]*pR*sg, ey=nv[1]*pR*sg, ez=nv[2]*pR*sg;
+            put(p1[0]+ex,p1[1]+ey,p1[2]+ez, p2[0]+ex,p2[1]+ey,p2[2]+ez, pw*1.7, cm, mx,my,mz, 1002, 0.9); } } }
+      for(let k=0;k<N;k++){ const q=at[k], c=info(els[k]).c;
+        for(const d of lonePairDirs(bd[k], lonePairs(els[k]))) put(q[0],q[1],q[2], q[0]+d[0]*0.75,q[1]+d[1]*0.75,q[2]+d[2]*0.75, LOBE_W, c, q[0],q[1],q[2], 2000); }
+      return { core, bond };
+    };
     const linearOrb = (nm, F, els, offs) => {
       const core = { m:[], col:[], cen:[], oid:[] }, bond = { m:[], tap:[], col:[], cen:[], oid:[], prof:[] };
       { const tmp = new Float32Array(16);
@@ -6945,9 +7034,14 @@ void main(void){
             put(q[0],q[1],q[2], q[0]+d[0]*0.75,q[1]+d[1]*0.75,q[2]+d[2]*0.75, LOBE_W, c, q[0],q[1],q[2], 2000);
         }
       }
+      return freeOrb(nm, F, core, bond, linFrame(F), F.n);
+    };
+    /* The placer, shared by every free species with an orbital set: per frame, every molecule inside
+       the crisp zone gets the canonical lobes mapped through frameOf(i, T, R) - the molecule's own
+       rotation with the spin composed on - and its live position. CAP bounds the buffers. */
+    const freeOrb = (nm, F, core, bond, frameOf, CAP) => {
       const coreN = core.m.length/16, bondN = bond.m.length/16;
       if(!coreN && !bondN) return;
-      const CAP = F.n;
       const cMat = wOrbMat(nm+'OrbCore','orb',['position','normal','ocol','ocen','oid','world0','world1','world2','world3']);
       const bMat = wOrbMat(nm+'OrbBond','bond',['position','normal','taper','prof','ocen','bcol','oid','world0','world1','world2','world3'],['opacity'],['#define HORNPROF']);
       bMat.setFloat('nElec',1);
@@ -6972,12 +7066,13 @@ void main(void){
       cMesh.thinInstanceSetBuffer('matrix',cM,16,false); cMesh.thinInstanceSetBuffer('ocen',cC,3,false);
       bMesh.thinInstanceSetBuffer('matrix',bM,16,false); bMesh.thinInstanceSetBuffer('ocen',bC,3,false);
       const pick=new Int32Array(CAP), pos=new Float32Array(CAP*3), _lp=[0,0,0];
+      const live = { cM, cC, bM, bC, pick, pos, coreN, bondN, core, bond, cMesh, T: 0 };   // live buffers, for the selection outline
       scene.onBeforeRenderObservable.add(()=>{
         if(!gFreeOn){ cMesh.setEnabled(false); bMesh.setEnabled(false); return; }
         const cp=cam.position, R=gCrisp, R2=R*R;
-        const T = gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed;
+        const T = gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed; live.T = T;
         let n=0;
-        for(let i=0;i<F.n;i++){
+        for(let i=0;i<F.n && n<CAP;i++){
           const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x);
           const dx=px-cp.x; if(dx*dx>R2) continue;
           const py=bncY(F.c[i*3+1], F.v[i*3+1], T);
@@ -6991,15 +7086,8 @@ void main(void){
         }
         for(let k=0;k<n;k++){
           const i=pick[k], px=pos[k*3], py=pos[k*3+1], pz=pos[k*3+2];
-          /* Rotation carrying the canonical +Z onto this molecule's axis, written out in scalars for the
-             same reason the water loop is: a helper returning fresh arrays here would allocate thousands
-             of throwaway vectors per frame, in the hottest loop in the scene. */
-          const zx=F.ax[i*3], zy=F.ax[i*3+1], zz=F.ax[i*3+2];
-          let tx=0, ty=0, tz=1; if(Math.abs(zz)>0.9){ tx=1; tz=0; }
-          let ux=ty*zz-tz*zy, uy=tz*zx-tx*zz, uz=tx*zy-ty*zx;
-          const ul=Math.hypot(ux,uy,uz)||1e-6; ux/=ul; uy/=ul; uz/=ul;
-          const vx=zy*uz-zz*uy, vy=zz*ux-zx*uz, vz=zx*uy-zy*ux;
-          const r00=ux, r01=vx, r02=zx, r10=uy, r11=vy, r12=zy, r20=uz, r21=vz, r22=zz;
+          frameOf(i, T, _R9);   // canonical → this molecule (its frame with the spin composed on), no allocation
+          const r00=_R9[0], r01=_R9[1], r02=_R9[2], r10=_R9[3], r11=_R9[4], r12=_R9[5], r20=_R9[6], r21=_R9[7], r22=_R9[8];
           for(let q=0;q<coreN;q++){ const s0=q*16, d0=(k*coreN+q)*16;
             for(let cN=0;cN<3;cN++){ const a1=core.m[s0+cN*4], a2=core.m[s0+cN*4+1], a3=core.m[s0+cN*4+2];
               cM[d0+cN*4]  =r00*a1+r01*a2+r02*a3;
@@ -7029,11 +7117,16 @@ void main(void){
         cMesh.thinInstanceCount = n*coreN; bMesh.thinInstanceCount = n*bondN;
         cMesh.setEnabled(n>0); bMesh.setEnabled(n>0);
       });
-      return { cM, cC, bM, bC, pick, pos, coreN, bondN, core, bond, cMesh };   // live buffers, for the selection outline
+      return live;
     };
     FREE_CO2.base = MOLBASE.co2; FREE_O2.base = MOLBASE.o2;   // for the displacement lookup above
     ORB_LIN.co2 = linearOrb('co2', FREE_CO2, [codeC, codeO, codeO], [0, 1.16, -1.16]);
     ORB_LIN.o2  = linearOrb('o2',  FREE_O2,  [codeO, codeO],        [0.605, -0.605]);
+    /* NADP(H): the rigid species gets the same treatment (it had none - up close its shells went glass
+       with nothing inside). About 400 lobes per molecule, so the placer is capped at the 160 nearest -
+       far more than ever sit inside the crisp zone at once. */
+    if(FREE_NADP){ FREE_NADP.base = MOLBASE.nadp; const nm = mols.find(m => m.cfg && m.cfg.match === 'nadph');
+      if(nm && nm.na){ const set = rigidOrbSet(nm); ORB_LIN.nadp = freeOrb('nadp', FREE_NADP, set.core, set.bond, rigidFrame(FREE_NADP), Math.min(FREE_NADP.n, 160)); } }
   }
 
   // Headlight follows the camera; fog darkens fragments by distance (front→back)

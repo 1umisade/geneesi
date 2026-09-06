@@ -68,8 +68,14 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   the sphere's matrix scale), everywhere: protein atoms, lipid templates, free water and the atom card.
   Outlines and the free/lipid fills copy the drawn matrices, so they follow automatically.
 - Free molecules spin (analytic, in the WATERBOX vertex path): angle = per-molecule random mix of the
-  bounced coordinates, so every wall bounce and collision changes the spin. Bouncing proteins re-roll
-  their tumble axis and rate whenever a collision changes their velocity.
+  ANALYTIC bounced coordinates, so every wall bounce changes the spin. The hash is lowbias32 (`hsh` in
+  GLSL, `hsh`/`spinS` in JS) so the CPU mirrors it bit for bit: the water orbital loop, the free
+  picker, the trackers and the free-orbital placer all compose the same rotation (`spinAt`). Any new
+  CPU code that places something on a free molecule MUST apply it too. Bouncing proteins re-roll their
+  tumble on collision.
+- Free-species orbitals: `freeOrb(nm, F, core, bond, frameOf, CAP)` is the shared placer, `linFrame`
+  (CO2, O2) and `rigidFrame` (NADP) the frame providers, `rigidOrbSet(model)` builds a canonical lobe
+  set from any parsed model's atoms and bonds. NADP is capped at the 160 nearest molecules.
 - The scene is TWO rows deep: the 14 complexes/proteins of MODELS are cloned into a second row at
   z = +410 (after the shuttle clones, same `clone()` path), 51 models in all, MAX_MODELS 80 (the shaders
   declare modelXform[80] - keep them in step). DUP_ROWS (URL ?rows=0/1/2 overrides) - two extra rows
