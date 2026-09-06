@@ -2479,6 +2479,20 @@ async function run(){
     gRenderer = String(g.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : g.RENDERER) || '?');
   } catch(_){}
   const gSoftware = /llvmpipe|softpipe|swiftshader|software|basic render|generic render/i.test(gRenderer);
+  /* ALWAYS show which card is drawing. Which GPU the browser picked is the single most useful thing to
+     know when the page is slow - a whole day went into chasing a stutter that turned out to be the
+     integrated chip - and it was only visible in dev mode, which is exactly when you are not looking.
+     Green for a discrete card, amber for anything else, so it reads at a glance without being read. */
+  { const el = document.createElement('div');
+    const dgpu = /nvidia|geforce|rtx|radeon|rx |arc |quadro/i.test(gRenderer) && !gSoftware;
+    const short = (gRenderer.match(/(NVIDIA GeForce [^,(]*|Radeon[^,(]*|Intel\(R\) [^,(]*|Arc[^,(]*|Apple M[0-9][^,(]*)/i) || [gRenderer])[0].trim();
+    el.textContent = short.slice(0, 44) || '?';
+    el.title = gRenderer;
+    el.style.cssText = 'position:fixed;right:8px;bottom:6px;z-index:24;pointer-events:none;'
+      + 'font:11px ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 7px;border-radius:6px;'
+      + 'background:rgba(24,28,20,.55);border:1px solid rgba(255,255,255,.18);'
+      + 'color:' + (dgpu ? '#9ede7a' : '#f0c060') + ';';
+    document.body.appendChild(el); }
   engine.enableOfflineSupport = false;   // perf: skip the .manifest network probe per scene file
   // Supersample: render at higher internal res so the shader-drawn sphere edges /
   // ink outlines are anti-aliased (no FXAA). hardwareScalingLevel < 1 = higher res.
@@ -5147,7 +5161,7 @@ void main(void){
           for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.n=0; E.core.setEnabled(false); E.bond.setEnabled(false); } }
         return; }
       gOrbLive = true;
-      const cp = cam.position, R = Math.min(gCrisp + 12, gMemFullR), R2 = R*R;   // never past full sphere density
+      const cp = cam.position, R = Math.max(0, Math.min(gCrisp + 12, gMemFullR - 45)), R2 = R*R;   // never past full sphere density, cell margin included
       /* A frustum test as well as a radius. Without it the gather takes every lipid in a SPHERE around
          the camera, most of which is behind you - at this density that was 4300 lipids where about a
          quarter are actually on screen, and each one carries some 600 lobes. The old per-cell path
@@ -6262,7 +6276,13 @@ void main(void){
        a thirty-second before they stop: against a slab of the lipids' own colour that reads as the sheet
        thinning out, not as an edge. It used to drop from an eighth straight to nothing exactly where the
        wrapped patch ends, which is a straight line - hence the hard diagonal. */
-    const memFull = Math.min(gCrisp + 20, memR*0.55);
+    /* The margin here has to clear a whole CELL, not just a lipid. The ramp is decided per cell from
+       the cell's CENTRE, and a cell is four tiles across - about 24 units, so 17 to a corner. With only
+       20 units of margin a lipid 144 out could sit in a cell whose centre was 161 out, that cell thinned
+       to half density, and half those lipids lost their vdW shell while their orbitals were still being
+       drawn: bare dark lobes again, just fewer of them. 60 clears the cell, the lipid's own reach and
+       its sway with room to spare. */
+    const memFull = Math.min(gCrisp + 60, memR*0.7);
     gMemFullR = memFull;
     const memSeg = Math.max(1, (memR - memFull)/5);
     const MEMB = [0,1,2,3,4].map(k => (memFull + k*memSeg)*(memFull + k*memSeg));
@@ -9371,7 +9391,18 @@ void main(void){
   //    every frame via onBind), scene.blockMaterialDirtyMechanism (it stalled late vdW-shader compilation
   //    → blank scene), or freezeWorldMatrix() on the cells — every one of those breaks this scene's
   //    dynamic culling / deferred shader compilation.
-  engine.runRenderLoop(() => scene.render());
+  /* Frame cap. Above this the extra frames buy nothing visible and cost power and heat, and on a
+     high-refresh panel the scene would otherwise run as fast as the GPU allows. Babylon's own delta
+     time keeps accumulating across the skipped frames, so the molecules and the wave clock advance at
+     exactly the same rate - capping the frame rate does not slow the scene down. */
+  const FPS_CAP = 120, FRAME_MS = 1000/FPS_CAP;
+  let _lastFrameAt = 0;
+  engine.runRenderLoop(() => {
+    const now = performance.now();
+    if(now - _lastFrameAt < FRAME_MS - 0.5) return;
+    _lastFrameAt = now;
+    scene.render();
+  });
   window.addEventListener('resize', () => engine.resize());
 
   /* Build EVERYTHING before the loading screen lifts, rather than streaming it in behind the user's back.
