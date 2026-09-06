@@ -2763,22 +2763,18 @@ void main(void){
   float w1 = 0.34 * sin(v * 21.0 + uT * 38.0 + vPhase) + 0.16 * sin(v * 55.0 - uT * 61.0 + vPhase * 2.3);
   float w2 = 0.30 * sin(v * 17.0 - uT * 44.0 + vPhase * 1.7) + 0.14 * sin(v * 63.0 + uT * 52.0 + vPhase * 0.6);
   float flick = 0.72 + 0.28 * sin(v * 90.0 - uT * 120.0 + vPhase);
-  /* the window reaches zero at the quad's side edge, so the glow has no cut there - and the head is a
-     round falloff measured in world units around the head point, drawn on the part of the quad that
-     runs ahead of it, so it has no flat end either */
-  float win = smoothstep(1.0, 0.45, r);
-  /* kept below the painterly post-process's top level except at the very core - above it everything
-     posterises into one flat paper-white region with an inked edge, which is what a flat head and a
-     hard glow edge were: the gradient underneath was fine, its peak was just far past the clip */
+  /* Every term is windowed to exactly zero at the quad's side edge (win) and at both of its ends (wv),
+     so the glow fades radially into nothing and no term can ever paint the quad's boundary - the head
+     glow's wide tail used to leak a faint light over the whole quad, which the posteriser turned into a
+     visible flat box. Intensities stay under the posteriser's top level except at the very core. */
+  float win = smoothstep(1.0, 0.3, r);
+  float wv = smoothstep(-0.5, -0.25, v) * smoothstep(1.0, 0.8, v);
   float fil = (exp(-pow((x - w1) / 0.10, 2.0)) + exp(-pow((x - w2) / 0.10, 2.0)) * 0.8) * win * 0.30;
   float core = exp(-pow(r / 0.22, 2.0)) * 0.28 * win;
-  float halo = exp(-pow(r / 0.70, 2.0)) * 0.30 * win;
-  /* the body does not switch off at the head - it rises softly over a 15-unit run through the head
-     region, and the head glow is large enough that the bright region's boundary follows its round
-     contour instead of a line across the beam */
+  float halo = exp(-pow(r / 0.60, 2.0)) * 0.30 * win;
   float dHead = length(vec2(v * vDim.x, r * vDim.y));
-  float headGlow = exp(-pow(dHead / 13.0, 2.0)) * 0.5 + exp(-pow(dHead / 24.0, 2.0)) * 0.2;
-  float fade = smoothstep(1.0, 0.35, v) * smoothstep(-0.25, 0.12, v);
+  float headGlow = (exp(-pow(dHead / 12.0, 2.0)) * 0.5 + exp(-pow(dHead / 22.0, 2.0)) * 0.2) * win * wv;
+  float fade = smoothstep(1.0, 0.3, v) * smoothstep(-0.2, 0.15, v) * wv;
   vec3 light = mix(vCol, vec3(1.0), 0.12);
   vec3 filCol = mix(vec3(1.0), vCol, 0.35);
   vec3 c = filCol * (fil * flick + core) + light * halo + mix(light, vec3(1.0), 0.4) * headGlow;
@@ -3538,8 +3534,21 @@ void main(void){
        The floor hit is still preferred when it is sensibly in front; otherwise the point on the cursor ray
        at the current viewing depth stands in, so there is always a pivot and it is always under the mouse. */
     const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, BABYLON.Matrix.Identity(), cam);
+    /* The pivot's DEPTH is what is actually under the cursor: the nearest complex whose collision shell
+       the ray enters, or the membrane sheet where the ray crosses it inside the footprint. The old rule
+       took the ray's hit on the RTS floor plane, which can sit far in front of or behind the thing you
+       point at - and a pivot at the wrong depth makes the point under the cursor slide away while you
+       zoom, which read as the zoom not going where the mouse is. The floor hit stays as the fallback. */
+    let tBest = Infinity;
+    { const o = ray.origin, dd = ray.direction;
+      for(let sI=0;sI<gShellCen.length/3;sI++){ const cx=gShellCen[sI*3]-o.x, cy=gShellCen[sI*3+1]-o.y, cz=gShellCen[sI*3+2]-o.z;
+        const b = cx*dd.x + cy*dd.y + cz*dd.z, c2 = cx*cx+cy*cy+cz*cz - gShellR2[sI]; const disc = b*b - c2; if(disc < 0) continue;
+        const t = b - Math.sqrt(disc); if(t > 0.5 && t < tBest) tBest = t; else if(t <= 0.5 && b + Math.sqrt(disc) > 0.5 && c2 < 0 && Math.max(b, 0.5) < tBest) tBest = Math.max(b, 0.5); }
+      if(gMemSpanX > 0 && Math.abs(dd.y) > 1e-6){ const t = (bilayerCen.y - o.y)/dd.y;
+        if(t > 0.5 && t < tBest){ const hx = o.x + dd.x*t, hz = o.z + dd.z*t; if(Math.abs(hx - bilayerCen.x) <= gMemFootX && Math.abs(hz - bilayerCen.z) <= gMemFootZ) tBest = t; } } }
     let zp = null;
-    if(Math.abs(ray.direction.z) > 1e-6){ const t=(FLOOR_Z - ray.origin.z)/ray.direction.z;
+    if(tBest < Infinity) zp = ray.origin.add(ray.direction.scale(tBest));
+    else if(Math.abs(ray.direction.z) > 1e-6){ const t=(FLOOR_Z - ray.origin.z)/ray.direction.z;
       if(t > 0 && t < Math.abs(cam.radius)*4 + 50) zp = ray.origin.add(ray.direction.scale(t)); }
     if(!zp) zp = ray.origin.add(ray.direction.scale(Math.max(1, Math.abs(cam.radius))));
     gZoomP = zp;
@@ -3547,12 +3556,17 @@ void main(void){
     const mag = slow ? Math.max(fitRadius * 0.004, Math.abs(cam.radius) * 0.008)
                      : Math.max(fitRadius * 0.03,  Math.abs(cam.radius) * 0.06);
     gZoomEase = slow ? 0.05 : 0.16;   // slow mode bleeds out over many more frames
-    gZoomVel += Math.sign(e.deltaY) * mag * (wheelStep / WHEEL_STEPS) * gZoomSpeed;   // ramped, and scaled by the zoom-speed slider
+    /* Acceleration that actually arrives: the per-notch impulse grows with the square of the ramp (a
+       single notch is a quarter notch, a sustained roll one and a half), and the pending cap below grows
+       with the ramp too - it used to sit at 2.2 notches whatever the ramp said, so a fast roll saturated
+       after two notches and never got faster. */
+    const rampF = wheelStep / WHEEL_STEPS;
+    gZoomVel += Math.sign(e.deltaY) * mag * (0.25 + 1.25*rampF*rampF) * gZoomSpeed;
     /* Cap the PENDING impulse. Events arrive faster than the 16%-a-frame bleed drains them, so a quick
        wheel banked seconds of travel and the camera kept flying after the hand stopped - far enough to
        carry it through the floor plane, which is what turned the pivot null above. About two notches'
        worth can be queued now, which keeps the inertia and drops the coasting. */
-    const capV = mag * 2.2 * Math.max(0.3, gZoomSpeed);
+    const capV = mag * (1.2 + 4.0*rampF) * Math.max(0.3, gZoomSpeed);
     if(Math.abs(gZoomVel) > capV) gZoomVel = Math.sign(gZoomVel) * capV;
     showTips(); hideTipsSoon();
   }, {passive:false});
