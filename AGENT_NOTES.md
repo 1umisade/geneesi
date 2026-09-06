@@ -51,6 +51,10 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 - The membrane is gathered per block around the camera into near/far streams with per-template
   caps; lipids under a protein's footprint (`buildProtFoot()`, a grid over the membrane plane,
   flood-filled from the border) are never drawn.
+- The far membrane slab is a BOX as thick as the bilayer (2 x ySpan, about 46 units) with a procedural
+  disc grain at half the lipid pitch. Across the blend band the shader cuts away the half facing the
+  camera so the thinned lipids drawn there are never buried inside it. Its darkness is the dev slider
+  'laatan tummuus' (gSlabDark, default 18 percent below the lipids' mean colour).
 - Proteins have collision shells (`insideShell`, `camInsideModel`); free molecules bounce in a
   container box; protons pass ATP synthase only from the rotor side and spin the rotor.
 - Shuttles: model clones (`MAX_MODELS` 48), one occupant per binding site (`siteOcc`), dock in

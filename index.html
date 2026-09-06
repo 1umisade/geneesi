@@ -2691,6 +2691,7 @@ async function run(){
      BACKWARDS through the grade: whatever the four sliders are set to, the background lands on the same
      green and grading the scene no longer touches it. gBgLevel is its own multiplier on top. */
   let gBgLevel = 1.0;                       // dev slider: the background's own brightness
+  let gSlabDark = 0.18;                     // dev slider 'laatan tummuus': how far the membrane slab is pulled below the lipids' mean colour (0.18 = the old fixed 0.82 factor)
   const gBgRaw = BG_GREEN.clone();
   let _bgKey = '';
   const _ss = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x-e0)/(e1-e0))); return t*t*(3-2*t); };
@@ -2816,6 +2817,10 @@ uniform float spread;
 uniform vec3 camPos;
 uniform float holeR;
 uniform float grainPitch;
+uniform float slabDark;
+uniform float midY;
+uniform float halfH;
+uniform float blendW;
 varying float vZ;
 varying vec3 vWP;
 float hash1(vec2 c){ return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.5453); }
@@ -2823,13 +2828,23 @@ vec2 hash2(vec2 c){ return vec2(hash1(c), hash1(c + vec2(19.3, 7.7))); }
 void main(void){
   /* inside holeR of the camera every lipid is drawn at full density, so the slab steps aside there -
      a glass shell over a slab of its own colour was invisible, and the two never belong in one place */
-  if(holeR > 0.0 && distance(vWP, camPos) < holeR) discard;
+  float dCam = distance(vWP, camPos);
+  if(holeR > 0.0 && dCam < holeR) discard;
+  /* THICKNESS. The box is as thick as the bilayer. Across the blend band the thinned lipids are drawn
+     over the slab and would sit INSIDE a full box, hidden behind its near face - so there the half
+     facing the camera is cut away and only the far face stays, a floor under them. The cut rises with
+     distance across the band and the whole box stands past it. */
+  if(holeR > 0.0 && halfH > 0.0){ float band = clamp((dCam - holeR) / max(blendW, 1.0), 0.0, 1.0);
+    float side = camPos.y > midY ? 1.0 : -1.0;
+    if(side * (vWP.y - midY) > mix(-halfH + 0.05, halfH + 0.05, band)) discard; }
   /* GRAIN. The carpet next to the slab reads as packed discs with dark gaps between them, so the slab
      draws the same thing procedurally: a jittered lattice at the lipid pitch in world XZ, one disc per
      cell (its radius about half a cell), a dark gap outside it, and a per-cell brightness wobble for
      the mixed species. Far away the cells go sub-pixel, so the pattern eases back to its own mean
      tone (about 0.80) instead of shimmering - fwidth measures how many cells a pixel spans. */
-  vec2 q = vWP.xz / max(grainPitch, 0.5);
+  vec2 pq = vWP.xz;   // the side faces of the box are flat in x or in z - give them their own plane so the grain is discs there too, not streaks
+  if(fwidth(vWP.x) < 1e-5) pq = vWP.zy; else if(fwidth(vWP.z) < 1e-5) pq = vWP.xy;
+  vec2 q = pq / max(grainPitch, 0.5);
   vec2 cell = floor(q);
   float best = 9.0, bid = 0.0;
   for(int j = -1; j <= 1; j++) for(int i = -1; i <= 1; i++){
@@ -2838,12 +2853,12 @@ void main(void){
     float d = distance(q, cen);
     if(d < best){ best = d; bid = hash1(c + 3.1); }
   }
-  float disc = 1.0 - smoothstep(0.44, 0.58, best);
+  float disc = 1.0 - smoothstep(0.50, 0.60, best);   // discs almost touching - a denser carpet of smaller lipids
   float tone = mix(0.48, 1.0, disc) * (0.82 + 0.36 * bid);
   float px = fwidth(q.x) + fwidth(q.y);
   tone = mix(tone, 0.80, clamp(px * 1.5, 0.0, 1.0));
   float dt = clamp((distance(vWP, camPos) - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
-  gl_FragColor = vec4(slabCol * tone * mix(1.0, depthLo, dt * depthK), 1.0);
+  gl_FragColor = vec4(slabCol * (1.0 - slabDark) * tone * mix(1.0, depthLo, dt * depthK), 1.0);
 }`;
   const bgMat = new BABYLON.ShaderMaterial('bgMat', scene, 'bg', { attributes:['position'], uniforms:['cBg','focusAmt','focusDark'] });
   bgMat.backFaceCulling = false;
@@ -2917,7 +2932,7 @@ void main(void){
   let gDimRadius = 20;          // point-selection radius (world units)
   const gFocusSet = new Float32Array(24);      // mode 2: 1 = this model index is in the F selection (the shaders keep its atoms coloured)
   let gFocusDark = 0.0;         // O: how much the grayscale (non-selection) environment darkens (0 = just grey, 1 = to black). Dev slider.
-  let gFVigStr = 1.0;           // vignette edge darkness (0 = off, 1 = black corners). Dev slider. Always shown.
+  let gFVigStr = 0.68;          // vignette edge darkness (0 = off, 1 = black corners). Dev slider. Always shown.
   let gFVigReach = 40;          // how far the vignette reaches inward from the edges, % of the radius. Dev slider.
   // Free-proton light sources: the nearest PL_N proton positions, refreshed each frame by the gather below.
   const PL_N = 16;
@@ -3345,11 +3360,11 @@ void main(void){
   // Camera feel, tunable from the dev panel. Each is a MAX rate that the camera eases up to: hold a key
   // and the speed ramps 0 → max over RAMP_S seconds, then holds. Releasing every key of that kind drops
   // the ramp straight back to 0, so a tap is a small nudge and a long hold is a full-speed sweep.
-  let gPanSpeed  = 0.21;   // multiplier on the pan speed (W/A/S/D - screen-space pan)
+  let gPanSpeed  = 0.05;   // multiplier on the pan speed (W/A/S/D - screen-space pan)
   let gSelEnabled = false;  // dev switch 'valinnat', OFF by default: clicks and double-clicks select nothing, and nothing gets a hover outline or hover brightening
   let gPhotonsOn = true;   // dev switch: the photon beams (and their glows) off
-  let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
-  let gZoomMax = 60;       // the wheel's MAXIMUM: world units per full notch - the ramp is a percentage of this, never of a distance
+  let gZoomSpeed = 0.5;    // multiplier on the zoom speed (I/O - in and out along the view)
+  let gZoomMax = 63;       // the wheel's MAXIMUM: world units per full notch - the ramp is a percentage of this, never of a distance
   let gRotSpeed  = 2.705;  // max yaw/pitch rate in rad/s (WASD) — 2.705 ≈ 155 deg/s
   const RAMP_S = 3.5;      // seconds from the initial nudge to full speed (halved from 7 on request, 2026-09-06)
   const RAMP_MIN = 0.05;   // a press starts at 5% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
@@ -3807,11 +3822,11 @@ void main(void){
   let gSpeed = 1;             // master speed (wiggle + camera), driven by the bottom-left slider
   let gPaused = false;        // space bar: everything gSpeed drives stops dead and resumes where it left off
   let gApplySpeed = () => {};  // set by the speed slider below, so the space bar can re-apply it
-  let gBright = 0.63;         // global brightness multiplier (dev "lighting" slider → brightness post-process)
+  let gBright = 0.70;         // global brightness multiplier (dev "lighting" slider → brightness post-process)
   let gZoomPull = 1.0;        // how far the view slides toward the cursor when wheel-zooming (0 = straight in, 1 = cursor stays pinned). Dev slider.
-  let gSat = 1.66;            // saturation, dev slider
-  let gHi = 1.0;              // highlight gain (bright end only), dev slider
-  let gSh = -1.0;             // shadow gain (dark end only), dev slider
+  let gSat = 1.51;            // saturation, dev slider
+  let gHi = 0.01;             // highlight gain (bright end only), dev slider
+  let gSh = -0.5;             // shadow gain (dark end only), dev slider
   let gBoil = 0.2;            // line-boil amount (dev "boil" slider): stepped per-atom jitter + painterly warp (0 = off) — default 0.2
   let gRevealOn = 0;          // 1 = cofactor line-of-sight see-through active (ETC mode on, or a cofactor selected)
   let gConeTip = 0.12;        // cofactor see-through cone width AT the atom (0 = point tip → narrow; 1 = full disc → tube). Dev slider.
@@ -5281,21 +5296,23 @@ void main(void){
        band instead of occluding the middle of it. */
     const MEGA_SCALE = 1;                      // the slab is the sheet's own footprint - it spans the complexes and no further
     { const slab = BABYLON.MeshBuilder.CreateBox('memSlab', {
-        width: 2*memHalfX*MEGA_SCALE, height: Math.max(1, ySpan*0.25), depth: 2*memHalfZ*MEGA_SCALE }, scene);
+        width: 2*memHalfX*MEGA_SCALE, height: Math.max(1, ySpan*2), depth: 2*memHalfZ*MEGA_SCALE }, scene);   // as thick as the bilayer (two leaflets of ySpan) - see the shader's band cut
       slab.position.copyFrom(bilayerCen);
       slab.isPickable = false; slab.renderingGroupId = 0; slab.alwaysSelectAsActiveMesh = true;
       const sm = new BABYLON.ShaderMaterial('memSlabMat', scene, 'slab', {
-        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch'] });
+        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch','slabDark','midY','halfH','blendW'] });
       sm.backFaceCulling = false;
       sm.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22));   // placeholder until the real lipid mean lands below
-      sm.setFloat('grainPitch', S);   // the grain's cell size = the real lipid pitch
+      sm.setFloat('grainPitch', S*0.5);   // the grain's cell size: half the real lipid pitch - smaller, denser 'lipids'
+      sm.setFloat('midY', bilayerCen.y); sm.setFloat('halfH', ySpan);
       sm.onBindObservable.add(()=>{ const eff=sm.getEffect(); if(!eff) return;
         eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
         // the hole matches the gather: blocks within memR (by centre) draw every lipid - one block radius
         // less, so the slab's edge sits under drawn lipids rather than leaving a gap before them
         const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR + gMemCellR - gMemBlend) : 0;   // the slab starts where the blend band starts
-        eff.setFloat('holeR', hole); eff.setVector3('camPos', cam.position); });
+        eff.setFloat('holeR', hole); eff.setVector3('camPos', cam.position);
+        eff.setFloat('slabDark', gSlabDark); eff.setFloat('blendW', gMemBlend); });
       slab.material = sm; gMemSlab = slab;
       gWorldReach = Math.hypot(memHalfX*MEGA_SCALE, memHalfZ*MEGA_SCALE);   // the slab's far corner - the far clip must reach it
       gMemFootX = memHalfX*MEGA_SCALE; gMemFootZ = memHalfZ*MEGA_SCALE;   // nothing membrane-shaped is drawn outside this
@@ -7090,7 +7107,7 @@ void main(void){
            mean, pulled down only for the gaps of background between packed spheres. Earlier attempts had
            to bake an average depth darkening into this constant, which is why it was orange near the
            sheet and yellow far from it - there is no constant that is right at two depths. */
-        const K = 0.82;
+        const K = 1.0;   // the darkening now lives in the 'laatan tummuus' slider (gSlabDark), applied in the shader
         gMemSlab.material.setColor3('slabCol',
           new BABYLON.Color3(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K)); }
       if(gMemSlab.isEnabled() !== gMembrane) gMemSlab.setEnabled(gMembrane);
@@ -8047,20 +8064,20 @@ void main(void){
     + 'border-radius:12px;box-shadow:0 4px 0 var(--brown);padding:12px 14px;user-select:none;min-width:230px;bottom:246px;max-height:none;overflow-y:auto;';
   // Camera feel: max fly speed (arrow keys) and max turn rate (WASD). Both ease 0 → max over 1 s.
   const mvRow = document.createElement('div');
-  mvRow.innerHTML = 'panorointinopeus: <b id="dev-mv-val">0.21×</b>';
+  mvRow.innerHTML = 'panorointinopeus: <b id="dev-mv-val">0.05×</b>';
   const mvSld = document.createElement('input');
-  mvSld.type='range'; mvSld.min='5'; mvSld.max='400'; mvSld.value='21'; mvSld.style.cssText='width:100%;cursor:pointer;';
+  mvSld.type='range'; mvSld.min='5'; mvSld.max='400'; mvSld.value='5'; mvSld.style.cssText='width:100%;cursor:pointer;';
   const mvValEl = mvRow.querySelector('#dev-mv-val');
   mvSld.oninput = () => { gPanSpeed = +mvSld.value/100; mvValEl.textContent = gPanSpeed.toFixed(2)+'×'; };
   const zmRow = document.createElement('div');
-  zmRow.innerHTML = 'zoomausnopeus: <b id="dev-zm-val">1.00×</b>';
+  zmRow.innerHTML = 'zoomausnopeus: <b id="dev-zm-val">0.50×</b>';
   // The wheel's maximum step, world units per notch. The 10-20-...-100 percent ramp is a fraction of this.
-  const zxRow = document.createElement('div'); zxRow.innerHTML = 'zoomin maksiminopeus: <b id="dev-zx-val">60</b> / napsautus';
-  const zxSld = document.createElement('input'); zxSld.type='range'; zxSld.min='5'; zxSld.max='300'; zxSld.value='60'; zxSld.style.cssText='width:100%;cursor:pointer;';
+  const zxRow = document.createElement('div'); zxRow.innerHTML = 'zoomin maksiminopeus: <b id="dev-zx-val">63</b> / napsautus';
+  const zxSld = document.createElement('input'); zxSld.type='range'; zxSld.min='5'; zxSld.max='300'; zxSld.value='63'; zxSld.style.cssText='width:100%;cursor:pointer;';
   const zxValEl = zxRow.querySelector('#dev-zx-val');
   zxSld.oninput = () => { gZoomMax = +zxSld.value; zxValEl.textContent = String(gZoomMax); };
   const zmSld = document.createElement('input');
-  zmSld.type='range'; zmSld.min='5'; zmSld.max='400'; zmSld.value='100'; zmSld.style.cssText='width:100%;cursor:pointer;';
+  zmSld.type='range'; zmSld.min='5'; zmSld.max='400'; zmSld.value='50'; zmSld.style.cssText='width:100%;cursor:pointer;';
   const zmValEl = zmRow.querySelector('#dev-zm-val');
   zmSld.oninput = () => { gZoomSpeed = +zmSld.value/100; zmValEl.textContent = gZoomSpeed.toFixed(2)+'×'; };
   const rtRow = document.createElement('div');
@@ -8081,10 +8098,10 @@ void main(void){
     return { row, sld };
   };
   const zpG = mkGrade('zp','zoomin kohdistus', 0, 100, 100, v=>v+'%', v=>{ gZoomPull = v/100; });
-  const brG = mkGrade('br','kirkkaus',       20, 250,  63, v=>(v/100).toFixed(2)+'×', v=>{ gBright = v/100; });
-  const saG = mkGrade('sa','kylläisyys',    0, 250, 166, v=>(v/100).toFixed(2)+'×', v=>{ gSat   = v/100; });
-  const hiG = mkGrade('hi','huippuvalot',  -100, 100, 100, v=>(v>0?'+':'')+(v/100).toFixed(2), v=>{ gHi = v/100; });
-  const shG = mkGrade('sh','varjot',       -100, 100,-100, v=>(v>0?'+':'')+(v/100).toFixed(2), v=>{ gSh = v/100; });
+  const brG = mkGrade('br','kirkkaus',       20, 250,  70, v=>(v/100).toFixed(2)+'×', v=>{ gBright = v/100; });
+  const saG = mkGrade('sa','kylläisyys',    0, 250, 151, v=>(v/100).toFixed(2)+'×', v=>{ gSat   = v/100; });
+  const hiG = mkGrade('hi','huippuvalot',  -100, 100,   1, v=>(v>0?'+':'')+(v/100).toFixed(2), v=>{ gHi = v/100; });
+  const shG = mkGrade('sh','varjot',       -100, 100, -50, v=>(v>0?'+':'')+(v/100).toFixed(2), v=>{ gSh = v/100; });
   const bgG = mkGrade('bg','taustan kirkkaus', 0, 300, 100, v=>(v/100).toFixed(2)+'×', v=>{ gBgLevel = v/100; });
   const coneRow = document.createElement('div');
   coneRow.innerHTML = 'culling cone: <b id="dev-cone-val">off</b>';   // OFF by default (dial it in when zoomed into a complex)
@@ -8108,7 +8125,7 @@ void main(void){
   qSld.oninput = applyQ;
   // Start at 1:1 render scale (≈0.99× on the slider) rather than whatever the auto-detect picked — that
   // is the setting the scene is actually tuned to look right at.
-  { const hsl = 1/2.01;   // 2x supersampling by default (the panel's 2.01x res)
+  { const hsl = 1/1.24;   // the owner's setting (the panel's 1.24x res, 2026-09-06)
     qSld.value = String(Math.max(0, Math.min(100, Math.round((hsl-QHSL_LOW)/(QHSL_HIGH-QHSL_LOW)*100)))); applyQ(); }
   // Lighting / brightness slider → gBright (the brightness post-process). 0.30×…2.00×, default 1.00×.
   const lRow = document.createElement('div');
@@ -8201,8 +8218,8 @@ void main(void){
   fdSld.oninput = () => { gFocusDark = +fdSld.value/100; fdValEl.textContent = gFocusDark.toFixed(2); };
   // Vignette STRENGTH: how dark the screen edges go (0 = off … 1 = black corners). Governs BOTH the
   // O-hold darkening and the vignette that closes in whenever something is selected.
-  const fvStrRow = document.createElement('div'); fvStrRow.innerHTML = 'vinjetti voimakkuus: <b id="dev-fvs-val">1.00</b>';
-  const fvStrSld = document.createElement('input'); fvStrSld.type='range'; fvStrSld.min='0'; fvStrSld.max='100'; fvStrSld.value='100'; fvStrSld.style.cssText='width:100%;cursor:pointer;';
+  const fvStrRow = document.createElement('div'); fvStrRow.innerHTML = 'vinjetti voimakkuus: <b id="dev-fvs-val">0.68</b>';
+  const fvStrSld = document.createElement('input'); fvStrSld.type='range'; fvStrSld.min='0'; fvStrSld.max='100'; fvStrSld.value='68'; fvStrSld.style.cssText='width:100%;cursor:pointer;';
   const fvStrVal = fvStrRow.querySelector('#dev-fvs-val');
   fvStrSld.oninput = () => { gFVigStr = +fvStrSld.value/100; fvStrVal.textContent = gFVigStr.toFixed(2); updateFVig(); };
   // Vignette REACH: how far the darkening bleeds inward from the edges (% of the radius toward centre).
@@ -8240,6 +8257,11 @@ void main(void){
   blSld.type='range'; blSld.min='0'; blSld.max='300'; blSld.style.cssText='width:100%;cursor:pointer;';
   const blValEl = blRow.querySelector('#dev-bl-val');
   blSld.oninput = () => { gMemBlend = Math.max(1, +blSld.value); blValEl.textContent = String(+blSld.value); };
+  // Membrane slab darkness: how far below the lipids' mean colour the far slab sits (0 = their mean, 100 = black).
+  const sdRow = document.createElement('div'); sdRow.innerHTML = 'laatan tummuus: <b id="dev-sd-val">18</b> %';
+  const sdSld = document.createElement('input'); sdSld.type='range'; sdSld.min='0'; sdSld.max='100'; sdSld.value='18'; sdSld.style.cssText='width:100%;cursor:pointer;';
+  const sdValEl = sdRow.querySelector('#dev-sd-val');
+  sdSld.oninput = () => { gSlabDark = +sdSld.value/100; sdValEl.textContent = String(+sdSld.value); };
   blSld.value = String(Math.round(gMemBlend)); blValEl.textContent = String(Math.round(gMemBlend));
   // Speed of the loose proteins drifting in the box, and how many protons have gone through ATP synthase
   const psRow = document.createElement('div');
@@ -8293,7 +8315,7 @@ void main(void){
   devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
-  devPanel.appendChild(blRow); devPanel.appendChild(blSld);
+  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld);
   devPanel.appendChild(cullRow); devPanel.appendChild(selRow); devPanel.appendChild(phRow);   // (cullRow had been built but never attached)
   devPanel.appendChild(psRow); devPanel.appendChild(psSld); devPanel.appendChild(ppRow);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
