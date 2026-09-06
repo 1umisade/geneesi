@@ -706,7 +706,10 @@ uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 r
    reading as uncorrelated jitter. */
 vec3 memSway(vec3 b, float sid){ float ph = b.x*0.28 + b.z*0.24;
   vec3 sw = vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3));
-  float h = fract(sin(sid*127.1 + 311.7) * 43758.5453);
+  float h = fract(sid*0.0731 + 0.5);   // NOT a sin hash: sid is a tile z up to +-600, and float32 sin of
+                                        // 76000 radians is unreproducible on the CPU, which has to place
+                                        // these lipids exactly to pick them. Adjacent tiles still land
+                                        // ~0.43 apart in h, so neighbours stay out of step.
   float k = 6.2831853 * h, w = 0.22 + 0.30*h;
   sw.x += memDrift * sin(uT*w + k + ph*0.5);
   sw.z += memDrift * cos(uT*w*0.83 + k*1.7 + ph*0.5);
@@ -872,6 +875,12 @@ uniform float focusDark;   // darken the grayscale (non-selection) environment: 
 uniform vec3 pLight[PL_N];
 uniform float pLightN;
 uniform float pLightR;     // falloff radius - the distance at which the light has dropped to a fifth
+/* Soft key light from above. World-space, so it stays put as the camera moves - which is what makes it
+   read as a light in the scene rather than a screen effect. Soft: the floor is 0.72, so nothing goes
+   into shadow, it just rounds. A material that never sets keyDir gets a zero vector and stays flat. */
+uniform vec3 keyDir;
+float keyLight(vec3 nW){ if(dot(keyDir, keyDir) < 0.5) return 1.0;
+  return 0.72 + 0.28 * max(dot(normalize(nW), keyDir), 0.0); }
 vec3 protonLight(vec3 p){ vec3 acc = vec3(0.0);
   for(int i=0; i<PL_N; i++){ if(float(i) >= pLightN) break;
     float d = distance(p, pLight[i]) / pLightR;
@@ -921,7 +930,10 @@ void main(void){
      behind nearer geometry and never shade it at all. That is kept, and it does not affect appearance. */
   float zcF = sqrt(max(0.0, 1.0 - r2));
   vec3 nF = vec3(vUV, -zcF);
-  vec3 colF = vColor;   // flat - no light direction, so an atom is its own colour wherever it faces
+  vec3 colF = vColor;
+#ifdef PLIGHT
+  colF *= keyLight(vec3(dot(vWB0, nF), dot(vWB1, nF), dot(vWB2, nF)));   // soft key from above, in world space
+#endif
   colF *= 1.0 - 0.14 * smoothstep(0.55, 1.0, r2);
   float rimF = smoothstep(0.86, 1.0, r2);
   colF = mix(colF, vColor * 0.40, rimF);
@@ -990,7 +1002,10 @@ void main(void){
   posV.z -= min(depthBias, posV.z * 0.5);
   vec4 clip = projection * vec4(posV, 1.0);
   gl_FragDepthEXT = clip.z / clip.w * 0.5 + 0.5;
-  vec3 col = vColor;   // flat - no light direction, so an atom is its own colour wherever it faces
+  vec3 col = vColor;
+#ifdef PLIGHT
+  col *= keyLight(vec3(dot(vWB0, n), dot(vWB1, n), dot(vWB2, n)));   // soft key from above, in world space
+#endif
   col *= 1.0 - 0.14 * smoothstep(0.55, 1.0, r2);              // subtle self-shade
   if(focusAmt > 0.001){   // O: grayscale this fragment unless it is part of the selection → the coloured region is the EXACT silhouette
     bool fsel;
@@ -1298,7 +1313,10 @@ uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 r
    reading as uncorrelated jitter. */
 vec3 memSway(vec3 b, float sid){ float ph = b.x*0.28 + b.z*0.24;
   vec3 sw = vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3));
-  float h = fract(sin(sid*127.1 + 311.7) * 43758.5453);
+  float h = fract(sid*0.0731 + 0.5);   // NOT a sin hash: sid is a tile z up to +-600, and float32 sin of
+                                        // 76000 radians is unreproducible on the CPU, which has to place
+                                        // these lipids exactly to pick them. Adjacent tiles still land
+                                        // ~0.43 apart in h, so neighbours stay out of step.
   float k = 6.2831853 * h, w = 0.22 + 0.30*h;
   sw.x += memDrift * sin(uT*w + k + ph*0.5);
   sw.z += memDrift * cos(uT*w*0.83 + k*1.7 + ph*0.5);
@@ -1600,7 +1618,10 @@ uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 r
    reading as uncorrelated jitter. */
 vec3 memSway(vec3 b, float sid){ float ph = b.x*0.28 + b.z*0.24;
   vec3 sw = vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3));
-  float h = fract(sin(sid*127.1 + 311.7) * 43758.5453);
+  float h = fract(sid*0.0731 + 0.5);   // NOT a sin hash: sid is a tile z up to +-600, and float32 sin of
+                                        // 76000 radians is unreproducible on the CPU, which has to place
+                                        // these lipids exactly to pick them. Adjacent tiles still land
+                                        // ~0.43 apart in h, so neighbours stay out of step.
   float k = 6.2831853 * h, w = 0.22 + 0.30*h;
   sw.x += memDrift * sin(uT*w + k + ph*0.5);
   sw.z += memDrift * cos(uT*w*0.83 + k*1.7 + ph*0.5);
@@ -2738,7 +2759,10 @@ void main(void){
   // Free-proton light sources: the nearest PL_N proton positions, refreshed each frame by the gather below.
   const PL_N = 16;
   const gPL = new Float32Array(PL_N*3); let gPLN = 0, gPLR = 11.0;
-  const bindPLight = eff => { eff.setArray3('pLight', gPL); eff.setFloat('pLightN', gPLN); eff.setFloat('pLightR', gPLR); };
+  // The soft key light: a WORLD direction pointing at the light, from above the membrane (+Y) with a lean
+  // toward the default view. gKeyPos is where the dev-mode sun gizmo sits.
+  const gKeyDir = new BABYLON.Vector3(0.18, 1.0, 0.42).normalize();
+  const bindPLight = eff => { eff.setArray3('pLight', gPL); eff.setFloat('pLightN', gPLN); eff.setFloat('pLightR', gPLR); eff.setVector3('keyDir', gKeyDir); };
   const bindFocus = eff => { eff.setFloat('focusAmt', gFocusDimAmt); eff.setFloat('focusMode', gFocusMode); eff.setVector3('focusCenterV', gFocusCenterV); eff.setFloat('focusR', gDimRadius); eff.setArray('focusSet', gFocusSet); eff.setFloat('focusGroup', gFocusGroup); eff.setFloat('focusDark', gFocusDark); };
   let gShortcuts = null;        // dev-mode keyboard-shortcut cheatsheet panel
   let gZoomP = null;  // world point under the cursor to zoom TOWARD (null → zoom to the viewport centre)
@@ -2766,13 +2790,13 @@ void main(void){
       cam.radius = minR;
     } else {
       const newR = Math.min(r, hi);
-      // Zoom TOWARD the SELECTION when something is selected (sc), otherwise toward the cursor (gZoomP): keep
-      // that world point fixed by shifting the pivot the same fraction the distance changed - target = P + f*(target - P).
-      const zp = sc || gZoomP;
+      // Zoom TOWARD THE CURSOR, always - a selection only sets the arrival easing above (refD), it no longer
+      // hijacks the pivot. It used to: with anything selected the wheel pulled toward the selection instead
+      // of the mouse, which read as the zoom "sometimes" ignoring the cursor. Keep the world point under the
+      // cursor fixed by shifting the pivot the same fraction the distance changed - target = P + f*(target - P).
+      const zp = gZoomP || sc;
       if(zp){ const f = newR / oldR;
-        // Full strength keeps zp exactly pinned on screen. gZoomPull scales only the CURSOR pull - a
-        // selection still gets followed exactly, since that is the point of having selected it.
-        const pull = sc ? 1.0 : gZoomPull;
+        const pull = gZoomPull;
         const tx = zp.x + f*(cam.target.x-zp.x), ty = zp.y + f*(cam.target.y-zp.y), tz = zp.z + f*(cam.target.z-zp.z);
         cam.target.set(cam.target.x + (tx-cam.target.x)*pull,
                        cam.target.y + (ty-cam.target.y)*pull,
@@ -3618,7 +3642,12 @@ void main(void){
   let gCollViz = null, gCollVizUpdate = null;   // dev wireframe collision spheres + their per-frame updater
   let gCollVizHold = false;                     // true while V is held → reveal the collision spheres (independent of dev mode)
   const COLL_VIZ = false;                       // collision-shape wireframes switched OFF for now — flip to true to bring V / dev mode back
-  let gShadePlaneMesh = null;                   // dev-only white plane at the shading reference
+  let gShadePlaneMesh = null;
+  let gDevSun = null, gDevSunRay = null;   // dev-mode marker for the soft key light
+  // Atom picking for the two families whose data lives inside build closures. Each returns the nearest
+  // ray hit as {t, atom} in the same {spawn:true, sym, e, center, world} shape the selection UI already
+  // takes for spawned and chlorophyll atoms, or null.
+  let gPickFree = null, gPickLipid = null;                   // dev-only white plane at the shading reference
   const gParticles = [];      // game particles: water / photon / products {kind, mesh, x,y,z, vx,vy,vz, life}
   // Cofactor highlight: hovered group renders 25% brighter; selecting flashes the brightness a few times.
   let gHoverGroup = -1, gFlashGroup = -1, gFlashT0 = 0, gHlGroup = -1, gHlBright = 1.0;
@@ -4069,7 +4098,7 @@ void main(void){
   // sphere per atom, per-instance radius via IMPRAD. Movable (per-model drag + PSII gizmo).
   const vdwMat = new BABYLON.ShaderMaterial('vdwLOD', scene, 'imp', {
     attributes:['position','instanceColor','instR','modelId','world0','world1','world2','world3'],
-    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR'],
+    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR','keyDir'],
     samplers:['cofDepth'],
     defines:['#define IMPRAD','#define MACROMOVE','#define MODELMOVE','#define COFHIDE','#define DEPTHSHADE','#define PLIGHT'] });
   vdwMat.setFloat('radius',1.0); vdwMat.setFloat('isShell',0); vdwMat.setFloat('shellMin',0); vdwMat.setFloat('bubbleR',1e9);
@@ -4082,7 +4111,7 @@ void main(void){
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
     attributes:['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR'],
+    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR','keyDir'],
     samplers:['cofDepth'],
     defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPWRAP','#define PLIGHT'] });   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
   vdwMatStatic.setFloat('radius',1.0); vdwMatStatic.setFloat('isShell',0); vdwMatStatic.setFloat('shellMin',0); vdwMatStatic.setFloat('bubbleR',1e9);
@@ -4114,7 +4143,7 @@ void main(void){
   };
   const vdwFarMat = mkFar('vdwLODfar',
     ['position','instanceColor','instR','modelId','world0','world1','world2','world3'],
-    ['macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR'],
+    ['macroXform','macroCenter','modelXform','modelCol','colorMode','selModel','selCol','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR','keyDir'],
     ['#define IMPRAD','#define MACROMOVE','#define MODELMOVE','#define CHEAP','#define DEPTHSHADE','#define PLIGHT']);
   vdwFarMat.setFloat('selModel', -1);
   vdwFarMat.onBindObservable.add(()=>{ const eff=vdwFarMat.getEffect(); if(!eff)return;
@@ -4126,7 +4155,7 @@ void main(void){
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); bindPLight(eff); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
     ['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR'],
+    ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR','keyDir'],
     ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPWRAP','#define PLIGHT']);
   vdwStaticFarMat.onBindObservable.add(mesh=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
@@ -4794,7 +4823,7 @@ void main(void){
     // with the orbitals revealed inside when the camera is in range.
     const chlSphMat = new BABYLON.ShaderMaterial('chlSphMat', scene, 'imp', {
       attributes:['position','instanceColor','instR','world0','world1','world2','world3'],
-      uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','selModel','selCol','pLight','pLightN','pLightR'],
+      uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','selModel','selCol','pLight','pLightN','pLightR','keyDir'],
       defines:['#define PLIGHT'] });
     chlSphMat.setFloat('radius',1.0); chlSphMat.setFloat('protonOutline',0); chlSphMat.setFloat('depthBias',0);
     chlSphMat.setFloat('selModel',-1); chlSphMat.setColor3('selCol', new BABYLON.Color3(0.6,0.72,0.53));
@@ -5230,6 +5259,39 @@ void main(void){
       }
     }
 
+    /* PICKING the membrane lipids. Atom = wrapped tile origin + the rotamer template's atom offset + the
+       fluid-mosaic sway, ported from memSway exactly (which is why that hash had to become float32-safe).
+       Only lipids inside the reveal bubble, which is always inside the full-density band. */
+    { const swayCPU = (bx,bz, sid, out) => {   // mirrors memSway in the imp/orb/bond shaders
+        const uT = gWaveT, ph = bx*0.28 + bz*0.24;
+        let sx = 0.62*Math.sin(uT*0.85 + ph), sy = 0.26*Math.sin(uT*0.63 + ph*1.7), sz = 0.62*Math.cos(uT*0.74 + ph*1.3);
+        const hv = sid*0.0731 + 0.5, h = hv - Math.floor(hv), k = 6.2831853*h, w = 0.22 + 0.30*h;
+        sx += gMemDrift*Math.sin(uT*w + k + ph*0.5); sz += gMemDrift*Math.cos(uT*w*0.83 + k*1.7 + ph*0.5);
+        out[0]=sx; out[1]=sy; out[2]=sz; };
+      const _sw=[0,0,0];
+      gPickLipid = (ox,oy,oz, dx,dy,dz, cp) => {
+        const R = BUBBLE_R, R2 = R*R; let bestT = Infinity, best = null;
+        for(let i=0;i<LIPN;i++){
+          const o=i*3, oy0=lipO[o+1]; const dy0=oy0-cp.y; if(dy0*dy0>R2) continue;
+          const ox0=lipO[o]  + Math.round((cp.x-lipO[o])/gMemSpanX)*gMemSpanX;   const dx0=ox0-cp.x; if(dx0*dx0+dy0*dy0>R2) continue;
+          const oz0=lipO[o+2]+ Math.round((cp.z-lipO[o+2])/gMemSpanZ)*gMemSpanZ; const dz0=oz0-cp.z; if(dx0*dx0+dy0*dy0+dz0*dz0>R2) continue;
+          if(Math.abs(ox0-bilayerCen.x)>gMemFootX || Math.abs(oz0-bilayerCen.z)>gMemFootZ) continue;
+          const Tt=lipT[i], v=Tt%NV, leaf=((Tt-v)/NV)%2, ty=Math.floor(Tt/(2*NV));
+          const P=prep[ty], tp=tPosV[ty][leaf][v], L=P.lipid, sid=lipO[o+2];
+          for(let k=0;k<P.LN;k++){
+            let ax=ox0+tp[k*3], ay=oy0+tp[k*3+1], az=oz0+tp[k*3+2];
+            swayCPU(ax,az, sid, _sw); ax+=_sw[0]; ay+=_sw[1]; az+=_sw[2];
+            const r=info(L.el[k]).vr*FILL_SCALE;
+            const px=ax-ox, py=ay-oy, pz=az-oz, tca=px*dx+py*dy+pz*dz; if(tca<=0) continue;
+            const d2=px*px+py*py+pz*pz-tca*tca; if(d2>r*r) continue;
+            const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e:L.el[k]}; }
+          }
+        }
+        if(!best) return null;
+        const c = new BABYLON.Vector3(best.ax,best.ay,best.az);
+        return { t:bestT, atom:{ spawn:true, lipid:true, sym:EL_LIST[best.e], e:best.e, idx:-1, center:c, world:c.clone(), si:-1 } };
+      }; }
+
     /* The gather. One pass over the lipids, wrapping each onto the copy nearest the camera exactly as the
        cell wrap does, and appending a translation to its template's instance buffer. A lipid costs one
        matrix here where it used to cost three hundred, which is the whole point. */
@@ -5599,16 +5661,16 @@ void main(void){
     // (isShell must stay 1 either way — with isShell 0 the alpha is scaled BY the reveal, so the sphere
     // would be invisible everywhere except inside the crisp zone.)
     // glow = the proton corona: same stateless positioning, but the fragment draws a soft additive red disc
-    const wMat=(rad, solid, glow)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':''),scene,'imp',{
+    const wMat=(rad, solid, glow, bias, outline)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':'')+(bias?'b':''),scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
-        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR'],
+        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias'],
         samplers:['shellTex','molTex'],
         defines: (NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
                       : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']) });
       // isShell = 1 so the sphere turns to GLASS inside the reveal radius, exactly as the protein vdW does
       // — otherwise the orbitals built below are drawn correctly but sit hidden inside an opaque ball.
       m.setFloat('radius',rad);m.setFloat('isShell',1);m.setFloat('shellMin',0.18);m.setFloat('revealFade',0.95);
-      m.setFloat('bubbleR',1e9);m.setFloat('protonOutline',0);m.setFloat('coneCos',-1.0);m.backFaceCulling=false;
+      m.setFloat('bubbleR',1e9);m.setFloat('protonOutline',outline?1:0);m.setFloat('depthBias',bias||0);m.setFloat('coneCos',-1.0);m.backFaceCulling=false;
       realAlpha(m);
       // AFTER realAlpha, which sets the blend mode to COMBINE - the corona has to be additive to read as light
       if(glow){ m.alphaMode = BABYLON.Constants.ALPHA_ADD; m.disableDepthWrite = true; }
@@ -5669,7 +5731,7 @@ void main(void){
       }
       for(const a of atoms){
         const mesh=BABYLON.MeshBuilder.CreatePlane(nm+a.tag,{size:2},scene);
-        mesh.material=wMat(a.r, solid, !!a.glow); mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true;
+        mesh.material=wMat(a.r, (a.solid===undefined ? solid : a.solid), !!a.glow, a.bias, a.outline); mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true;
         mesh.renderingGroupId=1;
         const cb=new Float32Array(n*4), mb=new Float32Array(n*16), og=new Float32Array(n*3), vl=new Float32Array(n*3);
         const mid=new Float32Array(n);
@@ -5701,7 +5763,11 @@ void main(void){
     const hR = info(codeH).vr*FILL_SCALE, hC = info(codeH).c;
     const FREE_P = mkFree('p', 20000, 91731, [
       {tag:'H', r:hR,        col:[hC[0],hC[1],hC[2]], d:0},
-      {tag:'N', r:NUCLEON_R, col:[0.90,0.24,0.30],    d:0},
+      /* The core was invisible for two reasons: it ran the same glass logic as the shell, so it turned
+         transparent exactly inside the crisp zone where you would look for it, and it had no depth bias,
+         so the shell's own depth write (its front surface is nearer) rejected it. Solid, biased forward
+         by a shell radius so it clears the shell, and given the red rim every proton in a nucleus has. */
+      {tag:'N', r:NUCLEON_R, col:[0.90,0.24,0.30],    d:0, solid:true, bias:hR, outline:true},
       {tag:'G', r:hR*2.8,    col:[1.0,0.26,0.13],     d:0, glow:true} ], MOLBASE.p, false);
     // CO2 — charcoal carbon between two slate oxygens, C=O 1.16 Å. Reads as grey smoke against the water.
     const FREE_CO2 = mkFree('co2', 20000, 218347, [{tag:'C', r:cR, col:[0.24,0.25,0.28], d:0},
@@ -6087,6 +6153,38 @@ void main(void){
           repelShells(_pp); gPL[k*3]=_pp[0]; gPL[k*3+1]=_pp[1]; gPL[k*3+2]=_pp[2]; }
         gPLN = n;
       }); }
+
+    /* PICKING the free molecules. Same positioning the vertex shader does - analytic path, collision
+       displacement, protein shells, then the atom's rigid offset - so a click lands on the sphere that is
+       actually on screen. Only molecules inside the reveal bubble are considered, as for protein atoms. */
+    gPickFree = (ox,oy,oz, dx,dy,dz, cp) => {
+      const T = gWaveT, R = BUBBLE_R, R2 = R*R, _p=[0,0,0];
+      let bestT = Infinity, best = null;
+      const test = (ax,ay,az, r, e) => {
+        const px=ax-ox, py=ay-oy, pz=az-oz, tca=px*dx+py*dy+pz*dz; if(tca<=0) return;
+        const d2=px*px+py*py+pz*pz-tca*tca; if(d2>r*r) return;
+        const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; best={ax,ay,az,e}; } };
+      const centre = (c,v,i,base) => {
+        _p[0]=bnc(c[i*3]  +v[i*3]  *T, bLo.x, bHi.x); _p[1]=bnc(c[i*3+1]+v[i*3+1]*T, bLo.y, bHi.y); _p[2]=bnc(c[i*3+2]+v[i*3+2]*T, bLo.z, bHi.z);
+        const md=(base+i)*4; _p[0]+=gMolDisp[md]; _p[1]+=gMolDisp[md+1]; _p[2]+=gMolDisp[md+2];
+        repelShells(_p); return _p; };
+      const near = (c,v,i) => { const px=bnc(c[i*3]+v[i*3]*T,bLo.x,bHi.x)-cp.x; if(px*px>R2) return false;
+        const py=bnc(c[i*3+1]+v[i*3+1]*T,bLo.y,bHi.y)-cp.y; if(px*px+py*py>R2) return false;
+        const pz=bnc(c[i*3+2]+v[i*3+2]*T,bLo.z,bHi.z)-cp.z; return px*px+py*py+pz*pz<=R2; };
+      const hRad = info(codeH).vr*FILL_SCALE, oRad = info(codeO).vr*FILL_SCALE, cRad = info(codeC).vr*FILL_SCALE;
+      for(let i=0;i<NW;i++){ if(!near(wc,wv,i)) continue; const q=centre(wc,wv,i,MOLBASE.w);
+        test(q[0],q[1],q[2], oRad, codeO);
+        test(q[0]+wh1[i*3],q[1]+wh1[i*3+1],q[2]+wh1[i*3+2], hRad, codeH);
+        test(q[0]+wh2[i*3],q[1]+wh2[i*3+1],q[2]+wh2[i*3+2], hRad, codeH); }
+      const lin = (F, base, els, offs, rads) => { for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,base);
+        for(let k=0;k<els.length;k++) test(q[0]+F.ax[i*3]*offs[k], q[1]+F.ax[i*3+1]*offs[k], q[2]+F.ax[i*3+2]*offs[k], rads[k], els[k]); } };
+      lin(FREE_P,   MOLBASE.p,   [codeH],             [0],             [hRad]);
+      lin(FREE_CO2, MOLBASE.co2, [codeC,codeO,codeO], [0,1.16,-1.16],  [cRad,oRad,oRad]);
+      lin(FREE_O2,  MOLBASE.o2,  [codeO,codeO],       [0.605,-0.605],  [oRad,oRad]);
+      if(!best) return null;
+      const c = new BABYLON.Vector3(best.ax,best.ay,best.az);
+      return { t:bestT, atom:{ spawn:true, free:true, sym:EL_LIST[best.e], e:best.e, idx:-1, center:c, world:c.clone(), si:-1 } };
+    };
 
     /* Orbitals for the linear free species (CO2, O2). Same idea as the water above: build ONE canonical
        lobe set and instance it per molecule with that molecule's own rotation, so only a small matrix
@@ -7002,6 +7100,17 @@ void main(void){
     const spm = new BABYLON.StandardMaterial('shadePlaneMat', scene); spm.emissiveColor=new BABYLON.Color3(1,1,1);
     spm.disableLighting=true; spm.alpha=0.30; spm.backFaceCulling=false; spm.disableDepthWrite=true;
     sp.material=spm; sp.setEnabled(false); gShadePlaneMesh = sp; }
+  // Dev-only SUN: where the soft key light sits - above the membrane's centre, along gKeyDir - with a
+  // line down to what it lights, so its direction can be read off the scene.
+  { const R = Math.max(gMaX-gMiX, gMaY-gMiY) * 0.55 + 200;
+    const cx=(gMiX+gMaX)/2, cy=(gMiY+gMaY)/2;
+    const pos = new BABYLON.Vector3(cx + gKeyDir.x*R, cy + gKeyDir.y*R, gShadePlane + gKeyDir.z*R);
+    const sun = BABYLON.MeshBuilder.CreateSphere('devSun', {segments:10, diameter:Math.max(8, R*0.03)}, scene);
+    const sm = new BABYLON.StandardMaterial('devSunMat', scene); sm.emissiveColor = new BABYLON.Color3(1.0,0.85,0.35); sm.disableLighting = true;
+    sun.material = sm; sun.position.copyFrom(pos); sun.isPickable = false; sun.renderingGroupId = 3; sun.setEnabled(false);
+    const ray = BABYLON.MeshBuilder.CreateLines('devSunRay', {points:[pos, new BABYLON.Vector3(cx, cy, gShadePlane)]}, scene);
+    ray.color = new BABYLON.Color3(1.0,0.85,0.35); ray.alpha = 0.7; ray.isPickable = false; ray.renderingGroupId = 3; ray.setEnabled(false);
+    gDevSun = sun; gDevSunRay = ray; }
   const undoModel = () => {
     const s = undoStack.pop(); if(!s) return; const mid=s.mid;
     gModelOff[mid*3]=s.off[0]; gModelOff[mid*3+1]=s.off[1]; gModelOff[mid*3+2]=s.off[2];
@@ -7284,7 +7393,8 @@ void main(void){
   // Only the crisp-zone slider plus the two read-outs. Every other slider object is still created
   // above (so its startup side-effects, such as the render-scale default, still run) - it is simply
   // not shown any more.
-  devPanel.appendChild(backRow); devPanel.appendChild(czRow); devPanel.appendChild(czSld);
+  devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
+  devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
   devPanel.appendChild(zmRow); devPanel.appendChild(zmSld);
@@ -7343,6 +7453,7 @@ void main(void){
     if(gShortcuts) gShortcuts.style.display = gDev ? 'block' : 'none';   // keyboard-shortcut cheatsheet is dev-only
     for(const h of gHulls) h.mesh.setEnabled(gDev);   // per-protein collision shells -> dev-only
     if(gShadePlaneMesh) gShadePlaneMesh.setEnabled(gDev && gShadeOn);   // shading-reference plane — dev AND its own toggle
+    if(gDevSun) gDevSun.setEnabled(gDev); if(gDevSunRay) gDevSunRay.setEnabled(gDev);   // the soft key light's position
     { const rf = scene.getMeshByName('rtsFloor'); if(rf) rf.setEnabled(gDev); }   // light-green floor sheet → dev-only
     if(gCollViz) gCollViz.setEnabled(COLL_VIZ && (gDev || gCollVizHold));   // wireframe collision spheres (also on while V is held)
     { const mm = document.getElementById('rts-minimap'); if(mm) mm.style.display = gDev ? '' : 'none';
@@ -7559,6 +7670,11 @@ void main(void){
         const px=chl.x[k]+chl.ox-ox, py=chl.y[k]+chl.oy-oy, pz=chl.z[k]+chl.oz-oz, tca=px*dx+py*dy+pz*dz;
         if(tca<=0) continue; const d2=px*px+py*py+pz*pz-tca*tca; if(d2>r*r) continue;
         const t=tca-Math.sqrt(r*r-d2); if(t>0 && t<bestT){ bestT=t; bE=-3; bA=k; } } }
+    // Membrane lipids and the free molecules: picked by the hooks that live with their data, competing
+    // on the same ray distance as everything above, so whatever is nearest under the cursor wins.
+    for(const hk of [gPickFree, gPickLipid]){ if(!hk) continue;
+      const h = hk(ox,oy,oz, dx,dy,dz, cp); if(h && h.t < bestT){ bestT = h.t; bE = -4; bA = h; } }
+    if(bE === -4) return bA.atom;
     if(bE === -3){ const k=bA, c=new BABYLON.Vector3(chl.x[k]+chl.ox, chl.y[k]+chl.oy, chl.z[k]+chl.oz);
       return { spawn:true, chl:true, sym:EL_LIST[chl.el[k]], e:chl.el[k], idx:-1, center:c, world:c.clone(), si:-1 }; }   // showcase atoms are world-space → world == baked
     if(bE === -2){ const a=spawned[bA], c=new BABYLON.Vector3(a.x,a.y,a.z); return { spawn:true, sym:a.sym, e:codeOf(a.sym), idx:-1, center:c, world:c.clone(), si:bA }; }
