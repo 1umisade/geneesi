@@ -280,7 +280,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
-<img id="padimg" src="controls.png" alt="" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; display:none; z-index:9; pointer-events:none; opacity:0.92; user-select:none;">
+<img id="padimg" src="controls.png" alt="" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; z-index:10; pointer-events:none; user-select:none;">
 <div id="speedbox" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); text-align:center; z-index:10; font:11px ui-monospace,monospace; color:#6a6a5a; user-select:none;">
   <div style="margin-bottom:4px; letter-spacing:.5px;">nopeus <span id="speedval">0.1×</span></div>
   <input id="speed" type="range" min="0" max="30" value="1" style="width:130px; cursor:pointer;">
@@ -3449,8 +3449,9 @@ void main(void){
        right stick  KATSO    → arrow keys, yaw / pitch
        L1 / R1      LOITONNA / LÄHENNÄ → Q / E, out / in along the view
        L2 / R2      KALLISTA → F / R, roll
-     The picture bottom-left (controls.png) appears while a pad is connected and switches to the
-     variant that highlights whatever is being used - the most recently pressed control wins. */
+     The picture bottom-left (controls.png) is ALWAYS shown - above the vignette, and never hidden by
+     the idle-cursor rule - and switches to the variant that highlights whatever is being used, the most
+     recently pressed control winning. */
   { const PAD_IMG = { base:'controls.png', left:'left.png', right:'right.png', L1:'L1.png', L2:'L2.png', R1:'R1.png', R2:'R2.png' };   // the owner's own PNGs (kontrollit.psd is the source)
     for(const k in PAD_IMG){ const im = new Image(); im.src = PAD_IMG[k]; }   // preloaded → the switch is instant
     const padEl = document.getElementById('padimg'), DZ = 0.3, padPrev = Object.create(null);
@@ -3460,9 +3461,8 @@ void main(void){
     const pollPad = () => {
       const pads = navigator.getGamepads ? navigator.getGamepads() : null; let gp = null;
       if(pads) for(const g of pads) if(g && g.connected){ gp = g; break; }
-      if(!gp){ if(padEl && padEl.style.display !== 'none') padEl.style.display = 'none';
-        for(const k in padPrev) if(padPrev[k]) setKey(k, false); padActive = null; return; }
-      if(padEl && padEl.style.display === 'none') padEl.style.display = 'block';
+      if(!gp){ for(const k in padPrev) if(padPrev[k]) setKey(k, false); padActive = null;   // the picture stays up, pad or no pad
+        if(padShown !== PAD_IMG.base){ padShown = PAD_IMG.base; if(padEl) padEl.src = padShown; } return; }
       const ax = gp.axes || [], bt = gp.buttons || [], b = i => !!(bt[i] && (bt[i].pressed || bt[i].value > 0.5));
       const lx = ax[0]||0, ly = ax[1]||0, rx = ax[2]||0, ry = ax[3]||0;
       setKey('a', lx < -DZ); setKey('d', lx > DZ); setKey('w', ly < -DZ); setKey('s', ly > DZ);
@@ -10601,7 +10601,7 @@ void main(void){
     document.head.appendChild(st);
     let idleTimer = null, fsTimer = null;
     // the floating chrome that steps aside when the mouse is still
-    const chrome = () => ['fs-btn','settings-btn','speedbox','padimg'].map(i=>document.getElementById(i)).filter(Boolean);
+    const chrome = () => ['fs-btn','settings-btn','speedbox'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
     const wake = () => {
       document.documentElement.classList.remove('cursor-idle');
       clearTimeout(idleTimer);
