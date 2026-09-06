@@ -3180,7 +3180,7 @@ void main(void){
     return Math.max(11, Math.min(140, wr * (canvas.clientHeight/(2*Math.tan(cam.fov/2))) / d)); };
   const projMol = m => { _vpSel.width=canvas.clientWidth; _vpSel.height=canvas.clientHeight;
     return BABYLON.Vector3.Project(new BABYLON.Vector3(m.cx, m.cy, FLOOR_Z), BABYLON.Matrix.Identity(), scene.getTransformMatrix(), _vpSel); };
-  const selectBox = (x0,y0,x1,y1, add) => { if(!add){ gSel.clear(); gSelMol.clear(); }
+  const selectBox = (x0,y0,x1,y1, add) => { if(!gSelEnabled) return; if(!add){ gSel.clear(); gSelMol.clear(); }
     const lx=Math.min(x0,x1), hx=Math.max(x0,x1), ly=Math.min(y0,y1), hy=Math.max(y0,y1);
     for(let mi=0; mi<mols.length; mi++){ const s=projModel(mi);
       if(s.z>=0 && s.z<=1 && s.x>=lx && s.x<=hx && s.y>=ly && s.y<=hy && !camInsideModel(mi)) gSel.add(mi); }   // a box never grabs the complex you are inside
@@ -3336,6 +3336,8 @@ void main(void){
   // and the speed ramps 0 → max over RAMP_S seconds, then holds. Releasing every key of that kind drops
   // the ramp straight back to 0, so a tap is a small nudge and a long hold is a full-speed sweep.
   let gPanSpeed  = 0.21;   // multiplier on the pan speed (W/A/S/D - screen-space pan)
+  let gSelEnabled = true;  // dev switch: clicks and double-clicks select nothing while off
+  let gPhotonsOn = true;   // dev switch: the photon beams (and their glows) off
   let gZoomSpeed = 1.0;    // multiplier on the zoom speed (I/O - in and out along the view)
   let gRotSpeed  = 2.705;  // max yaw/pitch rate in rad/s (WASD) — 2.705 ≈ 155 deg/s
   const RAMP_S = 7.0;      // seconds from the initial nudge to full speed
@@ -3457,7 +3459,8 @@ void main(void){
       if(e.button === 0 && rtsBoxing){ rtsBoxing = false;
         if(rtsBoxMoved){ selectBox(rtsBoxSX, rtsBoxSY, rtsBoxCX, rtsBoxCY, e.shiftKey); }   // a drag → box-select the group
         else { const mol = pickMolecule();   // a TAP on a spawned molecule selects it (then M starts it, S stops it)
-          if(mol){ selectMolecule(mol, e.shiftKey); }
+          if(!gSelEnabled){ }   // selections switched off (dev panel): a click selects nothing
+          else if(mol){ selectMolecule(mol, e.shiftKey); }
           else if(rtsDownModel >= 0 && !camInsideModel(rtsDownModel)){   // a click on a protein complex → select it (Shift adds / toggles) - never the one you are standing inside
             if(e.shiftKey){ if(gSel.has(rtsDownModel)) gSel.delete(rtsDownModel); else gSel.add(rtsDownModel); }
             else { gSel.clear(); gSelMol.clear(); gSel.add(rtsDownModel); focusOnModel(rtsDownModel); }   // a fresh pick centres the camera on it
@@ -7892,6 +7895,7 @@ void main(void){
     let seeded = false;
     scene.onBeforeRenderObservable.add(() => {
       if(!gBoxLo) return;
+      if(!gPhotonsOn){ if(beamMesh.isEnabled()){ beamMesh.setEnabled(false); halo.m.setEnabled(false); flash.m.setEnabled(false); } return; }   // switched off (dev panel)
       const dt = Math.min(engine.getDeltaTime(), 50)*0.001*gSpeed;
       if(!seeded){ seeded = true; for(let i=0;i<N_PH;i++){ spawn(i); const o=i*3, t=Math.random()*1.5; px[o]+=pd[o]*PH_SPEED*t; px[o+1]+=pd[o+1]*PH_SPEED*t; px[o+2]+=pd[o+2]*PH_SPEED*t; } }
       // chlorophyll centres through their models' transforms (cheap: a few hundred)
@@ -8239,6 +8243,16 @@ void main(void){
   cullBtn.onclick = () => { gCullOnly = !gCullOnly; syncCull(); };
   syncCull();
   cullRow.appendChild(cullBtn);
+  // Selections on/off: while off, clicks, double-clicks and drag boxes select nothing (turning it off also clears what is selected).
+  const selRow = document.createElement('div'); const selBtn = document.createElement('button');
+  const syncSel = () => { selBtn.textContent = gSelEnabled ? 'valinnat: ON' : 'valinnat: OFF'; selBtn.style.cssText = cullStyle(gSelEnabled); };
+  selBtn.onclick = () => { gSelEnabled = !gSelEnabled; if(!gSelEnabled){ clearAtomSel(); clearEtcSel(); deselectModel(); gSel.clear(); gSelMol.clear(); updateSelectionUI(); } syncSel(); };
+  syncSel(); selRow.appendChild(selBtn);
+  // Photons on/off: the beams, their absorption flashes and the chlorophyll glows.
+  const phRow = document.createElement('div'); const phBtn = document.createElement('button');
+  const syncPh = () => { phBtn.textContent = gPhotonsOn ? 'fotonit: ON' : 'fotonit: OFF'; phBtn.style.cssText = cullStyle(gPhotonsOn); };
+  phBtn.onclick = () => { gPhotonsOn = !gPhotonsOn; syncPh(); };
+  syncPh(); phRow.appendChild(phBtn);
   const resetRow = document.createElement('div');
   const resetBtn = document.createElement('button'); resetBtn.textContent = 'palauta oletukset';
   resetBtn.style.cssText = 'cursor:pointer;font:11px ui-monospace,monospace;color:var(--sageink);background:var(--sage);'
@@ -8258,6 +8272,7 @@ void main(void){
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
   devPanel.appendChild(blRow); devPanel.appendChild(blSld);
+  devPanel.appendChild(cullRow); devPanel.appendChild(selRow); devPanel.appendChild(phRow);   // (cullRow had been built but never attached)
   devPanel.appendChild(psRow); devPanel.appendChild(psSld); devPanel.appendChild(ppRow);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
   devPanel.appendChild(zmRow); devPanel.appendChild(zmSld);
@@ -10117,6 +10132,7 @@ void main(void){
   // MEDIUM → the whole ETC cofactor, FAR → the whole complex; empty space clears + swings perpendicular.
   const onDouble = () => {
     if(spawnEl) return;
+    if(!gSelEnabled) return;   // selections switched off (dev panel)
     const a = pickAtom();
     if(a && BABYLON.Vector3.Distance(cam.position, a.world || a.center) <= BUBBLE_R){ clearEtcSel(); centerOnAtom(a); return; }   // atoms are selectable wherever they RENDER (within the reveal bubble); pickAtom already returns only revealed atoms — farther, fall through to cofactor/complex
     const gi = pickEtcGroup();
