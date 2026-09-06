@@ -3724,7 +3724,7 @@ void main(void){
   // there is exactly one quality boundary in the scene. Set to the real value once CELL is known.
   let gCrisp = 130;
   let gMega  = 600;           // megacheap radius: past this the membrane is a bare slab and proteins thin hard (1.5x closer than the ~895 half-period it used to hit)
-  const MEM_BLEND = 60;       // width of the lipid/slab overlap band at the megacheap edge (the gather thins across it, the slab's hole ends at its start)
+  let gMemBlend = 60;         // width of the lipid/slab overlap band at the megacheap edge (the gather thins across it, the slab's hole ends at its start)
   let cofListPanel = null;               // right-side cofactor-type list (built later); shown only in ETC mode
   const etcGroups = [];                  // whole cofactor molecules {cx,cy,cz,r,type,atoms} → mid-range picking
   let etcGroupPos = null;                // {gx,gy,gz} per cofactor ATOM (indices match etcGroups[].atoms)
@@ -4515,7 +4515,6 @@ void main(void){
      proxy, and it stays a closed watertight surface. Dev-only. */
   const gHulls = [];
   const gProtSlab = [];   // per model: true = far enough that its atoms are replaced by the hull
-  let gProtSlabPx = 130;  // a complex drops to its hull once it covers fewer than this many pixels
   const SH_LAT = 32, SH_LON = 64;   // ~5.6 deg bearings
   {
     const NLAT = SH_LAT, NLON = SH_LON;
@@ -4685,6 +4684,20 @@ void main(void){
     placeShells();
     scene.onBeforeRenderObservable.add(placeShells);   // a dragged or flattened model carries its shell
   }
+  /* Is (x,y,z) inside shell s? Same bearing rounding as repel(), no push - the membrane gather uses it to
+     leave out the lipids a protein's envelope already occupies. */
+  const insideShell = (sIdx, x, y, z) => {
+    const dx=x-gShellCen[sIdx*3], dy=y-gShellCen[sIdx*3+1], dz=z-gShellCen[sIdx*3+2];
+    const r2=dx*dx+dy*dy+dz*dz;
+    if(r2 >= gShellR2[sIdx] || r2 < 1e-8) return false;
+    const r=Math.sqrt(r2), o=sIdx*9;
+    const lx=gShellRot[o]*dx+gShellRot[o+3]*dy+gShellRot[o+6]*dz;
+    const ly=gShellRot[o+1]*dx+gShellRot[o+4]*dy+gShellRot[o+7]*dz;
+    const lz=gShellRot[o+2]*dx+gShellRot[o+5]*dy+gShellRot[o+8]*dz;
+    const li=Math.min(SH_LAT-1, Math.max(0, Math.round(Math.acos(Math.max(-1,Math.min(1,lz/r)))/Math.PI*(SH_LAT-1))));
+    let lo=Math.floor((Math.atan2(ly,lx)+Math.PI)/(2*Math.PI)*SH_LON); lo=((lo%SH_LON)+SH_LON)%SH_LON;
+    return r < gHulls[sIdx].D[li*SH_LON+lo];
+  };
   /* CPU mirror of the shader's repel(): same bearing rounding, same push. Mutates p in place. */
   const repelShells = p => {
     for(let s=0;s<NSH;s++){
@@ -4958,12 +4971,15 @@ void main(void){
   const deriveLod = () => {
     const patchHalf = (gMemSpanX && gMemSpanZ) ? Math.min(gMemSpanX, gMemSpanZ)*0.5 : Infinity;
     const memR = Math.min(gMega, patchHalf);
+    /* The SAME two radii as the proteins: orbitals and glass within gCrisp, the slab past memR. The
+       glass shader cuts at gCrisp per fragment, so the block-level band only has to be wide enough
+       (a block radius) that every lipid within gCrisp holds the glass-capable material. */
     const pad = gMemCellR + 12;          // a whole cell, plus the sway a lipid adds on top of it
-    const memFull = Math.min(Math.max(gCrisp + pad, pad*2), memR*0.7);
+    const memFull = Math.min(gCrisp + pad, memR);
     const seg = Math.max(1, (memR - memFull)/5);
     const L = gLod;
     L.memR = memR; L.memFull = memFull;
-    L.orbR = Math.max(0, Math.min(gCrisp + 12, memFull - pad));   // orbitals never reach past full density
+    L.orbR = Math.min(gCrisp, memR);     // orbitals exactly to the crisp radius, as for protein cells
     for(let k=0;k<5;k++){ const r = memFull + k*seg; L.step[k] = r*r; }
     return L;
   };
@@ -5059,7 +5075,7 @@ void main(void){
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
         // the hole matches the gather: blocks within memR (by centre) draw every lipid - one block radius
         // less, so the slab's edge sits under drawn lipids rather than leaving a gap before them
-        const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR + gMemCellR - MEM_BLEND) : 0;   // the slab starts where the blend band starts
+        const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR + gMemCellR - gMemBlend) : 0;   // the slab starts where the blend band starts
         eff.setFloat('holeR', hole); eff.setVector3('camPos', cam.position); });
       slab.material = sm; gMemSlab = slab;
       gWorldReach = Math.hypot(memHalfX*MEGA_SCALE, memHalfZ*MEGA_SCALE);   // the slab's far corner - the far clip must reach it
@@ -5437,6 +5453,7 @@ void main(void){
        stall. Blocks within the orbital radius also feed the nearest-N orbital budget, as before. */
     let gOrbLive = false, gSphLive = false;
     const _blkOff = new Float32Array(NBLK*2);
+    const _blkSh = new Int32Array(Math.max(1, NSH));   // shells whose reach overlaps the current block
     scene.onBeforeRenderObservable.add(()=>{
       const ov = document.getElementById('overlay');
       if(ov && !ov.classList.contains('gone')) return;
@@ -5467,14 +5484,21 @@ void main(void){
         /* BINARY. A block inside the reach draws every one of its lipids - past it, the slab stands in on
            its own. There used to be a density ramp between (half, quarter, eighth ... over the slab), and
            that read as slab and lipids in the same place, getting denser as you approached. Full or slab. */
-        /* ...except across the last MEM_BLEND units before the slab, where the block draws a shrinking
+        /* ...except across the last gMemBlend units before the slab, where the block draws a shrinking
            prefix of its strided order (an even spatial sample) over the slab, so the two overlap along a
            soft band instead of meeting at a line. */
         const dEdge = L.memR + bR - Math.sqrt(d2);                                     // distance left before the block would be culled
-        const take = dEdge >= MEM_BLEND ? cnt : Math.round(cnt * Math.max(0, dEdge) / MEM_BLEND);
+        const take = dEdge >= gMemBlend ? cnt : Math.round(cnt * Math.max(0, dEdge) / gMemBlend);
         const near = d2 < full2, st = blkStart[b];
+        /* Lipids inside a membrane protein are not drawn: the protein's collision shell (its atoms'
+           outer envelope) says which. Tested per lipid only for blocks a shell actually reaches -
+           for the rest this is one bounding-sphere check per shell per block. */
+        let nSh = 0;
+        for(let sI=0;sI<NSH;sI++){ const sx=gShellCen[sI*3]-wcx, sy=gShellCen[sI*3+1]-y, sz=gShellCen[sI*3+2]-wcz, reach=gHulls[sI].maxR + bR;
+          if(sx*sx+sy*sy+sz*sz < reach*reach) _blkSh[nSh++] = sI; }
         for(let q=0;q<take;q++){ const i = blkLip[st+q], o = i*3, E = sphTpl[lipT[i]]; if(!E) continue;
           const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
+          if(nSh){ let inside=false; for(let k=0;k<nSh;k++) if(insideShell(_blkSh[k], lx, ly, lz)){ inside=true; break; } if(inside) continue; }
           if(near){ if(E.nn >= E.cap) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nn++; }
           else    { if(E.nf >= E.cap) continue; const m=E.nf*16, M=E.fM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.fA[E.nf]=lz; E.nf++; }
         }
@@ -5482,6 +5506,7 @@ void main(void){
         if(orbOn && d2 <= (oR+bR)*(oR+bR)) for(let q=0;q<cnt;q++){ const i = blkLip[st+q], o = i*3;
           const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
           const ex = lx-cp.x, ey = ly-cp.y, ez = lz-cp.z, e2 = ex*ex+ey*ey+ez*ez; if(e2 > oR2) continue;
+          if(nSh){ let inside=false; for(let k=0;k<nSh;k++) if(insideShell(_blkSh[k], lx, ly, lz)){ inside=true; break; } if(inside) continue; }
           let v2 = true; for(let k=0;k<6;k++){ const pl=fp[k]; if(pl.normal.x*lx + pl.normal.y*ly + pl.normal.z*lz + pl.d < -LOBE_MARGIN){ v2=false; break; } }
           if(!v2) continue;
           if(nC < ORB_SCRATCH){ oCand[nC]=i; oD2[nC]=e2; oPx[nC]=lx; oPy[nC]=ly; oPz[nC]=lz; nC++; }
@@ -6642,18 +6667,15 @@ void main(void){
        the model's own colour instead - the third tier for proteins, matching the slab for the membrane.
        The threshold is measured from the hull's own reach, so a big complex holds its atoms further out
        than a small one does. */
-    /* Judged on SCREEN SIZE, not on an absolute distance. A fixed radius is wrong twice over: it makes
-       a small cofactor hold its atoms as long as a whole photosystem, and it ignores the field of view
-       and the window, so the same threshold is far too near on one screen and too far on another. A
-       complex hands over to its hull when it stops being big enough on screen for the atoms to read -
-       which is the only thing that actually matters. */
-    const _tanH = Math.tan(cam.fov*0.5), _vh = engine.getRenderHeight();
+    /* Judged on the SAME radius as the membrane's slab (memR, the megahalpa slider): a complex hands
+       over to its hull once its NEAR EDGE is past it - so proteins and lipids change tier along one
+       line, instead of a screen-size rule for one and a distance for the other. */
+    const _memR = deriveLod().memR;
     for(const h of gHulls){
       const c = h.slab.position;   // the transform observer above has already placed it this frame
       const dx = c.x-cp.x, dy = c.y-cp.y, dz = c.z-cp.z;
       const d = Math.sqrt(dx*dx+dy*dy+dz*dz) || 1e-6;
-      const px = (h.maxR / d) / _tanH * _vh;     // half-height of the complex, in pixels
-      const want = px < gProtSlabPx;
+      const want = (d - h.maxR) > _memR;
       gProtSlab[h.mi] = want;
       if(h.slab.isEnabled() !== want){ h.slab.setEnabled(want);
         if(want){ const o=h.mi*3;   // the model's own colour, dimmed like packed atoms against a flat fill
@@ -6673,7 +6695,7 @@ void main(void){
           new BABYLON.Color3(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K)); }
       if(gMemSlab.isEnabled() !== gMembrane) gMemSlab.setEnabled(gMembrane);
     }
-    const MEGA2 = gMega*gMega;
+    const MEGA2 = _memR*_memR;   // the protein thinning tier sits on the same radius as the hull handover and the membrane slab
     /* The membrane's detail now RAMPS with distance instead of being all-or-nothing. The tile order was
        already strided so any prefix of a cell's sphere buffer is a spatially even sample of the block,
        and sphEnd marks the tile boundaries, so this costs one lookup and a thinInstanceCount write - no
@@ -7576,7 +7598,7 @@ void main(void){
      ray-traced spheres, ink rims, thermal shake). Outside it everything drops to a flat opaque disc with
      no per-fragment sphere, no depth write, no animation. Moving this slider moves that single boundary. */
   const czRow = document.createElement('div');
-  czRow.innerHTML = 'terävä alue: <b id="dev-cz-val">130</b>';
+  czRow.innerHTML = 'LoD 1→2 terävä→halpa, säde (kalvo + proteiinit): <b id="dev-cz-val">130</b>';
   const czSld = document.createElement('input');
   czSld.type='range'; czSld.min='30'; czSld.max='600'; czSld.style.cssText='width:100%;cursor:pointer;';
   const czValEl = czRow.querySelector('#dev-cz-val');
@@ -7586,12 +7608,20 @@ void main(void){
 
   // The second boundary: past this the membrane is the bare slab and proteins keep 1 atom in 16.
   const mgRow = document.createElement('div');
-  mgRow.innerHTML = 'megahalpa alue: <b id="dev-mg-val">1600</b>';
+  mgRow.innerHTML = 'LoD 2→3 halpa→laatta, säde (kalvo + proteiinit): <b id="dev-mg-val">600</b>';
   const mgSld = document.createElement('input');
   mgSld.type='range'; mgSld.min='200'; mgSld.max='5000'; mgSld.style.cssText='width:100%;cursor:pointer;';
   const mgValEl = mgRow.querySelector('#dev-mg-val');
   mgSld.oninput = () => { gMega = +mgSld.value; mgValEl.textContent = String(gMega); };
   mgSld.value = String(Math.round(gMega)); mgValEl.textContent = String(Math.round(gMega));
+  // The width of the band where lipids thin out over the slab at the 2→3 boundary.
+  const blRow = document.createElement('div');
+  blRow.innerHTML = 'LoD 2→3 sekoitusvyöhykkeen leveys: <b id="dev-bl-val">60</b>';
+  const blSld = document.createElement('input');
+  blSld.type='range'; blSld.min='0'; blSld.max='300'; blSld.style.cssText='width:100%;cursor:pointer;';
+  const blValEl = blRow.querySelector('#dev-bl-val');
+  blSld.oninput = () => { gMemBlend = Math.max(1, +blSld.value); blValEl.textContent = String(+blSld.value); };
+  blSld.value = String(Math.round(gMemBlend)); blValEl.textContent = String(Math.round(gMemBlend));
 
   // Show ONLY the immediate neighbourhood: every cell whose near edge is further than CULL_CLOSE from the
   // camera is hidden outright, leaving just what you are practically standing in.
@@ -7623,6 +7653,7 @@ void main(void){
   devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
+  devPanel.appendChild(blRow); devPanel.appendChild(blSld);
   devPanel.appendChild(mvRow); devPanel.appendChild(mvSld);
   devPanel.appendChild(zmRow); devPanel.appendChild(zmSld);
   devPanel.appendChild(rtRow); devPanel.appendChild(rtSld);
