@@ -693,8 +693,20 @@ vec3 repelShells(vec3 p){
 // Membrane-only fluid sway. The phase is taken from the IN-PLANE position (x,z) alone, so every atom
 // of one upright lipid shares it and the lipid stays rigid, while lipids a tile apart are out of
 // phase and visibly slide past one another — a fluid bilayer, not one sheet breathing as a block.
-vec3 memSway(vec3 b){ float ph = b.x*0.28 + b.z*0.24;
-  return vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3)); }
+uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 restores the rigid sheet
+/* Fluid mosaic. The first term is the old sheet-wide swell, which moved every lipid together so the
+   membrane read as one rigid sheet rippling. The second gives each lipid its own slow in-plane loop,
+   phased off its anchor, so neighbours slide PAST one another and the crowd shears instead of swaying
+   as one. The loop is closed, so a lipid wanders around its own patch and never drifts out of the cell
+   block that culls it. The sheet-wide phase is folded in, so the shuffle travels as a wave rather than
+   reading as uncorrelated jitter. */
+vec3 memSway(vec3 b, float sid){ float ph = b.x*0.28 + b.z*0.24;
+  vec3 sw = vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3));
+  float h = fract(sin(sid*127.1 + 311.7) * 43758.5453);
+  float k = 6.2831853 * h, w = 0.22 + 0.30*h;
+  sw.x += memDrift * sin(uT*w + k + ph*0.5);
+  sw.z += memDrift * cos(uT*w*0.83 + k*1.7 + ph*0.5);
+  return sw; }
 #endif
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
@@ -735,7 +747,11 @@ void main(void){
   }
 #endif
 #ifdef MEMFADE
-  wc += memSway(base);   // membrane fluid sway - kept in BOTH tiers so the sheet moves as one
+#ifdef LIPTILE
+  wc += memSway(base, tileOff.z);   // pooled nucleons: the tile origin IS the lipid id
+#else
+  wc += memSway(base, memAnc);      // membrane fluid sway - kept in BOTH tiers so the sheet moves as one
+#endif
 #ifdef LIPTILE
   vMemAnc = tileOff.z;   // pooled nucleons: the tile origin IS the lipid anchor (one tile per mesh)
 #elif defined(LIPWRAP)
@@ -1221,8 +1237,20 @@ uniform vec3 tileOff;    // membrane wrap - see the imp shader
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/orb shaders exactly so a lipid's bonds ride with its atoms.
-vec3 memSway(vec3 b){ float ph = b.x*0.28 + b.z*0.24;
-  return vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3)); }
+uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 restores the rigid sheet
+/* Fluid mosaic. The first term is the old sheet-wide swell, which moved every lipid together so the
+   membrane read as one rigid sheet rippling. The second gives each lipid its own slow in-plane loop,
+   phased off its anchor, so neighbours slide PAST one another and the crowd shears instead of swaying
+   as one. The loop is closed, so a lipid wanders around its own patch and never drifts out of the cell
+   block that culls it. The sheet-wide phase is folded in, so the shuffle travels as a wave rather than
+   reading as uncorrelated jitter. */
+vec3 memSway(vec3 b, float sid){ float ph = b.x*0.28 + b.z*0.24;
+  vec3 sw = vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3));
+  float h = fract(sin(sid*127.1 + 311.7) * 43758.5453);
+  float k = 6.2831853 * h, w = 0.22 + 0.30*h;
+  sw.x += memDrift * sin(uT*w + k + ph*0.5);
+  sw.z += memDrift * cos(uT*w*0.83 + k*1.7 + ph*0.5);
+  return sw; }
 #endif
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
@@ -1235,7 +1263,7 @@ void main(void){
   vec3 nrm = normal;
   vec4 wp = W * vec4(pos, 1.0); wp.xyz += shakeOff(W[3].xyz);
 #ifdef MEMFADE
-  wp.xyz += memSway(W[3].xyz);
+  wp.xyz += memSway(W[3].xyz, memAnc);
 #endif
   vMid = -1.0;
 #ifdef MODELMOVE
@@ -1490,8 +1518,20 @@ uniform vec3 tileOff;    // membrane wrap - see the imp shader
 vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/bond shaders exactly so a lipid's orbitals ride with it.
-vec3 memSway(vec3 b){ float ph = b.x*0.28 + b.z*0.24;
-  return vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3)); }
+uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 restores the rigid sheet
+/* Fluid mosaic. The first term is the old sheet-wide swell, which moved every lipid together so the
+   membrane read as one rigid sheet rippling. The second gives each lipid its own slow in-plane loop,
+   phased off its anchor, so neighbours slide PAST one another and the crowd shears instead of swaying
+   as one. The loop is closed, so a lipid wanders around its own patch and never drifts out of the cell
+   block that culls it. The sheet-wide phase is folded in, so the shuffle travels as a wave rather than
+   reading as uncorrelated jitter. */
+vec3 memSway(vec3 b, float sid){ float ph = b.x*0.28 + b.z*0.24;
+  vec3 sw = vec3(0.62*sin(uT*0.85 + ph), 0.26*sin(uT*0.63 + ph*1.7), 0.62*cos(uT*0.74 + ph*1.3));
+  float h = fract(sin(sid*127.1 + 311.7) * 43758.5453);
+  float k = 6.2831853 * h, w = 0.22 + 0.30*h;
+  sw.x += memDrift * sin(uT*w + k + ph*0.5);
+  sw.z += memDrift * cos(uT*w*0.83 + k*1.7 + ph*0.5);
+  return sw; }
 #endif
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
@@ -1501,7 +1541,7 @@ void main(void){
 #endif
   vec4 wp = W * vec4(position, 1.0); wp.xyz += shakeOff(W[3].xyz);
 #ifdef MEMFADE
-  wp.xyz += memSway(W[3].xyz);
+  wp.xyz += memSway(W[3].xyz, memAnc);
 #endif
   vMid = -1.0;
 #ifdef MODELMOVE
@@ -3941,7 +3981,7 @@ void main(void){
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
     attributes:['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'],
+    uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'],
     samplers:['cofDepth'],
     defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPWRAP'] });   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
   vdwMatStatic.setFloat('radius',1.0); vdwMatStatic.setFloat('isShell',0); vdwMatStatic.setFloat('shellMin',0); vdwMatStatic.setFloat('bubbleR',1e9);
@@ -3949,6 +3989,7 @@ void main(void){
   vdwMatStatic.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); vdwMatStatic.backFaceCulling=false; realAlpha(vdwMatStatic); vdwMatStatic.setFloat('selModel', -1);
   vdwMatStatic.onBindObservable.add(mesh=>{ const eff=vdwMatStatic.getEffect(); if(!eff)return;
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
+    eff.setFloat('memDrift', gMemDrift);
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → membrane vdW goes 50% transparent where revealed
     eff.setFloat('uT',gWaveT); eff.setFloat('boil', gBoil); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); });
@@ -3984,10 +4025,11 @@ void main(void){
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
     ['position','instanceColor','instR','memAnc','world0','world1','world2','world3'],
-    ['memCut','tileOff','focalD','depthK','depthLo','startOff','spread'],
+    ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread'],
     ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPWRAP']);
   vdwStaticFarMat.onBindObservable.add(mesh=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
+    eff.setFloat('memDrift', gMemDrift);
     eff.setFloat('uT',gWaveT); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
     eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
@@ -4304,6 +4346,8 @@ void main(void){
      Star-shaped, so a deep concavity is bridged rather than followed — the usual trade for a collision
      proxy, and it stays a closed watertight surface. Dev-only. */
   const gHulls = [];
+  const gProtSlab = [];   // per model: true = far enough that its atoms are replaced by the hull
+  let gProtSlabR = 2600;  // distance at which a complex drops to its hull
   const SH_LAT = 32, SH_LON = 64;   // ~5.6 deg bearings
   {
     const NLAT = SH_LAT, NLON = SH_LON;
@@ -4395,20 +4439,35 @@ void main(void){
       mesh.material = hullMat; mesh.isPickable = false; mesh.alwaysSelectAsActiveMesh = true;
       mesh.setEnabled(false);
       let maxR = 0; for(let q=0;q<D.length;q++) if(D[q] > maxR) maxR = D[q];
-      gHulls.push({ mesh, mi, c:new BABYLON.Vector3(cx,cy,cz), D, maxR });
+      /* MEGACHEAP PROTEIN. The same hull, filled rather than wireframed, stands in for the complex once
+         it is far enough away: one low-poly star-shaped mesh of about 2000 vertices instead of tens of
+         thousands of ray-traced impostors. It is crude - it is the atoms' outer envelope with the
+         surface detail flattened out - but at that distance the complex is a coloured blob anyway. It
+         costs nothing to build because the collision shell already had to compute this exact shape. */
+      const slab = mesh.clone('hullSlab'+mi);
+      const sMat = new BABYLON.StandardMaterial('hullSlabMat'+mi, scene);
+      sMat.diffuseColor = new BABYLON.Color3(0,0,0); sMat.disableLighting = true; sMat.backFaceCulling = true;
+      slab.material = sMat; slab.isPickable = false; slab.alwaysSelectAsActiveMesh = true; slab.setEnabled(false);
+      gProtSlab[mi] = false;
+      gHulls.push({ mesh, slab, sMat, mi, c:new BABYLON.Vector3(cx,cy,cz), D, maxR });
     }
     // carry each shell on its model's transform, so a dragged or flattened model keeps its shell
     const _hp=new BABYLON.Vector3(), _hq=new BABYLON.Quaternion(), _hs=new BABYLON.Vector3(), _hm=new BABYLON.Matrix();
     scene.onBeforeRenderObservable.add(()=>{
-      if(!gHulls.length || !gHulls[0].mesh.isEnabled()) return;
+      if(!gHulls.length) return;
+      let anyOn = false;
+      for(const h of gHulls) if(h.mesh.isEnabled() || h.slab.isEnabled()){ anyOn = true; break; }
+      if(!anyOn) return;
       for(const h of gHulls){
         BABYLON.Matrix.FromArrayToRef(gModelXform, h.mi*16, _hm);
         _hm.decompose(_hs, _hq, _hp);
         const c=BABYLON.Vector3.TransformCoordinates(h.c, _hm);
-        h.mesh.position.copyFrom(c);
-        if(!h.mesh.rotationQuaternion) h.mesh.rotationQuaternion = new BABYLON.Quaternion();
-        h.mesh.rotationQuaternion.copyFrom(_hq);
-        h.mesh.scaling.copyFrom(_hs);
+        for(const m of [h.mesh, h.slab]){
+          m.position.copyFrom(c);
+          if(!m.rotationQuaternion) m.rotationQuaternion = new BABYLON.Quaternion();
+          m.rotationQuaternion.copyFrom(_hq);
+          m.scaling.copyFrom(_hs);
+        }
       }
     });
   }
@@ -4708,6 +4767,7 @@ void main(void){
   let gMemSlab = null;        // the megacheap membrane: one flat slab standing in for the far lipids
   const gTileZero = new BABYLON.Vector3(0,0,0);
   let gMemSpanX = 0, gMemSpanZ = 0;   // the lipid lattice's exact period, so a copy lands seamlessly on it
+  let gMemDrift = 0;          // how far a lipid wanders sideways past its neighbours (set from the pitch)
   let gSlabR=0, gSlabG=0, gSlabB=0, gSlabN=0, gSlabDone=false;   // running mean of the lipid spheres' own colours
   let buildMembrane = null;   // the heavy lipid membrane build, deferred to run AFTER the scene is revealed (complexes show first, membrane fills in)
   if(lipids.length){
@@ -4751,10 +4811,21 @@ void main(void){
     // small dense patch), we SPREAD the budget over the whole area: the pitch S is the larger of the
     // tight interdigitated packing and the area-budget pitch, so the sheet fills the box at the densest
     // packing the budget allows over that full span.
-    const TARGET_LIPIDS = 20000;   // ~1.5 GB of instance buffers
-    const areaPitch = Math.sqrt((4*memHalfX*memHalfZ) / Math.max(1, TARGET_LIPIDS/2));   // pitch that spreads the budget over the whole sheet
+    const TARGET_LIPIDS = 20000;
+    /* DENSITY. A real bilayer is packed solid, but spreading this budget over the whole sheet gave a
+       pitch about four times the tight-packing one, so it read as a dusting rather than a mosaic.
+       Density cannot be bought by adding lipids: the instance buffers for these 20000 measure 550 MB
+       (70 spheres + 93 orbital cores + 387 bond lobes), so ten times as many would be 5.5 GB.
+       It is bought by shrinking the PATCH instead, at a constant lipid count - the wrap repeats the
+       patch around the camera anyway, so a smaller patch costs reach and repetition, not coverage.
+       The patch is made SQUARE because for a fixed area that maximises the half-period, and the
+       half-period is exactly how far the sheet reaches before it has to repeat. */
+    const MEM_DENSITY = 10;
+    const patchHalf = Math.sqrt(memHalfX*memHalfZ/MEM_DENSITY);
+    const areaPitch = Math.sqrt((4*patchHalf*patchHalf) / Math.max(1, TARGET_LIPIDS/2));   // pitch that spreads the budget over the patch
     const S = Math.max(Math.max(xr,zr)*0.46, areaPitch, 5);
-    const Gx = Math.max(4, Math.round(2*memHalfX/S)+1), Gz = Math.max(4, Math.round(2*memHalfZ/S)+1);
+    const Gx = Math.max(4, Math.round(2*patchHalf/S)+1), Gz = Math.max(4, Math.round(2*patchHalf/S)+1);
+    gMemDrift = S*0.85;   // a lipid wanders most of a lattice spacing, so it visibly passes its neighbours
     const halfX=(Gx-1)*S*0.5, halfZ=(Gz-1)*S*0.5;
     const JIT = S*0.34;   // per-tile in-plane position jitter → breaks the crystalline grid
     bilayerHalf = Math.max(halfX, halfZ) + Math.max(xr,zr) + JIT + S*0.5;   // +S*0.5 = the row stagger below
@@ -4887,12 +4958,13 @@ void main(void){
     const NEAR_R = Math.max(60, S*3);   // "close to the camera" → nuclei + electrons switch on inside this
     const mkLipMat = (nm, shader, attrs, extra) => {
       const mat = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs,
-        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec','elecR','memCut','selModel','tileOff'].concat(extra||[]),
+        uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec','elecR','memCut','selModel','tileOff','memDrift'].concat(extra||[]),
         defines:['#define ELECGATE','#define MEMFADE','#define LIPWRAP'] });   // ELECGATE isolates elecR, MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
       mat.setFloat('bubbleR',1e9); mat.setFloat('nElec',2); mat.setFloat('coneCos',-1.0);
       mat.setFloat('drawElec',1); mat.setFloat('elecR', NEAR_R); mat.backFaceCulling=true; mat.setFloat('selModel', -1);   // orbitals always, electrons only up close
       mat.onBindObservable.add(mesh=>{ const eff=mat.getEffect(); if(!eff) return;
         eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
+        eff.setFloat('memDrift', gMemDrift);
         eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 2 → membrane orbitals only inside the close forward cone
         eff.setFloat('uT', gWaveT); eff.setVector3('selCenter', selCenter); eff.setFloat('focusId', gFocusId); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
         eff.setColor3('fogColor', scene.fogColor); eff.setFloat('fogStart', scene.fogStart); eff.setFloat('fogEnd', scene.fogEnd); });
@@ -4993,7 +5065,7 @@ void main(void){
     const _zeroOff = new BABYLON.Vector3(0,0,0);
     const nucMatL = new BABYLON.ShaderMaterial('lipNucMat', scene, 'imp', {
       attributes:['position','instanceColor','world0','world1','world2','world3'],
-      uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','tileOff','memCut'],
+      uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','tileOff','memDrift','memCut'],
       defines:['#define LIPTILE','#define MEMFADE'] });   // LIPTILE isolates tileOff; MEMFADE = cross-cut fade so lipid nuclei vanish WITH their lipid
     nucMatL.setFloat('radius',NUCLEON_R); nucMatL.setFloat('isShell',0); nucMatL.setFloat('bubbleR',1e9);
     nucMatL.setFloat('protonOutline',0); nucMatL.setFloat('coneCos',-1.0); nucMatL.backFaceCulling=false;
@@ -5003,7 +5075,8 @@ void main(void){
       eff.setFloat('uT',gWaveT); eff.setColor3('fogColor',scene.fogColor);
       eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
       eff.setVector3('selCenter', selCenter); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
-      eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || _zeroOff); });
+      eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || _zeroOff);
+      eff.setFloat('memDrift', gMemDrift); });
     const POOL = 10;   // tiles per leaflet that carry nuclei at once
     const nucPool = [];
     for(let leaf=0;leaf<2;leaf++) for(let p=0;p<POOL;p++){
@@ -5924,6 +5997,21 @@ void main(void){
     if(gCut[2] < 0.001) gCut[2] = 0; else if(gCut[2] > 0.999) gCut[2] = 1;
     gCut[0] = bilayerCen.z;                                          // cut plane (membrane centre z)
     gCut[1] = (cp.z - bilayerCen.z) >= 0 ? 1 : -1;                   // which side is toward the camera
+    /* MEGACHEAP PROTEINS. Decided once per model, not per cell, so a complex is never half hull and
+       half atoms. Past gProtSlabR its atoms stop drawing entirely and its collision hull is filled in
+       the model's own colour instead - the third tier for proteins, matching the slab for the membrane.
+       The threshold is measured from the hull's own reach, so a big complex holds its atoms further out
+       than a small one does. */
+    for(const h of gHulls){
+      const c = h.slab.position;   // the transform observer above has already placed it this frame
+      const dx = c.x-cp.x, dy = c.y-cp.y, dz = c.z-cp.z;
+      const reach = gProtSlabR + h.maxR;
+      const want = (dx*dx+dy*dy+dz*dz) > reach*reach;
+      gProtSlab[h.mi] = want;
+      if(h.slab.isEnabled() !== want){ h.slab.setEnabled(want);
+        if(want){ const o=h.mi*3;   // the model's own colour, dimmed like packed atoms against a flat fill
+          h.sMat.emissiveColor.set(gModelCol[o]*0.72, gModelCol[o+1]*0.72, gModelCol[o+2]*0.72); } }
+    }
     if(gMemSlab){
       /* Colour the slab from what the lipid spheres actually render, not from raw element colours: the
          per-instance colours carry the membrane's own tinting, and the element mean came out a warm grey
@@ -5957,6 +6045,12 @@ void main(void){
       return e[Math.max(0, Math.min(e.length-1, Math.round(e.length*f)-1))]; };
     for(const cell of cellList){
       if(!cell.macro && !gMembrane){   // membrane hidden (perf toggle) → force every lipid mesh off, skip the rest
+        if(cell.visOn !== false){ cell.visOn = false; for(const m of cell.meshes) m.setEnabled(false); }
+        if(cell.sphOn !== false){ cell.sphOn = false; if(cell.sphere) cell.sphere.setEnabled(false); }
+        if(cell.nucOn !== false){ cell.nucOn = false; if(cell.nuc) cell.nuc.setEnabled(false); }
+        continue;
+      }
+      if(cell.macro && gProtSlab[cell.mi|0]){   // this complex is drawing as its hull → its atoms stand down
         if(cell.visOn !== false){ cell.visOn = false; for(const m of cell.meshes) m.setEnabled(false); }
         if(cell.sphOn !== false){ cell.sphOn = false; if(cell.sphere) cell.sphere.setEnabled(false); }
         if(cell.nucOn !== false){ cell.nucOn = false; if(cell.nuc) cell.nuc.setEnabled(false); }
