@@ -9683,6 +9683,7 @@ void main(void){
     center.style.cssText = 'flex:1 0 0;pointer-events:none;';   // info module moved to the RIGHT (above the spawn module) → the centre is now a transparent spacer keeping minimap left / spawn right
     con.appendChild(left); con.appendChild(center); con.appendChild(right);
     document.body.appendChild(con);
+    try { applyDevMode(); } catch(_){}   // apply the dev-only rule NOW: the minimap and the spawn table used to flash for the rest of the startup, until the final applyDevMode() at the end
     // ── Info module: relocated to the RIGHT, stacked directly ABOVE the spawn (element) module, vertical,
     //    matched to its width. Holds the selection / atom / protein / cofactor cards (one visible at a time).
     gInfoRight = document.createElement('div'); gInfoRight.id = 'info-right';
