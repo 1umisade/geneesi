@@ -1042,7 +1042,14 @@ void main(void){
 #ifdef ETCTHIN
   rimStart = max(rimStart, 0.94);                            // cofactor overlay - a thin outline that matches the protein silhouette (not the fat 0.14 per-atom rim)
 #endif
-  float rim = smoothstep(rimStart - min(aa, 0.008), 1.0, r2);   // thin ink band like the orbital lobes, tiny aa only so revealed shells do not get a fat outline
+  /* The ink scales with the atom's size ON SCREEN. The band is a fraction of the radius, so on a
+     3 px disc the outermost ring of pixels - half the disc - came out black. pxR is the disc radius in
+     pixels (vUV runs -1..1 across it), and below ~30 px both the band and the ink strength ease down
+     to a faint hairline - thin far away, the full band up close. */
+  float pxR = 2.0 / max(fwidth(vUV.x) + fwidth(vUV.y), 1e-5);
+  float rimK = smoothstep(2.0, 30.0, pxR);
+  rimStart = 1.0 - (1.0 - rimStart) * mix(0.35, 1.0, rimK);
+  float rim = smoothstep(rimStart - min(aa, 0.008), 1.0, r2) * mix(0.3, 1.0, rimK);   // thin ink band like the orbital lobes, tiny aa only so revealed shells do not get a fat outline
   // Subtle electric-blue shimmer: a faint cool sheen that rides the sphere's grazing edge and drifts in time.
   if(protonOutline < 0.5){
     float fres = pow(1.0 - zc, 2.3);
@@ -2691,14 +2698,35 @@ uniform float startOff;
 uniform float spread;
 uniform vec3 camPos;
 uniform float holeR;
+uniform float grainPitch;
 varying float vZ;
 varying vec3 vWP;
+float hash1(vec2 c){ return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.5453); }
+vec2 hash2(vec2 c){ return vec2(hash1(c), hash1(c + vec2(19.3, 7.7))); }
 void main(void){
   /* inside holeR of the camera every lipid is drawn at full density, so the slab steps aside there -
      a glass shell over a slab of its own colour was invisible, and the two never belong in one place */
   if(holeR > 0.0 && distance(vWP, camPos) < holeR) discard;
+  /* GRAIN. The carpet next to the slab reads as packed discs with dark gaps between them, so the slab
+     draws the same thing procedurally: a jittered lattice at the lipid pitch in world XZ, one disc per
+     cell (its radius about half a cell), a dark gap outside it, and a per-cell brightness wobble for
+     the mixed species. Far away the cells go sub-pixel, so the pattern eases back to its own mean
+     tone (about 0.74) instead of shimmering - fwidth measures how many cells a pixel spans. */
+  vec2 q = vWP.xz / max(grainPitch, 0.5);
+  vec2 cell = floor(q);
+  float best = 9.0, bid = 0.0;
+  for(int j = -1; j <= 1; j++) for(int i = -1; i <= 1; i++){
+    vec2 c = cell + vec2(float(i), float(j));
+    vec2 cen = c + 0.5 + (hash2(c) - 0.5) * 0.6;
+    float d = distance(q, cen);
+    if(d < best){ best = d; bid = hash1(c + 3.1); }
+  }
+  float disc = 1.0 - smoothstep(0.40, 0.56, best);
+  float tone = mix(0.34, 1.0, disc) * (0.82 + 0.36 * bid);
+  float px = fwidth(q.x) + fwidth(q.y);
+  tone = mix(tone, 0.74, clamp(px * 1.5, 0.0, 1.0));
   float dt = clamp((vZ - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
-  gl_FragColor = vec4(slabCol * mix(1.0, depthLo, dt * depthK), 1.0);
+  gl_FragColor = vec4(slabCol * tone * mix(1.0, depthLo, dt * depthK), 1.0);
 }`;
   const bgMat = new BABYLON.ShaderMaterial('bgMat', scene, 'bg', { attributes:['position'], uniforms:['cBg','focusAmt','focusDark'] });
   bgMat.backFaceCulling = false;
@@ -5067,9 +5095,10 @@ void main(void){
       slab.position.copyFrom(bilayerCen);
       slab.isPickable = false; slab.renderingGroupId = 0; slab.alwaysSelectAsActiveMesh = true;
       const sm = new BABYLON.ShaderMaterial('memSlabMat', scene, 'slab', {
-        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR'] });
+        attributes:['position'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch'] });
       sm.backFaceCulling = false;
       sm.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22));   // placeholder until the real lipid mean lands below
+      sm.setFloat('grainPitch', S);   // the grain's cell size = the real lipid pitch
       sm.onBindObservable.add(()=>{ const eff=sm.getEffect(); if(!eff) return;
         eff.setFloat('focalD', gShadePlane); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
