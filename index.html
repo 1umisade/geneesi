@@ -8357,7 +8357,7 @@ void main(void){
   lSld.oninput = () => { gBright = 0.30 + (+lSld.value/100)*1.70; lValEl.textContent = gBright.toFixed(2)+'×'; };
   // Line-boil slider → gBoil (0 = off): stepped per-atom jitter (vdW spheres) + painterly screen warp.
   const bRow = document.createElement('div');
-  bRow.innerHTML = 'boil: <b id="dev-b-val">0.20</b>';
+  bRow.innerHTML = 'vdW-pallojen jiggle (boil): <b id="dev-b-val">0.20</b>';   // the stepped per-atom jitter (gBoil) - this slider existed but was never attached to the panel until 2026-09-06
   const bSld = document.createElement('input');
   bSld.type='range'; bSld.min='0'; bSld.max='100'; bSld.value='20'; bSld.style.cssText='width:100%;cursor:pointer;';   // default 0.2
   const bValEl = bRow.querySelector('#dev-b-val');
@@ -8541,7 +8541,7 @@ void main(void){
   devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
-  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld);
+  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld); devPanel.appendChild(bRow); devPanel.appendChild(bSld);
   // Membrane slab tier on/off (see gSlabLod).
   const slRow = document.createElement('div'); const slBtn = document.createElement('button');
   const syncSl = () => { slBtn.textContent = gSlabLod ? 'laatta-LoD: ON' : 'laatta-LoD: OFF'; slBtn.style.cssText = cullStyle(gSlabLod); };
