@@ -68,7 +68,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   display:flex;align-items:center;justify-content:center}
 .zt:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 .ztlabel{font-size:11px;font-weight:bold;color:var(--brown);letter-spacing:1px}
-.pill{pointer-events:auto;flex:1 1 0;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
+.pill{pointer-events:auto;flex:1 1 auto;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
 .pill.on{background:var(--sage);color:var(--sageink)}
 .pill:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 #darkmode-btn{position:absolute;left:16px;top:12px;z-index:12;touch-action:manipulation;
@@ -283,7 +283,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
-<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:nowrap; justify-content:stretch; gap:8px; padding:0 12px; box-sizing:border-box; pointer-events:none;"></div>
+<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:wrap; justify-content:stretch; gap:8px; padding:0 12px; box-sizing:border-box; pointer-events:none;"></div>
 <div id="padbox" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; z-index:10; pointer-events:none; user-select:none; line-height:0;">
   <img id="padimg" src="controls.png" alt="" style="display:block; width:100%;">
   <img class="padhl" data-k="left"  src="left.png"  alt="" style="position:absolute; left:0; top:0; width:100%; display:none;">
@@ -6443,7 +6443,7 @@ void main(void){
     const ATP_SRC = adpFromNadp(true);
     const ADP_SRC = ATP_SRC ? { at: ATP_SRC.at.slice(0, ATP_SRC.at.length - 4), bonds: ATP_SRC.bonds.filter(b => b[0] < ATP_SRC.at.length - 4 && b[1] < ATP_SRC.at.length - 4) } : null;
     const FREE_ATP = mkRigidFree('ATP', 'atp', NATP, 881237, [0.85,0.70,0.29], MOLBASE.atp, ATP_SRC);
-    const FREE_ADP = mkRigidFree('ADP', 'adp', NADP2, 913511, [0.79,0.64,0.29], MOLBASE.adp, ADP_SRC);
+    const FREE_ADP = mkRigidFree('ADP', 'adp', NADP2, 913511, [0.62,0.49,0.20], MOLBASE.adp, ADP_SRC);   // clearly darker gold than ATP
     const FREE_PI  = mkRigidFree('Pi',  'pi',  NPI,  947717, [0.88,0.50,0.23], MOLBASE.pi, null);
     if(FREE_NADP){ FREE_NADP.key = 'nadp'; FREE_NADP.base = MOLBASE.nadp; }
     const RIGID_FREE = [FREE_NADP, FREE_ATP, FREE_ADP, FREE_PI].filter(Boolean);   // every rigid species: the picker, the trackers and the collision list go through this
@@ -10969,10 +10969,26 @@ void main(void){
   // floor sheet, read-outs). It used to run only on toggle, so all of those started out visible.
   /* ── Top pill list: toggles, beige off / green on (owner's request, 2026-09-06). State in gTopToggles. ── */
   { const host = document.getElementById('toplist'); window.gTopToggles = {};
-    if(host) for(const name of ['p-orbitaali','ATP-syntaasi','hiilidioksidi','Oxygen-Evolving Complex','klorofylli','plastokinoni','ferredoksiini','NADP','fotoni','fotosysteemi']){
+    const PILLS = ['p-orbitaali','ATP-syntaasi','hiilidioksidi','Oxygen-Evolving Complex','klorofylli','plastokinoni','ferredoksiini','NADP','fotoni','fotosysteemi',
+                   'rikkiatomi','magnesium-atomi','vetyioni','piisidos','NADP+','sytokromi b6f'];
+    if(host) for(const name of PILLS){
       const b = document.createElement('button'); b.className = 'pill'; b.textContent = name; window.gTopToggles[name] = false;
-      b.addEventListener('click', () => { const on = !b.classList.contains('on'); b.classList.toggle('on', on); window.gTopToggles[name] = on; });
-      host.appendChild(b); } }
+      b.addEventListener('click', () => { const on = !b.classList.contains('on'); b.classList.toggle('on', on); window.gTopToggles[name] = on; updateScore(); });
+      host.appendChild(b); }
+    /* Score card above the controller picture: how many of the pills are on, as a count and one dot per pill. */
+    const score = document.createElement('div'); score.id = 'scorebox';
+    score.style.cssText = 'position:fixed;left:12px;z-index:10;pointer-events:none;user-select:none;background:var(--paper);border:2.5px solid var(--brown);border-radius:14px;box-shadow:0 3px 0 var(--brown);padding:8px 12px;font:13px/1.3 "Courier New",monospace;color:var(--ink);width:280px;max-width:34vw;box-sizing:border-box;';
+    score.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><span>Pisteet</span><b id="score-val" style="font-size:18px">0 / ' + PILLS.length + '</b></div><div id="score-dots" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>';
+    document.body.appendChild(score);
+    const dots = score.querySelector('#score-dots');
+    for(const name of PILLS){ const d = document.createElement('span'); d.dataset.k = name; d.title = name;
+      d.style.cssText = 'width:12px;height:12px;border-radius:50%;border:2px solid var(--brown);background:var(--paper2);box-sizing:border-box;'; dots.appendChild(d); }
+    const placeScore = () => { const pad = document.getElementById('padbox'); const h = pad ? pad.getBoundingClientRect().height : 0; score.style.bottom = (12 + h + 10) + 'px'; };
+    const updateScore = () => { let n = 0; for(const name of PILLS){ const on = !!window.gTopToggles[name]; if(on) n++;
+        const d = dots.querySelector('[data-k="' + name.replace(/"/g, '') + '"]'); if(d) d.style.background = on ? 'var(--sage2)' : 'var(--paper2)'; }
+      score.querySelector('#score-val').textContent = n + ' / ' + PILLS.length; placeScore(); };
+    window.updateScore = updateScore; updateScore();
+    const padImg = document.getElementById('padimg'); if(padImg){ padImg.addEventListener('load', placeScore); } window.addEventListener('resize', placeScore); setTimeout(placeScore, 500); }
   /* ── Chrome dock: every toggle button, the speed slider and the GPU badge live bottom-right now. The
      buttons keep their ids, classes and handlers - only their placement changes (inline static beats the
      absolute rules in the stylesheet). The dev panel is capped in height so it stays clear of the dock. ── */
