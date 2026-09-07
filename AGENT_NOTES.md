@@ -96,13 +96,16 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   moved above the free-species block with `reachOf`) with bonds inferred by distance. The straight-line
   cartoon is only the fallback if nadph.mol2 is missing. `RIGID_FREE` lists every rigid species for the picker, the
   trackers and the collision list (`gSpecies`). Each new species needs an id base in MOLBASE.
-- UI layout: a full-width top pill row (`#toplist`, 16 pills in `PILLS`, wrapping, `.pill.on` = green, state in
-  `window.gTopToggles`, no other behaviour yet) with a score card (`#scorebox`, 'Pisteet n / 16' plus one dot
-  per pill, `window.updateScore`) above the controller picture and a bottom-right dock (`#btndock`) holding the gear
+- UI layout: a full-width top pill row (`#toplist`, 18 pills in `PILLS` as [name, points], wrapping, `.pill.on` =
+  green, state in `window.gTopToggles`, no other behaviour yet) with a score card (`#scorebox`, 'Pisteet n / 41'
+  = the sum of the points of the pills that are on, plus one dot per pill sized by its worth,
+  `window.updateScore`) above the controller picture and a bottom-right dock (`#btndock`) holding the gear
   (`settings-btn`), fullscreen, the speed slider and the GPU badge. The toggle buttons live in the gear's
   `settings-menu`, re-anchored at the end of startup to open UPWARD above the dock, right-aligned. The
   dev panel is height-capped to stay clear of the dock.
-- Gamepad (DualShock, standard mapping): polled every frame, drives the keyboard's own flags edge-
+- Gamepad (DualShock, standard mapping): polled every frame, EVERY connected pad merged (largest deflection
+  per axis, largest value per button - with DS4Windows the physical pad is listed dead next to its virtual
+  Xbox pad, so taking the first pad broke the right stick), drives the keyboard's own flags edge-
   triggered (left stick A/D + W/S, right stick arrows, L1/R1 = Q/E zoom, L2/R2 = F/R roll). The picture
   bottom-left is ALWAYS shown: controls.png as the base with left/right/L1/L2/R1/R2.png stacked on it as
   transparent highlight layers (the owner's files, source kontrollit.psd), each visible while its control

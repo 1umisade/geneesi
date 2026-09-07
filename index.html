@@ -3504,12 +3504,19 @@ void main(void){
     const setKey = (k, on) => { if(!!padPrev[k] === on) return; padPrev[k] = on;
       if(/^Arrow/.test(k)) arrowKeys[k] = on; else { if(on) scene.stopAnimation(cam); wasdKeys[k] = on; } };
     const pollPad = () => {
-      const pads = navigator.getGamepads ? navigator.getGamepads() : null; let gp = null;
-      if(pads) for(const g of pads) if(g && g.connected){ gp = g; break; }
-      if(!gp){ for(const k in padPrev) if(padPrev[k]) setKey(k, false); for(const k in padOn) showHl(k, false); return; }   // the picture stays up, pad or no pad
-      const ax = gp.axes || [], bt = gp.buttons || [], b = i => !!(bt[i] && (bt[i].pressed || bt[i].value > 0.15));   // triggers count from a light squeeze (0.15), not from half travel
-      window.__padState = { id: gp.id, mapping: gp.mapping, axes: ax.slice(0, 4).map(v => +v.toFixed(2)), L1: bt[4] ? +bt[4].value.toFixed(2) : null, R1: bt[5] ? +bt[5].value.toFixed(2) : null, L2: bt[6] ? +bt[6].value.toFixed(2) : null, R2: bt[7] ? +bt[7].value.toFixed(2) : null };   // for the dev HUD
-      const lx = ax[0]||0, ly = ax[1]||0, rx = ax[2]||0, ry = ax[3]||0;
+      /* MERGE every connected pad. With DS4Windows the physical DualShock and its virtual Xbox pad are BOTH
+         listed, and the physical one reads dead (its input is captured) - taking the first pad meant only
+         the keyboard mappings moved the camera. Per axis the largest deflection wins, per button the
+         largest value, so whichever pad is live drives. */
+      const pads = navigator.getGamepads ? [...(navigator.getGamepads() || [])].filter(g => g && g.connected) : [];
+      if(!pads.length){ for(const k in padPrev) if(padPrev[k]) setKey(k, false); for(const k in padOn) showHl(k, false); window.__padState = null; return; }   // the picture stays up, pad or no pad
+      const ax = [0,0,0,0], bv = [0,0,0,0,0,0,0,0];
+      for(const g of pads){ const A = g.axes || [], B = g.buttons || [];
+        for(let i=0;i<4;i++){ const v = A[i] || 0; if(Math.abs(v) > Math.abs(ax[i])) ax[i] = v; }
+        for(let i=4;i<8;i++){ const q = B[i]; const v = q ? Math.max(q.value || 0, q.pressed ? 1 : 0) : 0; if(v > bv[i]) bv[i] = v; } }
+      const b = i => bv[i] > 0.15;   // triggers and bumpers count from a light squeeze (0.15)
+      window.__padState = { n: pads.length, ids: pads.map(g => (g.id || '').slice(0, 28)), mapping: pads.map(g => g.mapping).join('/'), axes: ax.map(v => +v.toFixed(2)), L1: +bv[4].toFixed(2), R1: +bv[5].toFixed(2), L2: +bv[6].toFixed(2), R2: +bv[7].toFixed(2) };   // for the dev HUD
+      const lx = ax[0], ly = ax[1], rx = ax[2], ry = ax[3];
       setKey('a', lx < -DZ); setKey('d', lx > DZ); setKey('w', ly < -DZ); setKey('s', ly > DZ);
       setKey('ArrowLeft', rx < -DZ); setKey('ArrowRight', rx > DZ); setKey('ArrowUp', ry < -DZ); setKey('ArrowDown', ry > DZ);
       setKey('q', b(4)); setKey('e', b(5)); setKey('f', b(6)); setKey('r', b(7));
@@ -7352,7 +7359,7 @@ void main(void){
                     + '<br>hsl '+eng2.getHardwareScalingLevel().toFixed(2) : '')
           +'<br>sij. '+p.x.toFixed(0)+', '+p.y.toFixed(0)+', '+p.z.toFixed(0)
           +'<br>α '+(cam.alpha*DEG).toFixed(1)+'°  β '+(cam.beta*DEG).toFixed(1)+'°  kierto '+roll.toFixed(1)+'°'
-          +(window.__padState ? '<br>ohjain '+(window.__padState.mapping||'?')+'  L2 '+window.__padState.L2+'  R2 '+window.__padState.R2+'  L1 '+window.__padState.L1+'  R1 '+window.__padState.R1+'<br>tikut '+window.__padState.axes.join(' ') : '<br>ohjain: ei')
+          +(window.__padState ? '<br>ohjaimia '+window.__padState.n+' ('+window.__padState.mapping+')  L2 '+window.__padState.L2+'  R2 '+window.__padState.R2+'  L1 '+window.__padState.L1+'  R1 '+window.__padState.R1+'<br>tikut '+window.__padState.axes.join(' ')+'<br>'+window.__padState.ids.join(' | ') : '<br>ohjain: ei')
           +'<br>et. '+Math.abs(cam.radius).toFixed(0);
         // Drop the dev slider panel below this readout — both are pinned right:16px, so the panel's own
         // top ran straight through it. Measured AFTER the text above is in place (an empty readout has
@@ -10969,24 +10976,32 @@ void main(void){
   // floor sheet, read-outs). It used to run only on toggle, so all of those started out visible.
   /* ── Top pill list: toggles, beige off / green on (owner's request, 2026-09-06). State in gTopToggles. ── */
   { const host = document.getElementById('toplist'); window.gTopToggles = {};
-    const PILLS = ['p-orbitaali','ATP-syntaasi','hiilidioksidi','Oxygen-Evolving Complex','klorofylli','plastokinoni','ferredoksiini','NADP','fotoni','fotosysteemi',
-                   'rikkiatomi','magnesium-atomi','vetyioni','piisidos','NADP+','sytokromi b6f'];
-    if(host) for(const name of PILLS){
-      const b = document.createElement('button'); b.className = 'pill'; b.textContent = name; window.gTopToggles[name] = false;
+    /* Each pill is worth points by how hard the thing is to find in the simulation: 1 = everywhere (protons,
+       CO2, phosphate, the photosystems), 2 = common but you must go and look (ATP, NADP+, a chlorophyll,
+       the complexes), 3 = moving or small or needs a close zoom (photons, the shuttles, ferredoxin, a pi
+       bond, a sulfur), 4 = one atom hidden inside a molecule (the chlorophyll's magnesium), 5 = buried
+       inside PSII (the oxygen-evolving Mn cluster). */
+    const PILLS = [['p-orbitaali',2],['ATP-syntaasi',2],['hiilidioksidi',1],['Oxygen-Evolving Complex',5],['klorofylli',2],['plastokinoni',3],['ferredoksiini',3],['fotoni',3],['fotosysteemi',1],
+                   ['rikkiatomi',3],['magnesium-atomi',4],['vetyioni',1],['piisidos',3],['NADP+',2],['sytokromi b6f',2],['fosfaatti',1],['ATP',2],['typpiatomi',1]];
+    const PILL_PTS = Object.fromEntries(PILLS), PILL_NAMES = PILLS.map(x => x[0]), PILL_TOTAL = PILLS.reduce((a,x) => a + x[1], 0);
+    window.gPillPoints = PILL_PTS;
+    if(host) for(const name of PILL_NAMES){
+      const b = document.createElement('button'); b.className = 'pill'; b.innerHTML = name + ' <span style="opacity:.75;font-size:11px">' + PILL_PTS[name] + ' p</span>'; window.gTopToggles[name] = false;
       b.addEventListener('click', () => { const on = !b.classList.contains('on'); b.classList.toggle('on', on); window.gTopToggles[name] = on; updateScore(); });
       host.appendChild(b); }
     /* Score card above the controller picture: how many of the pills are on, as a count and one dot per pill. */
     const score = document.createElement('div'); score.id = 'scorebox';
     score.style.cssText = 'position:fixed;left:12px;z-index:10;pointer-events:none;user-select:none;background:var(--paper);border:2.5px solid var(--brown);border-radius:14px;box-shadow:0 3px 0 var(--brown);padding:8px 12px;font:13px/1.3 "Courier New",monospace;color:var(--ink);width:280px;max-width:34vw;box-sizing:border-box;';
-    score.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><span>Pisteet</span><b id="score-val" style="font-size:18px">0 / ' + PILLS.length + '</b></div><div id="score-dots" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>';
+    score.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><span>Pisteet</span><b id="score-val" style="font-size:18px">0 / ' + PILL_TOTAL + '</b></div><div id="score-dots" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;align-items:center"></div>';
     document.body.appendChild(score);
     const dots = score.querySelector('#score-dots');
-    for(const name of PILLS){ const d = document.createElement('span'); d.dataset.k = name; d.title = name;
-      d.style.cssText = 'width:12px;height:12px;border-radius:50%;border:2px solid var(--brown);background:var(--paper2);box-sizing:border-box;'; dots.appendChild(d); }
+    for(const name of PILL_NAMES){ const d = document.createElement('span'); d.dataset.k = name; d.title = name + ' - ' + PILL_PTS[name] + ' p';
+      const sz = 10 + PILL_PTS[name]*2;   // a dot grows with its worth
+      d.style.cssText = 'width:'+sz+'px;height:'+sz+'px;border-radius:50%;border:2px solid var(--brown);background:var(--paper2);box-sizing:border-box;'; dots.appendChild(d); }
     const placeScore = () => { const pad = document.getElementById('padbox'); const h = pad ? pad.getBoundingClientRect().height : 0; score.style.bottom = (12 + h + 10) + 'px'; };
-    const updateScore = () => { let n = 0; for(const name of PILLS){ const on = !!window.gTopToggles[name]; if(on) n++;
+    const updateScore = () => { let n = 0; for(const name of PILL_NAMES){ const on = !!window.gTopToggles[name]; if(on) n += PILL_PTS[name];
         const d = dots.querySelector('[data-k="' + name.replace(/"/g, '') + '"]'); if(d) d.style.background = on ? 'var(--sage2)' : 'var(--paper2)'; }
-      score.querySelector('#score-val').textContent = n + ' / ' + PILLS.length; placeScore(); };
+      score.querySelector('#score-val').textContent = n + ' / ' + PILL_TOTAL; placeScore(); };
     window.updateScore = updateScore; updateScore();
     const padImg = document.getElementById('padimg'); if(padImg){ padImg.addEventListener('load', placeScore); } window.addEventListener('resize', placeScore); setTimeout(placeScore, 500); }
   /* ── Chrome dock: every toggle button, the speed slider and the GPU badge live bottom-right now. The
