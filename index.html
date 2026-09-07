@@ -68,7 +68,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   display:flex;align-items:center;justify-content:center}
 .zt:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 .ztlabel{font-size:11px;font-weight:bold;color:var(--brown);letter-spacing:1px}
-.pill{pointer-events:auto;flex:1 1 auto;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
+.pill{pointer-events:auto;flex:0 0 auto;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
 .pill.on{background:var(--sage);color:var(--sageink)}
 .pill:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 #darkmode-btn{position:absolute;left:16px;top:12px;z-index:12;touch-action:manipulation;
@@ -283,8 +283,8 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
-<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:wrap; justify-content:stretch; gap:8px; padding:0 12px; box-sizing:border-box; pointer-events:none;"></div>
-<div id="padbox" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; z-index:10; pointer-events:none; user-select:none; line-height:0;">
+<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; padding:0 12px; box-sizing:border-box; pointer-events:none;"></div>
+<div id="padbox" style="position:fixed; left:12px; bottom:12px; width:560px; max-width:60vw; z-index:10; pointer-events:none; user-select:none; line-height:0;">
   <img id="padimg" src="controls.png" alt="" style="display:block; width:100%;">
   <img class="padhl" data-k="left"  src="left.png"  alt="" style="position:absolute; left:0; top:0; width:100%; display:none;">
   <img class="padhl" data-k="right" src="right.png" alt="" style="position:absolute; left:0; top:0; width:100%; display:none;">
@@ -3485,15 +3485,15 @@ void main(void){
   // grabbing the mouse does). (S also stops selected molecules — that binding is a no-op with nothing selected.)
   const wasdKeys = Object.create(null);
   window.addEventListener('keydown', e => { if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-    const k = e.key.toLowerCase(); if(k==='w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='r'||k==='f'){ if(!wasdKeys[k]) scene.stopAnimation(cam); wasdKeys[k]=true; } });
-  window.addEventListener('keyup', e => { const k=e.key.toLowerCase(); if(k==='w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='r'||k==='f') wasdKeys[k]=false; });
+    const k = e.key.toLowerCase(); if(k==='w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='n'||k==='m'){ if(!wasdKeys[k]) scene.stopAnimation(cam); wasdKeys[k]=true; } });   // N / M roll (were R / F)
+  window.addEventListener('keyup', e => { const k=e.key.toLowerCase(); if(k==='w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='n'||k==='m') wasdKeys[k]=false; });
   /* ── Gamepad (DualShock layout, standard mapping) ────────────────────────────────────────────────
      The pad drives the SAME key flags the keyboard does, edge-triggered (a flag is written only when
      the pad's state for it changes), so the keyboard keeps working with a pad idle beside it.
        left stick   LIIKU    → A/D strafe, W/S up/down on screen
        right stick  KATSO    → arrow keys, yaw / pitch
        L1 / R1      LOITONNA / LÄHENNÄ → Q / E, out / in along the view
-       L2 / R2      KALLISTA → F / R, roll
+       L2 / R2      KALLISTA → N / M, roll
      The picture bottom-left (controls.png) is ALWAYS shown - above the vignette, and never hidden by
      the idle-cursor rule. The six highlight images (left/right/L1/L2/R1/R2.png, the owner's files, source
      kontrollit.psd) are transparent layers stacked on it, each shown while its control is in use - so
@@ -3519,7 +3519,7 @@ void main(void){
       const lx = ax[0], ly = ax[1], rx = ax[2], ry = ax[3];
       setKey('a', lx < -DZ); setKey('d', lx > DZ); setKey('w', ly < -DZ); setKey('s', ly > DZ);
       setKey('ArrowLeft', rx < -DZ); setKey('ArrowRight', rx > DZ); setKey('ArrowUp', ry < -DZ); setKey('ArrowDown', ry > DZ);
-      setKey('q', b(4)); setKey('e', b(5)); setKey('f', b(6)); setKey('r', b(7));
+      setKey('q', b(4)); setKey('e', b(5)); setKey('n', b(6)); setKey('m', b(7));
       showHl('left', Math.hypot(lx,ly) > DZ); showHl('right', Math.hypot(rx,ry) > DZ);
       showHl('L1', b(4)); showHl('R1', b(5)); showHl('L2', b(6)); showHl('R2', b(7));
     };
@@ -3542,14 +3542,14 @@ void main(void){
     // ~126 deg/s, and the frame-time cap is 120 ms (not 50) so a LOW frame rate (heavy membrane) can't throttle
     // the turn speed down to a crawl — it keeps turning at a steady rate for as long as the key is held.
     const anyTurn = arrowKeys.ArrowLeft || arrowKeys.ArrowRight || arrowKeys.ArrowUp || arrowKeys.ArrowDown
-                 || wasdKeys.r || wasdKeys.f;
+                 || wasdKeys.n || wasdKeys.m;
     if(!anyTurn){ _rotRamp = RAMP_MIN; return; }
     _rotRamp = Math.min(1, _rotRamp + rampStep());   // ease 0 → full turn rate over RAMP_S
     const rot = gRotSpeed * _rotRamp * Math.min(120, scene.getEngine().getDeltaTime())/1000;
     let ya=0, pa=0, ra=0;
     if(arrowKeys.ArrowLeft) ya -= rot; if(arrowKeys.ArrowRight) ya += rot;   // ← / → → yaw (look left / right), continuous while held
     if(arrowKeys.ArrowUp) pa += rot; if(arrowKeys.ArrowDown) pa -= rot;      // ↑ / ↓ → pitch (hold ↑ → backflip)
-    if(wasdKeys.r) ra += rot; if(wasdKeys.f) ra -= rot;                      // R / F → roll (tilt the horizon left / right)
+    if(wasdKeys.m) ra += rot; if(wasdKeys.n) ra -= rot;                      // M / N → roll (tilt the horizon left / right)
     if(!ya && !pa && !ra) return;
     const pos = cam.position, t = cam.getTarget();
     _flF.set(t.x-pos.x, t.y-pos.y, t.z-pos.z); const dist=_flF.length()||50; _flF.scaleInPlace(1/dist);   // forward
@@ -7334,7 +7334,7 @@ void main(void){
     // Dev: live camera position + rotation readout (top-right). Rotation is alpha/beta (RTS orbit angles, which
     // free mode also keeps current via setTarget); radius + mode shown too.
     if(camcoordsEl){ if(gDev){ const p=cam.position, DEG=180/Math.PI;
-        /* R / F roll is not an ArcRotate angle - it lives in cam.upVector. Read it back as the signed angle,
+        /* N / M roll is not an ArcRotate angle - it lives in cam.upVector. Read it back as the signed angle,
            about the view axis, between the camera's real screen-up and LEVEL up (world Z with the forward
            component removed). 0 = level horizon, the sign follows R (+) and F (-). */
         let roll = 0; { const t = cam.getTarget(), fw = t.subtract(p).normalize(), up = cam.getDirection(BABYLON.Axis.Y).normalize();
@@ -10745,9 +10745,9 @@ void main(void){
       painterlyOn = !painterlyOn;
       if(painterlyOn) cam.attachPostProcess(painterly); else cam.detachPostProcess(painterly);
     }
-    else if(k === 'i' || k === 'I'){ resetView(); }                                     // I → default starting view (R now tilts)
+    else if(k === 'i' || k === 'I'){ resetView(); }                                     // I → default starting view
     else if(k === 'h' || k === 'H'){ document.documentElement.classList.toggle('ui-hidden'); }   // H → hide/show all UI
-    else if(k === 'o' || k === 'O'){ gFocusDim = true; }                                 // O held → spotlight the selection (F now tilts)
+    else if(k === 'o' || k === 'O'){ gFocusDim = true; }                                 // O held → spotlight the selection
     else if(k === 'm' || k === 'M'){ const sp = 85;   // M → cancel any move order and (re)start drifting off along the STORED heading (random the first time)
       for(const m of gSelMol){ m.mtx = undefined; if(m.svx === undefined){ m.svx = rnd()*sp; m.svy = rnd()*sp; m.sav = rnd()*0.7; }
         m.vx = m.svx; m.vy = m.svy; m.av = m.sav; } }
@@ -10774,7 +10774,7 @@ void main(void){
     const rows = [['Keskinapin veto','pyöritä kameraa'],['Rulla','lähennys'],['Keskinappi + rulla','hidas lähennys'],
       ['W / S','ylös ja alas'],['A / D','sivuaskel'],['E / Q','lähennä ja loitonna'],['Nuolinäppäimet','katso ympärille'],['Oikea klikkaus','siirräkäsky'],['Tuplaklikkaus','valitse atomi/kofaktori'],
       ['Minikartan klikkaus','panoroi kohtaan'],['O (pohjassa)','himmennä muut'],['I','oletusnäkymä'],
-      ['H','piilota käyttöliittymä'],['K','maalausefekti'],['R / F','kallista vasemmalle ja oikealle'],['M','valittu molekyyli liikkeelle'],['X','pysäytä molekyylit']];
+      ['H','piilota käyttöliittymä'],['K','maalausefekti'],['M / N','kallista vasemmalle ja oikealle'],['M','valittu molekyyli liikkeelle'],['X','pysäytä molekyylit']];
     sc.innerHTML = '<b style="font-size:12.5px;color:var(--brown)">Pikanäppäimet</b><br>'
       + rows.map(([k,v]) => '<span style="color:var(--brown);font-weight:bold">'+k+'</span> — '+v).join('<br>');
     document.body.appendChild(sc); gShortcuts = sc; }
@@ -10976,32 +10976,28 @@ void main(void){
   // floor sheet, read-outs). It used to run only on toggle, so all of those started out visible.
   /* ── Top pill list: toggles, beige off / green on (owner's request, 2026-09-06). State in gTopToggles. ── */
   { const host = document.getElementById('toplist'); window.gTopToggles = {};
-    /* Each pill is worth points by how hard the thing is to find in the simulation: 1 = everywhere (protons,
-       CO2, phosphate, the photosystems), 2 = common but you must go and look (ATP, NADP+, a chlorophyll,
-       the complexes), 3 = moving or small or needs a close zoom (photons, the shuttles, ferredoxin, a pi
-       bond, a sulfur), 4 = one atom hidden inside a molecule (the chlorophyll's magnesium), 5 = buried
-       inside PSII (the oxygen-evolving Mn cluster). */
-    const PILLS = [['p-orbitaali',2],['ATP-syntaasi',2],['hiilidioksidi',1],['Oxygen-Evolving Complex',5],['klorofylli',2],['plastokinoni',3],['ferredoksiini',3],['fotoni',3],['fotosysteemi',1],
-                   ['rikkiatomi',3],['magnesium-atomi',4],['vetyioni',1],['piisidos',3],['NADP+',2],['sytokromi b6f',2],['fosfaatti',1],['ATP',2],['typpiatomi',1]];
+    /* Each pill is worth points in half-point steps by how hard the thing is to find in the simulation:
+       0.5 = everywhere (protons, CO2, phosphate, the photosystems), 1 = common but you must go and look
+       (ATP, NADP+, a chlorophyll, the complexes), 1.5 = moving or small or needs a close zoom (photons, the
+       shuttles, ferredoxin, a pi bond, a sulfur), 2 = one atom hidden inside a molecule (the chlorophyll's
+       magnesium), 2.5 = buried inside PSII (the oxygen-evolving Mn cluster). Shown with a decimal comma. */
+    const PILLS = [['p-orbitaali',1],['ATP-syntaasi',1],['hiilidioksidi',0.5],['Oxygen-Evolving Complex',2.5],['klorofylli',1],['plastokinoni',1.5],['ferredoksiini',1.5],['fotoni',1.5],['fotosysteemi',0.5],
+                   ['rikkiatomi',1.5],['magnesium-atomi',2],['vetyioni',0.5],['piisidos',1.5],['NADP+',1],['sytokromi b6f',1],['fosfaatti',0.5],['ATP',1],['typpiatomi',0.5]];
     const PILL_PTS = Object.fromEntries(PILLS), PILL_NAMES = PILLS.map(x => x[0]), PILL_TOTAL = PILLS.reduce((a,x) => a + x[1], 0);
+    const fmtP = v => String(Math.round(v * 2) / 2).replace('.', ',');   // 4.5 -> '4,5'
     window.gPillPoints = PILL_PTS;
     if(host) for(const name of PILL_NAMES){
-      const b = document.createElement('button'); b.className = 'pill'; b.innerHTML = name + ' <span style="opacity:.75;font-size:11px">' + PILL_PTS[name] + ' p</span>'; window.gTopToggles[name] = false;
+      const b = document.createElement('button'); b.className = 'pill'; b.innerHTML = name + ' <span style="opacity:.75;font-size:11px">' + fmtP(PILL_PTS[name]) + ' p</span>'; window.gTopToggles[name] = false;
       b.addEventListener('click', () => { const on = !b.classList.contains('on'); b.classList.toggle('on', on); window.gTopToggles[name] = on; updateScore(); });
       host.appendChild(b); }
-    /* Score card above the controller picture: how many of the pills are on, as a count and one dot per pill. */
+    /* Score card above the controller picture: the points of the pills that are on, as a plain number. */
     const score = document.createElement('div'); score.id = 'scorebox';
     score.style.cssText = 'position:fixed;left:12px;z-index:10;pointer-events:none;user-select:none;background:var(--paper);border:2.5px solid var(--brown);border-radius:14px;box-shadow:0 3px 0 var(--brown);padding:8px 12px;font:13px/1.3 "Courier New",monospace;color:var(--ink);width:280px;max-width:34vw;box-sizing:border-box;';
-    score.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><span>Pisteet</span><b id="score-val" style="font-size:18px">0 / ' + PILL_TOTAL + '</b></div><div id="score-dots" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;align-items:center"></div>';
+    score.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><span>Pisteet</span><b id="score-val" style="font-size:18px">0 / ' + fmtP(PILL_TOTAL) + '</b></div>';
     document.body.appendChild(score);
-    const dots = score.querySelector('#score-dots');
-    for(const name of PILL_NAMES){ const d = document.createElement('span'); d.dataset.k = name; d.title = name + ' - ' + PILL_PTS[name] + ' p';
-      const sz = 10 + PILL_PTS[name]*2;   // a dot grows with its worth
-      d.style.cssText = 'width:'+sz+'px;height:'+sz+'px;border-radius:50%;border:2px solid var(--brown);background:var(--paper2);box-sizing:border-box;'; dots.appendChild(d); }
     const placeScore = () => { const pad = document.getElementById('padbox'); const h = pad ? pad.getBoundingClientRect().height : 0; score.style.bottom = (12 + h + 10) + 'px'; };
-    const updateScore = () => { let n = 0; for(const name of PILL_NAMES){ const on = !!window.gTopToggles[name]; if(on) n += PILL_PTS[name];
-        const d = dots.querySelector('[data-k="' + name.replace(/"/g, '') + '"]'); if(d) d.style.background = on ? 'var(--sage2)' : 'var(--paper2)'; }
-      score.querySelector('#score-val').textContent = n + ' / ' + PILL_TOTAL; placeScore(); };
+    const updateScore = () => { let n = 0; for(const name of PILL_NAMES) if(window.gTopToggles[name]) n += PILL_PTS[name];
+      score.querySelector('#score-val').textContent = fmtP(n) + ' / ' + fmtP(PILL_TOTAL); placeScore(); };
     window.updateScore = updateScore; updateScore();
     const padImg = document.getElementById('padimg'); if(padImg){ padImg.addEventListener('load', placeScore); } window.addEventListener('resize', placeScore); setTimeout(placeScore, 500); }
   /* ── Chrome dock: every toggle button, the speed slider and the GPU badge live bottom-right now. The
