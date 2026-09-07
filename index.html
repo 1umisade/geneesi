@@ -1366,6 +1366,9 @@ attribute float taper;     // per-lobe: widen the far end by bond polarity (0 = 
 attribute vec3 ocen;       // this lobe's atom centre → compare to the selected atom
 attribute vec3 bcol;       // per-instance element colour (so bonds combine across elements per cell)
 attribute float oid;       // orbital id (hybrid = 1000+i, π = 900, lone pair = 2000+i) → focus filter
+#ifdef SEEDATTR
+attribute float seed;      // stable per-slot electron phase - a free molecule moves, so a position hash would re-seed its electrons every frame
+#endif
 uniform mat4 view;
 uniform mat4 projection;
 uniform vec3 selCenter;
@@ -1469,10 +1472,14 @@ void main(void){
 #else
   vLocalDir = normalize(position);                 // direction on the unit lobe → where the electrons ride
 #endif
+#ifdef SEEDATTR
+  vSeed = seed;                                    // free molecules: the slot's own stable phase
+#else
 #ifdef LIPBAKE
   vSeed = fract(sin(dot(W[3].xyz + ocen, vec3(12.9898, 78.233, 37.719))) * 43758.5453);   // per-ATOM phase
 #else
   vSeed = fract(sin(dot(W[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+#endif
 #endif
   vec3 sn = vec3(nrm.x, nrm.y*wsc, nrm.z);         // undo the taper (x,z) position-scale on the normal
   vec3 M0=world0.xyz, M1=world1.xyz, M2=world2.xyz;   // cofactor matrix → correct normal under non-uniform scale
@@ -1676,6 +1683,9 @@ attribute vec3 normal;
 attribute vec3 ocol;
 attribute vec3 ocen;       // this orbital's atom centre (world) → compare to the selected atom
 attribute float oid;       // subshell id → focus filter
+#ifdef SEEDATTR
+attribute float seed;      // stable per-slot electron phase - a free molecule moves, so a position hash would re-seed its electrons every frame
+#endif
 attribute vec4 world0;
 attribute vec4 world1;
 attribute vec4 world2;
@@ -1769,10 +1779,14 @@ void main(void){
 #else
   vLocalDir = normalize(position);                 // direction on the unit lobe → where the electrons ride
 #endif
+#ifdef SEEDATTR
+  vSeed = seed;                                    // free molecules: the slot's own stable phase
+#else
 #ifdef LIPBAKE
   vSeed = fract(sin(dot(W[3].xyz + ocen, vec3(12.9898, 78.233, 37.719))) * 43758.5453);   // per-ATOM phase
 #else
   vSeed = fract(sin(dot(W[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);   // per-lobe phase
+#endif
 #endif
   vec3 M0=world0.xyz, M1=world1.xyz, M2=world2.xyz;   // cofactor matrix → correct normal under the lobe's non-uniform scale
   vec3 wn = cross(M1,M2)*normal.x + cross(M2,M0)*normal.y + cross(M0,M1)*normal.z;
@@ -6525,9 +6539,9 @@ void main(void){
     }
     const wCoreN = wOrbCore.m.length/16, wBondN = wOrbBond.m.length/16;
     const wOrbMat = (nm, shader, attrs, extra, defs) => {
-      const m = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs,
+      const m = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs.concat(['seed']),   // SEEDATTR: every free orbital pool carries a per-slot seed buffer
         uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec'].concat(extra||[]),
-        defines: defs||[] });
+        defines: ['#define SEEDATTR'].concat(defs||[]) });
       m.setFloat('bubbleR',1e9); m.setFloat('nElec',2); m.setFloat('coneCos',-1.0); m.setFloat('drawElec',1);
       m.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); m.setFloat('focusId',-1); m.backFaceCulling=true;
       m.onBindObservable.add(()=>{ const eff=m.getEffect(); if(!eff) return; eff.setFloat('uT',gWaveT);
@@ -6541,17 +6555,19 @@ void main(void){
     wCoreMesh.material=wCoreMat; wCoreMesh.isPickable=false; wCoreMesh.alwaysSelectAsActiveMesh=true;
     const wBondMesh = BABYLON.MeshBuilder.CreateSphere('wOrbB',{segments:5,diameter:1},scene);
     wBondMesh.material=wBondMat; wBondMesh.isPickable=false; wBondMesh.alwaysSelectAsActiveMesh=true;
-    { const cCol=new Float32Array(WCAP*wCoreN*3), cOid=new Float32Array(WCAP*wCoreN);
-      const bCol=new Float32Array(WCAP*wBondN*3), bOid=new Float32Array(WCAP*wBondN), bTap=new Float32Array(WCAP*wBondN);
+    { const cCol=new Float32Array(WCAP*wCoreN*3), cOid=new Float32Array(WCAP*wCoreN), cSeed=new Float32Array(WCAP*wCoreN);
+      const bCol=new Float32Array(WCAP*wBondN*3), bOid=new Float32Array(WCAP*wBondN), bTap=new Float32Array(WCAP*wBondN), bSeed=new Float32Array(WCAP*wBondN);
+      const seedOf = d => (d*0.6180339887 + 0.31) % 1;   // electron phase per slot and lobe - fixed for the slot's lifetime (a position hash re-seeded every frame on a moving molecule)
       for(let k=0;k<WCAP;k++){
         for(let i=0;i<wCoreN;i++){ const d=(k*wCoreN+i);
-          cCol[d*3]=wOrbCore.col[i*3]; cCol[d*3+1]=wOrbCore.col[i*3+1]; cCol[d*3+2]=wOrbCore.col[i*3+2]; cOid[d]=wOrbCore.oid[i]; }
+          cCol[d*3]=wOrbCore.col[i*3]; cCol[d*3+1]=wOrbCore.col[i*3+1]; cCol[d*3+2]=wOrbCore.col[i*3+2]; cOid[d]=wOrbCore.oid[i]; cSeed[d]=seedOf(d); }
         for(let i=0;i<wBondN;i++){ const d=(k*wBondN+i);
           bCol[d*3]=wOrbBond.col[i*3]; bCol[d*3+1]=wOrbBond.col[i*3+1]; bCol[d*3+2]=wOrbBond.col[i*3+2];
-          bOid[d]=wOrbBond.oid[i]; bTap[d]=wOrbBond.tap[i]; } }
+          bOid[d]=wOrbBond.oid[i]; bTap[d]=wOrbBond.tap[i]; bSeed[d]=seedOf(d); } }
       wCoreMesh.thinInstanceSetBuffer('ocol',cCol,3,true); wCoreMesh.thinInstanceSetBuffer('oid',cOid,1,true);
       wBondMesh.thinInstanceSetBuffer('bcol',bCol,3,true); wBondMesh.thinInstanceSetBuffer('oid',bOid,1,true);
       wBondMesh.thinInstanceSetBuffer('taper',bTap,1,true);
+      wCoreMesh.thinInstanceSetBuffer('seed',cSeed,1,true); wBondMesh.thinInstanceSetBuffer('seed',bSeed,1,true);
     }
     const wCoreM = new Float32Array(WCAP*wCoreN*16), wCoreC = new Float32Array(WCAP*wCoreN*3);
     const wBondM = new Float32Array(WCAP*wBondN*16), wBondC = new Float32Array(WCAP*wBondN*3);
@@ -7232,17 +7248,18 @@ void main(void){
       const bMesh = BABYLON.MeshBuilder.CreateSphere(nm+'OrbB',{segments:5,diameter:1},scene);
       bMesh.material=bMat; bMesh.isPickable=false; bMesh.alwaysSelectAsActiveMesh=true;
       gFreeMeshes.push(cMesh, bMesh);
-      { const cc=new Float32Array(CAP*coreN*3), co=new Float32Array(CAP*coreN);
-        const bc=new Float32Array(CAP*bondN*3), bo=new Float32Array(CAP*bondN), bt=new Float32Array(CAP*bondN), bp=new Float32Array(CAP*bondN);
+      { const cc=new Float32Array(CAP*coreN*3), co=new Float32Array(CAP*coreN), cs=new Float32Array(CAP*coreN), seedOf = d => (d*0.6180339887 + 0.31) % 1;
+        const bc=new Float32Array(CAP*bondN*3), bo=new Float32Array(CAP*bondN), bt=new Float32Array(CAP*bondN), bp=new Float32Array(CAP*bondN), bs=new Float32Array(CAP*bondN);
         for(let k=0;k<CAP;k++){
           for(let q=0;q<coreN;q++){ const d=(k*coreN+q)*3;
-            cc[d]=core.col[q*3]; cc[d+1]=core.col[q*3+1]; cc[d+2]=core.col[q*3+2]; co[k*coreN+q]=core.oid[q]; }
+            cc[d]=core.col[q*3]; cc[d+1]=core.col[q*3+1]; cc[d+2]=core.col[q*3+2]; co[k*coreN+q]=core.oid[q]; cs[k*coreN+q]=seedOf(k*coreN+q); }
           for(let q=0;q<bondN;q++){ const d=(k*bondN+q)*3;
             bc[d]=bond.col[q*3]; bc[d+1]=bond.col[q*3+1]; bc[d+2]=bond.col[q*3+2];
-            bo[k*bondN+q]=bond.oid[q]; bt[k*bondN+q]=bond.tap[q]; bp[k*bondN+q]=bond.prof[q]; } }
+            bo[k*bondN+q]=bond.oid[q]; bt[k*bondN+q]=bond.tap[q]; bp[k*bondN+q]=bond.prof[q]; bs[k*bondN+q]=seedOf(k*bondN+q); } }
         cMesh.thinInstanceSetBuffer('ocol',cc,3,true); cMesh.thinInstanceSetBuffer('oid',co,1,true);
         bMesh.thinInstanceSetBuffer('bcol',bc,3,true); bMesh.thinInstanceSetBuffer('oid',bo,1,true);
-        bMesh.thinInstanceSetBuffer('taper',bt,1,true); bMesh.thinInstanceSetBuffer('prof',bp,1,true); }
+        bMesh.thinInstanceSetBuffer('taper',bt,1,true); bMesh.thinInstanceSetBuffer('prof',bp,1,true);
+        cMesh.thinInstanceSetBuffer('seed',cs,1,true); bMesh.thinInstanceSetBuffer('seed',bs,1,true); }
       const cM=new Float32Array(CAP*coreN*16), cC=new Float32Array(CAP*coreN*3);
       const bM=new Float32Array(CAP*bondN*16), bC=new Float32Array(CAP*bondN*3);
       cMesh.thinInstanceSetBuffer('matrix',cM,16,false); cMesh.thinInstanceSetBuffer('ocen',cC,3,false);

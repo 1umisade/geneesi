@@ -115,6 +115,9 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   OWN clocks and dock sliders ('värinä', 'elektronit', 1.0× = the shaders' native rates), pushed into every
   ShaderMaterial through `gShaderMats` each frame (registered in `onNewMaterialAddedObservable` before the
   effect compiles, like `boilHzAdj`). Space pauses all three.
+- Electron phase: the orb/bond vertex shaders hash it from the lobe's WORLD position, which re-seeds a moving
+  molecule's electrons every frame (they looked ten times faster than protein electrons). The free orbital
+  pools (`wOrbMat`, define SEEDATTR) carry a static per-slot `seed` thin-instance buffer instead.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a
