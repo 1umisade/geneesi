@@ -110,6 +110,11 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   bottom-left is ALWAYS shown: controls.png as the base with left/right/L1/L2/R1/R2.png stacked on it as
   transparent highlight layers (the owner's files, source kontrollit.psd), each visible while its control
   is in use, any number at once. `window.__pollPad` is the poll.
+- Clocks: `gWaveT` (uniform `uT`) is the sway AND the free-molecule bounce clock, advanced by dt × the main
+  speed slider `gSpeed`. The vdW boil (`uTb`, `gBoilT`) and the orbital electrons (`uTe`, `gElecT`) have their
+  OWN clocks and dock sliders ('värinä', 'elektronit', 1.0× = the shaders' native rates), pushed into every
+  ShaderMaterial through `gShaderMats` each frame (registered in `onNewMaterialAddedObservable` before the
+  effect compiles, like `boilHzAdj`). Space pauses all three.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a

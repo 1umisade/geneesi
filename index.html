@@ -68,7 +68,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   display:flex;align-items:center;justify-content:center}
 .zt:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 .ztlabel{font-size:11px;font-weight:bold;color:var(--brown);letter-spacing:1px}
-.pill{pointer-events:auto;flex:0 0 auto;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
+.pill{pointer-events:auto;flex:0 0 auto;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:bold 13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
 .pill.on{background:var(--sage);color:var(--sageink)}
 .pill:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 #darkmode-btn{position:absolute;left:16px;top:12px;z-index:12;touch-action:manipulation;
@@ -171,8 +171,8 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   line-height:1;user-select:none;-webkit-user-select:none;transition:transform .1s ease,box-shadow .1s ease}
 #vr-btn:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 #vr-icon{font-size:15px;line-height:1}
-#speedbox{color:var(--brown)!important}
-#speedbox #speedval{font-weight:bold}
+#speedbox,#boilbox,#elecbox{color:var(--brown)!important}
+#speedbox #speedval,#boilbox #boilval,#elecbox #elecval{font-weight:bold}
 /* Speed slider — same palette as the loading bar (.ptr tan track + #4a3320 border + #82a058 fill) */
 #speed{-webkit-appearance:none;appearance:none;height:10px;box-sizing:border-box;border-radius:99px;
   background:#e7d4ac;border:2.5px solid #4a3320;outline:none}
@@ -184,7 +184,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 #speed::-moz-range-track{height:10px;box-sizing:border-box;border-radius:99px;background:#e7d4ac;border:2.5px solid #4a3320}
 #speed::-moz-range-thumb{width:48px;height:48px;border:0;border-radius:0;cursor:pointer;
   background:url('./mona_knob_48.png') center/48px 48px no-repeat}
-#speedbox{padding-bottom:19px}   /* room for the oversized knob so it isn't clipped at the window edge */
+#speedbox,#boilbox,#elecbox{padding-bottom:19px}   /* room for the oversized knob so it isn't clipped at the window edge */
 /* ── UI gizmo panel: move/rotate handles for the selected complex, docked above the speed slider ── */
 #gizmo-ui{position:fixed;left:16px;bottom:96px;z-index:26;display:none;width:154px;
   font-family:'Courier New',monospace;color:var(--ink);background:var(--paper);
@@ -296,6 +296,14 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <div id="speedbox" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); text-align:center; z-index:10; font:11px ui-monospace,monospace; color:#6a6a5a; user-select:none;">
   <div style="margin-bottom:4px; letter-spacing:.5px;">nopeus <span id="speedval">0.1×</span></div>
   <input id="speed" type="range" min="0" max="30" value="1" style="width:130px; cursor:pointer;">
+</div>
+<div id="boilbox" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); text-align:center; z-index:10; font:11px ui-monospace,monospace; color:#6a6a5a; user-select:none;">
+  <div style="margin-bottom:4px; letter-spacing:.5px;">värinä <span id="boilval">1.0×</span></div>
+  <input id="boilspeed" type="range" min="0" max="30" value="10" style="width:110px; cursor:pointer;">
+</div>
+<div id="elecbox" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); text-align:center; z-index:10; font:11px ui-monospace,monospace; color:#6a6a5a; user-select:none;">
+  <div style="margin-bottom:4px; letter-spacing:.5px;">elektronit <span id="elecval">1.0×</span></div>
+  <input id="elecspeed" type="range" min="0" max="30" value="10" style="width:110px; cursor:pointer;">
 </div>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
@@ -626,6 +634,7 @@ uniform mat4 projection;
 uniform float radius;
 uniform float uT;
 uniform float boilHzAdj;        // thermal-shake time (0 = still)
+uniform float uTb;              // boil clock - its own slider, independent of uT
 uniform float boil;      // line-boil: STEPPED per-atom jitter of the billboard centre (0 = off)
 #if defined(LIPTILE) || defined(LIPWRAP)
 uniform vec3 tileOff;    // per-mesh translation - the nucleon pool shares ONE template buffer with it, and
@@ -808,7 +817,7 @@ void main(void){
     } }
   vec3 wc = base + (shake(hb) - hb);
 #ifndef CHEAP
-  if(boil > 0.001){ float bt = floor(uT * (7.0 + boilHzAdj));   // stepped clock → jitter jumps ~7x/sec (hand-drawn boil, not smooth)
+  if(boil > 0.001){ float bt = floor(uTb * (7.0 + boilHzAdj));   // stepped clock → jitter jumps ~7x/sec (hand-drawn boil, not smooth)
     float hx = fract(sin(dot(hb, vec3(12.9898, 78.233, 37.719)) + bt) * 43758.5453) - 0.5;
     float hy = fract(sin(dot(hb, vec3(93.989, 47.271, 23.157)) + bt*2.3) * 19349.663) - 0.5;
     float hz = fract(sin(dot(hb, vec3(39.346, 11.135, 83.155)) + bt*1.7) * 24634.633) - 0.5;
@@ -890,6 +899,7 @@ precision highp float;
 uniform mat4 projection;
 uniform float uT;
 uniform float boilHzAdj;        // shared clock → the moving electric-blue shimmer
+uniform float uTb;              // boil clock - its own slider, independent of uT
 uniform float radius;
 uniform vec3 fogColor;
 uniform float fogStart;
@@ -1039,7 +1049,7 @@ void main(void){
   if(boil > 0.001){                          // WARP the silhouette (not just shift): push the disc radius in/out
     float zc0 = sqrt(max(0.0, 1.0 - min(r2, 1.0)));
     vec3 nW = vWB0 * vUV.x + vWB1 * vUV.y + vWB2 * (-zc0);   // world-space surface normal → lumps ride WITH the sphere
-    float bt = floor(uT * (7.0 + boilHzAdj));              // stepped clock → the wobble redraws ~7x/sec (hand-drawn boil, not smooth)
+    float bt = floor(uTb * (7.0 + boilHzAdj));              // stepped clock → the wobble redraws ~7x/sec (hand-drawn boil, not smooth)
     float lump = sin(nW.x * 5.5 + vWCen.x * 0.6 + bt)
                + sin(nW.y * 5.5 + vWCen.y * 0.6 + bt * 1.3)
                + sin(nW.z * 5.5 + vWCen.z * 0.6 + bt * 0.7);   // ±3 world-locked lumpy field, per-atom phase from vWCen
@@ -1228,7 +1238,7 @@ uniform mat4 view; uniform mat4 projection;
 uniform mat4 modelXform[80];                   // per-model transform so the silhouette follows a moved molecule
 uniform float boilQuad;                        // quad expansion so the boil bulge is not clipped
 uniform float uT;
-uniform float boilHzAdj; uniform float boil;
+uniform float boilHzAdj; uniform float boil; uniform float uTb;
 varying vec2 vq; varying vec3 vWC;
 void main(void){
   vec3 base = vec3(world3.x, world3.y, world3.z);
@@ -1237,7 +1247,7 @@ void main(void){
   // SAME per-atom MOTION as the vdW sphere shader: always-on thermal shake + stepped boil drift, so the
   // mask disc rides WITH each wobbling atom (this is what the outline was missing).
   vec3 wc = base + 0.12*vec3(sin(uT*1.3+base.x*0.12+base.y*0.08), sin(uT*1.1+base.y*0.12+base.z*0.08), sin(uT*1.6+base.z*0.12+base.x*0.08));
-  if(boil > 0.001){ float bt = floor(uT * (7.0 + boilHzAdj));
+  if(boil > 0.001){ float bt = floor(uTb * (7.0 + boilHzAdj));
     float hx = fract(sin(dot(base, vec3(12.9898,78.233,37.719))+bt)*43758.5453)-0.5;
     float hy = fract(sin(dot(base, vec3(93.989,47.271,23.157))+bt*2.3)*19349.663)-0.5;
     float hz = fract(sin(dot(base, vec3(39.346,11.135,83.155))+bt*1.7)*24634.633)-0.5;
@@ -1282,6 +1292,7 @@ void main(void){
 BABYLON.Effect.ShadersStore['bigelecFragmentShader'] = `
 precision highp float;
 uniform float uT;
+uniform float uTe;         // electron clock - its own slider, independent of uT
 varying vec3 vNrmV;
 varying vec3 vViewPos;
 // The orb shader's own electron look (breathing rings + crests that march around the point), ported here.
@@ -1293,8 +1304,8 @@ float elecBolt(vec3 N, vec3 e, vec3 uref){
   float ang = atan(dot(tp, w), dot(tp, u));
   float rad = acos(clamp(d, 0.0, 1.0));
   float m = 3.0 + fr * 9.0;
-  float rings  = 0.5 + 0.5*sin(rad*20.0 - uT*2.5);
-  float travel = 0.6 + 0.4*sin(ang*m - uT*4.0 + rad*6.0);
+  float rings  = 0.5 + 0.5*sin(rad*20.0 - uTe*2.5);
+  float travel = 0.6 + 0.4*sin(ang*m - uTe*4.0 + rad*6.0);
   return rings * travel * exp(-rad*3.4);
 }
 void main(void){
@@ -1488,6 +1499,7 @@ uniform vec3 fogColor;
 uniform float fogStart;
 uniform float fogEnd;
 uniform float uT;
+uniform float uTe;         // electron clock - its own slider, independent of uT
 uniform float nElec;   // electrons shown on this lobe: 2 (lone pair / atomic) or 1 (each bonding lobe)
 uniform float focusId; // negative shows all, bonds/lone pairs are the hybrid/valence group (id 99)
 uniform float coneCos; // reveal only atoms within this cosine of the view axis (negative disables)
@@ -1529,16 +1541,16 @@ float elecBolt(vec3 N, vec3 e, vec3 uref){
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
   float m = 3.0 + fr * 9.0;
-  float rings  = 0.5 + 0.5*sin(rad*20.0 - uT*2.5);          // concentric rings, slow outward breath
-  float travel = 0.6 + 0.4*sin(ang*m - uT*4.0 + rad*6.0);   // bright crests march AROUND the circle
+  float rings  = 0.5 + 0.5*sin(rad*20.0 - uTe*2.5);          // concentric rings, slow outward breath
+  float travel = 0.6 + 0.4*sin(ang*m - uTe*4.0 + rad*6.0);   // bright crests march AROUND the circle
   return rings * travel * exp(-rad*3.4);
 }
 // A quasi-random wandering direction (incommensurate sines → never repeats), per-lobe phase s.
 vec3 wanderDir(float s){
   return normalize(vec3(
-    sin(uT*0.73 + s) + 0.7*sin(uT*1.61 + s*2.3),
-    sin(uT*0.91 + s*1.7) + 0.7*sin(uT*1.29 + s*0.6),
-    sin(uT*1.13 + s*0.4) + 0.7*sin(uT*0.53 + s*3.1)));
+    sin(uTe*0.73 + s) + 0.7*sin(uTe*1.61 + s*2.3),
+    sin(uTe*0.91 + s*1.7) + 0.7*sin(uTe*1.29 + s*0.6),
+    sin(uTe*1.13 + s*0.4) + 0.7*sin(uTe*0.53 + s*3.1)));
 }
 // Fold a full-sphere direction onto the camera-facing hemisphere so the electron is ALWAYS visible
 // (never slips behind the lobe), while still roaming the whole visible surface.
@@ -1785,6 +1797,7 @@ uniform vec3 fogColor;
 uniform float fogStart;
 uniform float fogEnd;
 uniform float uT;
+uniform float uTe;         // electron clock - its own slider, independent of uT
 uniform float nElec;   // electrons shown on this lobe: 2 (lone pair / atomic) or 1 (each bonding lobe)
 uniform float focusId; // negative shows all, otherwise the selected atom's other subshells go 50% transparent
 uniform float coneCos; // reveal only atoms within this cosine of the view axis (negative disables)
@@ -1831,16 +1844,16 @@ float elecBolt(vec3 N, vec3 e, vec3 uref){
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
   float m = 3.0 + fr * 9.0;
-  float rings  = 0.5 + 0.5*sin(rad*20.0 - uT*2.5);          // concentric rings, slow outward breath
-  float travel = 0.6 + 0.4*sin(ang*m - uT*4.0 + rad*6.0);   // bright crests march AROUND the circle
+  float rings  = 0.5 + 0.5*sin(rad*20.0 - uTe*2.5);          // concentric rings, slow outward breath
+  float travel = 0.6 + 0.4*sin(ang*m - uTe*4.0 + rad*6.0);   // bright crests march AROUND the circle
   return rings * travel * exp(-rad*3.4);
 }
 // A quasi-random wandering direction (incommensurate sines → never repeats), per-lobe phase s.
 vec3 wanderDir(float s){
   return normalize(vec3(
-    sin(uT*0.73 + s) + 0.7*sin(uT*1.61 + s*2.3),
-    sin(uT*0.91 + s*1.7) + 0.7*sin(uT*1.29 + s*0.6),
-    sin(uT*1.13 + s*0.4) + 0.7*sin(uT*0.53 + s*3.1)));
+    sin(uTe*0.73 + s) + 0.7*sin(uTe*1.61 + s*2.3),
+    sin(uTe*0.91 + s*1.7) + 0.7*sin(uTe*1.29 + s*0.6),
+    sin(uTe*1.13 + s*0.4) + 0.7*sin(uTe*0.53 + s*3.1)));
 }
 // Fold a full-sphere direction onto the camera-facing hemisphere so the electron is ALWAYS visible
 // (never slips behind the lobe), while still roaming the whole visible surface.
@@ -1977,6 +1990,7 @@ precision highp float;
 uniform mat4 projection;
 uniform float bubbleR;
 uniform float uT;
+uniform float uTe;         // electron clock - its own slider, independent of uT
 uniform float nElec;
 uniform float focusId;
 uniform float coneCos;
@@ -2003,15 +2017,15 @@ float elecBolt(vec3 N, vec3 e, vec3 uref){
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
   float m = 3.0 + fr * 9.0;
-  float rings  = 0.5 + 0.5*sin(rad*20.0 - uT*2.5);          // concentric rings, slow outward breath
-  float travel = 0.6 + 0.4*sin(ang*m - uT*4.0 + rad*6.0);   // bright crests march AROUND the circle
+  float rings  = 0.5 + 0.5*sin(rad*20.0 - uTe*2.5);          // concentric rings, slow outward breath
+  float travel = 0.6 + 0.4*sin(ang*m - uTe*4.0 + rad*6.0);   // bright crests march AROUND the circle
   return rings * travel * exp(-rad*3.4);
 }
 vec3 wanderDir(float s){
   return normalize(vec3(
-    sin(uT*0.73 + s) + 0.7*sin(uT*1.61 + s*2.3),
-    sin(uT*0.91 + s*1.7) + 0.7*sin(uT*1.29 + s*0.6),
-    sin(uT*1.13 + s*0.4) + 0.7*sin(uT*0.53 + s*3.1)));
+    sin(uTe*0.73 + s) + 0.7*sin(uTe*1.61 + s*2.3),
+    sin(uTe*0.91 + s*1.7) + 0.7*sin(uTe*1.29 + s*0.6),
+    sin(uTe*1.13 + s*0.4) + 0.7*sin(uTe*0.53 + s*3.1)));
 }
 vec3 toFront(vec3 w, vec3 V, vec3 fb){
   float d = clamp(dot(w, V), -1.0, 1.0);
@@ -2062,6 +2076,7 @@ precision highp float;
 uniform mat4 projection;
 uniform float bubbleR;
 uniform float uT;
+uniform float uTe;         // electron clock - its own slider, independent of uT
 uniform float nElec;
 uniform float focusId;
 uniform float coneCos;
@@ -2088,15 +2103,15 @@ float elecBolt(vec3 N, vec3 e, vec3 uref){
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
   float m = 3.0 + fr * 9.0;
-  float rings  = 0.5 + 0.5*sin(rad*20.0 - uT*2.5);          // concentric rings, slow outward breath
-  float travel = 0.6 + 0.4*sin(ang*m - uT*4.0 + rad*6.0);   // bright crests march AROUND the circle
+  float rings  = 0.5 + 0.5*sin(rad*20.0 - uTe*2.5);          // concentric rings, slow outward breath
+  float travel = 0.6 + 0.4*sin(ang*m - uTe*4.0 + rad*6.0);   // bright crests march AROUND the circle
   return rings * travel * exp(-rad*3.4);
 }
 vec3 wanderDir(float s){
   return normalize(vec3(
-    sin(uT*0.73 + s) + 0.7*sin(uT*1.61 + s*2.3),
-    sin(uT*0.91 + s*1.7) + 0.7*sin(uT*1.29 + s*0.6),
-    sin(uT*1.13 + s*0.4) + 0.7*sin(uT*0.53 + s*3.1)));
+    sin(uTe*0.73 + s) + 0.7*sin(uTe*1.61 + s*2.3),
+    sin(uTe*0.91 + s*1.7) + 0.7*sin(uTe*1.29 + s*0.6),
+    sin(uTe*1.13 + s*0.4) + 0.7*sin(uTe*0.53 + s*3.1)));
 }
 vec3 toFront(vec3 w, vec3 V, vec3 fb){
   float d = clamp(dot(w, V), -1.0, 1.0);
@@ -2733,7 +2748,11 @@ async function run(){
      shaders runs at (7 + boilHzAdj) jumps per second. The uniform is pushed into every ShaderMaterial as
      it is created (before its effect compiles), so no material's uniform list has to name it. */
   let gBoilHz = 7;
-  scene.onNewMaterialAddedObservable.add(m => { if(m instanceof BABYLON.ShaderMaterial) m.setFloat('boilHzAdj', gBoilHz - 7); });
+  /* Boil and electron clocks (uTb, uTe) are SEPARATE from uT: uT is also the free-molecule bounce clock
+     and must follow the main speed slider, while the boil and the electrons have their own sliders in the
+     dock. Registered here before the effect compiles (same trick as boilHzAdj), advanced once per frame. */
+  const gShaderMats = [];
+  scene.onNewMaterialAddedObservable.add(m => { if(m instanceof BABYLON.ShaderMaterial){ m.setFloat('boilHzAdj', gBoilHz - 7); m.setFloat('uTb', 0); m.setFloat('uTe', 0); gShaderMats.push(m); } });
   scene.skipPointerMovePicking = true;   // perf: we never auto-pick on pointer-move (all picking is done manually in our own handlers)
   scene.clearColor = new BABYLON.Color4(0.055,0.135,0.082,1);   // static dark green (matches the bg quad)
   scene.fogMode  = BABYLON.Scene.FOGMODE_NONE;                 // NO distance darkening — every atom keeps its true colour at any depth
@@ -3954,6 +3973,8 @@ void main(void){
 
   const BUBBLE_R = 49.5;      // camera reveal-sphere radius (Å) — atoms within it go translucent
   let gWaveT = 0;             // global thermal-shake clock (bound as uT in every atom shader)
+  let gBoilT = 0, gElecT = 0;                 // the boil and electron clocks (uTb, uTe) - real seconds × their own sliders
+  let gBoilSpeed = 1, gElecSpeed = 1;         // dock sliders 'värinä' and 'elektronit', 1.0× = the shaders' native rates
   let gSpeed = 0.1;           // master speed (wiggle + camera), driven by the top slider - 0.1x by default (owner's request, 2026-09-06)
   let gPaused = false;        // space bar: everything gSpeed drives stops dead and resumes where it left off
   let gApplySpeed = () => {};  // set by the speed slider below, so the space bar can re-apply it
@@ -6182,7 +6203,7 @@ void main(void){
   };
   cam.wheelPrecision   = 40/Math.max(dimX,1);               // additive wheel step crosses 0 for the fly-through
   cam.panningSensibility = 6000/Math.max(dimX,1);
-  // Speed slider (bottom-left) → drives ONLY molecule movement + boil/wiggle speed (both via gSpeed).
+  // Speed slider → drives ONLY molecule movement + the sway (via gSpeed). The boil and the electrons have their own sliders.
   // Camera rotate / pan / zoom stay constant (independent of the slider).
   { const sEl = document.getElementById('speed'), sVal = document.getElementById('speedval');
     /* Pausing sets gSpeed to 0 rather than freezing a clock: gWaveT, the free molecules, the wiggle and
@@ -6193,6 +6214,10 @@ void main(void){
     gApplySpeed = apply;
     sEl.addEventListener('input', () => { gPaused = false; apply(); });   // touching the slider resumes
     apply();
+    // The boil and the electrons have their own clocks (uTb, uTe) and sliders - independent of the main slider
+    const bEl = document.getElementById('boilspeed'), bVal = document.getElementById('boilval'), eEl = document.getElementById('elecspeed'), eVal = document.getElementById('elecval');
+    if(bEl){ const ab = () => { gBoilSpeed = (+bEl.value)/10; bVal.textContent = gBoilSpeed.toFixed(1)+'×'; }; bEl.addEventListener('input', ab); ab(); }
+    if(eEl){ const ae = () => { gElecSpeed = (+eEl.value)/10; eVal.textContent = gElecSpeed.toFixed(1)+'×'; }; eEl.addEventListener('input', ae); ae(); }
   }
 
   /* The spawn tool's cartoon molecule geometry (and reachOf, which it uses) lives HERE, before the
@@ -7310,6 +7335,8 @@ void main(void){
     // frame guarantees groups 0–1 (the protein + membrane) always draw with colour-write on.
     engine.setColorWrite(true); engine.setStencilBuffer(false);
     gWaveT += Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed;   // advance the thermal-shake clock
+    { const dtR = Math.min(engine.getDeltaTime(), 50) * 0.001; if(!gPaused){ gBoilT += dtR * gBoilSpeed; gElecT += dtR * gElecSpeed; }   // own clocks (space still pauses them)
+      for(const m of gShaderMats){ m.setFloat('uTb', gBoilT); m.setFloat('uTe', gElecT); } }
     const f = cam.getDirection(BABYLON.Axis.Z);   // view forward
     const u = cam.getDirection(BABYLON.Axis.Y);   // view up
     const r = cam.getDirection(BABYLON.Axis.X);   // view right
@@ -10723,7 +10750,7 @@ void main(void){
     document.head.appendChild(st);
     let idleTimer = null, fsTimer = null;
     // the floating chrome that steps aside when the mouse is still
-    const chrome = () => ['fs-btn','settings-btn','speedbox','gpu-lbl'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
+    const chrome = () => ['fs-btn','settings-btn','speedbox','boilbox','elecbox','gpu-lbl'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
     const wake = () => {
       document.documentElement.classList.remove('cursor-idle');
       clearTimeout(idleTimer);
@@ -11008,7 +11035,7 @@ void main(void){
     /* The toggle buttons stay INSIDE the gear's menu (settings-menu) - the dock holds only the gear, the
        fullscreen button, the speed slider and the GPU badge, and the menu is re-anchored to open UPWARD
        from the dock, right-aligned (a drop-up, since everything sits at the bottom now). */
-    for(const id of ['settings-btn','fs-btn','speedbox','gpu-lbl']){
+    for(const id of ['settings-btn','fs-btn','speedbox','boilbox','elecbox','gpu-lbl']){
       const el = document.getElementById(id); if(!el) continue;
       el.style.position = 'static'; el.style.left = el.style.top = el.style.right = el.style.bottom = ''; el.style.transform = 'none'; el.style.margin = '0'; el.style.pointerEvents = 'auto';
       dock.appendChild(el); }
