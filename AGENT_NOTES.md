@@ -90,6 +90,14 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   memR is part of the slab tier and is off with it (`gSlabLod`).
 - The membrane slab tier is OFF by default (`gSlabLod`, dev button 'laatta-LoD'): lipids at every
   distance, no sheet wrap, slab hidden. The protein hull handover still uses memR.
+- Free ATP, ADP and Pi (1000 each, stroma) are rigid free species built from the spawn tool's cartoon
+  geometry (`MOL_BUILD`, moved above the free-species block with `reachOf`), bonds inferred by distance
+  (1.35 x bond length) for the orbital set. `RIGID_FREE` lists every rigid species for the picker, the
+  trackers and the collision list (`gSpecies`). Each new species needs an id base in MOLBASE.
+- UI layout: a top pill list (`#toplist`, `.pill`, `.pill.on` = green, state in `window.gTopToggles`, no
+  other behaviour yet) and a bottom-right dock (`#btndock`) that every old button, the speed slider and
+  the GPU badge are moved into at the end of startup (inline static placement beats the stylesheet's
+  absolute rules). The dev panel is height-capped to stay clear of the dock.
 - Gamepad (DualShock, standard mapping): polled every frame, drives the keyboard's own flags edge-
   triggered (left stick A/D + W/S, right stick arrows, L1/R1 = Q/E zoom, L2/R2 = F/R roll). The picture
   bottom-left is ALWAYS shown: controls.png as the base with left/right/L1/L2/R1/R2.png stacked on it as

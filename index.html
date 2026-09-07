@@ -68,6 +68,9 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   display:flex;align-items:center;justify-content:center}
 .zt:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 .ztlabel{font-size:11px;font-weight:bold;color:var(--brown);letter-spacing:1px}
+.pill{pointer-events:auto;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 14px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
+.pill.on{background:var(--sage);color:var(--sageink)}
+.pill:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 #darkmode-btn{position:absolute;left:16px;top:12px;z-index:12;touch-action:manipulation;
   font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
   color:var(--ink);background:var(--paper);border:3px solid var(--brown);border-radius:999px;cursor:pointer;
@@ -280,6 +283,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
+<div id="toplist" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); z-index:11; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; max-width:94vw; pointer-events:none;"></div>
 <div id="padbox" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; z-index:10; pointer-events:none; user-select:none; line-height:0;">
   <img id="padimg" src="controls.png" alt="" style="display:block; width:100%;">
   <img class="padhl" data-k="left"  src="left.png"  alt="" style="position:absolute; left:0; top:0; width:100%; display:none;">
@@ -6175,6 +6179,22 @@ void main(void){
     apply();
   }
 
+  /* The spawn tool's cartoon molecule geometry (and reachOf, which it uses) lives HERE, before the
+     free-species block, because ATP, ADP and Pi below are built from the same definitions. */
+  const reachOf = sym => (ECONF[sym]||[[1,0]]).reduce((mx,sh)=>Math.max(mx,sh[0]),0) * SHELL_STEP;
+  const bondL = (a,b) => 0.52*(reachOf(a)+reachOf(b));
+  const phosphate = (cx,cy,cz) => { const b=bondL('P','O'), n=1.7320508, t=[[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]];   // PO₄ tetrahedron
+    const a=[{sym:'P',x:cx,y:cy,z:cz}]; for(const d of t) a.push({sym:'O',x:cx+b*d[0]/n,y:cy+b*d[1]/n,z:cz+b*d[2]/n}); return a; };
+  const ringAt = (cx,cy,R,syms) => { const a=[], n=syms.length; for(let i=0;i<n;i++){ const th=i/n*6.2831853; a.push({sym:syms[i],x:cx+R*Math.cos(th),y:cy+R*Math.sin(th),z:0}); } return a; };   // planar ring
+  const MOL_BUILD = {   // each returns local atom positions {sym,x,y,z} (Å) — centred on the centroid at spawn
+    'H₂O': () => { const b=bondL('O','H'), a=0.912; return [{sym:'O',x:0,y:0,z:0},{sym:'H',x:b*Math.sin(a),y:-b*Math.cos(a),z:0},{sym:'H',x:-b*Math.sin(a),y:-b*Math.cos(a),z:0}]; },
+    'CO₂': () => { const b=bondL('C','O'); return [{sym:'C',x:0,y:0,z:0},{sym:'O',x:b,y:0,z:0},{sym:'O',x:-b,y:0,z:0}]; },
+    'Pi':  () => phosphate(0,0,0),
+    'ADP': () => { const g=bondL('P','O')*2.4; return [...phosphate(0,0,0), ...phosphate(g,0,0), ...ringAt(g*2.1,0,bondL('C','C')*1.1,['C','O','C','C','C']), ...ringAt(g*3.25,0,bondL('C','N')*1.15,['N','C','N','C','N','C'])]; },
+    'ATP': () => { const g=bondL('P','O')*2.4; return [...phosphate(0,0,0), ...phosphate(g,0,0), ...phosphate(g*2,0,0), ...ringAt(g*3.05,0,bondL('C','C')*1.1,['C','O','C','C','C']), ...ringAt(g*4.2,0,bondL('C','N')*1.15,['N','C','N','C','N','C'])]; },
+    'NADPH': () => { const g=bondL('P','O')*2.4; return [...phosphate(0,0,0), ...ringAt(g*1.3,0,bondL('C','N')*1.15,['N','C','C','C','C','C']), ...ringAt(g*2.6,0,bondL('C','N')*1.15,['N','C','N','C','N','C']), ...ringAt(g*1.95,g*1.15,bondL('C','C')*1.1,['C','O','C','C','C'])]; },
+  };
+
   /* ── Container box enclosing every model, with the free molecules flying inside and bouncing off
      the walls (kinematic — constant velocity, reflect at the faces). They were briefly tiled around the
      camera instead, so the medium never ended - but pulled back for an overview that left you buried in
@@ -6207,7 +6227,7 @@ void main(void){
     gSpawnPlaneZ = gcz;
     gSpawnBounds = {x0:gcx-iw, x1:gcx+iw, y0:gcy-ih, y1:gcy+ih};
 
-    const NW=Math.round(20000*FILL), NP=Math.round(20000*Math.min(2,FILL)), NCO2=Math.round(20000*FILL), NO2=Math.round(5000*FILL), NNADP=Math.round(500*FILL), rnd=x=>{ const v=Math.sin(x*127.1)*43758.5453; return v-Math.floor(v); };   // free-floating water filling the container box
+    const NW=Math.round(20000*FILL), NP=Math.round(20000*Math.min(2,FILL)), NCO2=Math.round(20000*FILL), NO2=Math.round(5000*FILL), NNADP=Math.round(500*FILL), NATP=1000, NADP2=1000, NPI=1000, rnd=x=>{ const v=Math.sin(x*127.1)*43758.5453; return v-Math.floor(v); };   // free-floating water filling the container box
     const wc=new Float32Array(NW*3), wv=new Float32Array(NW*3), wh1=new Float32Array(NW*3), wh2=new Float32Array(NW*3);
     for(let i=0;i<NW;i++){
       // Seed each axis from its OWN stream (i*3+n, not i+n) — with i+n consecutive molecules share draws
@@ -6225,7 +6245,8 @@ void main(void){
     }
     // Global molecule-id space, shared by the molId attribute and the collision texture.
     const MOLBASE = { w:0, p:NW, co2:NW+NP, o2:NW+NP+NCO2, nadp:NW+NP+NCO2+NO2 };   // molecule id ranges, laid end to end from the counts (the id texture below is sized to fit)
-    const MOL_TOTAL = MOLBASE.nadp + NNADP;
+    MOLBASE.atp = MOLBASE.nadp + NNADP; MOLBASE.adp = MOLBASE.atp + NATP; MOLBASE.pi = MOLBASE.adp + NADP2;
+    const MOL_TOTAL = MOLBASE.pi + NPI;
     const codeO=codeOf('O'), codeH=codeOf('H');
     /* Everything below is uploaded ONCE. The molecules fly and bounce entirely in the vertex shader
        (see WATERBOX), driven by the existing uT clock — which is already advanced by dt × gSpeed, so the
@@ -6382,6 +6403,16 @@ void main(void){
         const atoms = []; for(let k=0;k<nm.na;k++){ const e = nm.el[k], I = info(e); atoms.push({ tag:'a'+k, r:I.vr*FILL_SCALE, col:[NC[0],NC[1],NC[2]], d:0, p:[nm.x[k]-cx, nm.y[k]-cy, nm.z[k]-cz], el:e }); }
         FREE_NADP = mkFree('nadp', NNADP, 771231, atoms, MOLBASE.nadp, false, MEMBRANE_Y + gMemHalfT + 12);
         FREE_NADP.atoms = atoms; } }
+    /* ATP, ADP and Pi: 1000 each in the stroma (owner's request, 2026-09-06). Rigid free species built from
+       the spawn tool's cartoon geometry (MOL_BUILD), one colour per species as with NADP. */
+    const mkRigidFree = (key, nm, n, seed, col, base) => { const at = MOL_BUILD[key](); let cx=0, cy=0, cz=0; for(const a of at){ cx+=a.x; cy+=a.y; cz+=a.z; } cx/=at.length; cy/=at.length; cz/=at.length;
+      const atoms = at.map((a,k) => { const e = codeOf(a.sym), I = info(e); return { tag:'a'+k, r:I.vr*FILL_SCALE, col:[col[0],col[1],col[2]], d:0, p:[a.x-cx, a.y-cy, a.z-cz], el:e }; });
+      const F = mkFree(nm, n, seed, atoms, base, false, MEMBRANE_Y + gMemHalfT + 12); F.atoms = atoms; F.base = base; F.key = key.toLowerCase(); F.local = at.map(a => ({ sym:a.sym, x:a.x-cx, y:a.y-cy, z:a.z-cz })); return F; };
+    const FREE_ATP = mkRigidFree('ATP', 'atp', NATP, 881237, [0.85,0.70,0.29], MOLBASE.atp);
+    const FREE_ADP = mkRigidFree('ADP', 'adp', NADP2, 913511, [0.79,0.64,0.29], MOLBASE.adp);
+    const FREE_PI  = mkRigidFree('Pi',  'pi',  NPI,  947717, [0.88,0.50,0.23], MOLBASE.pi);
+    if(FREE_NADP){ FREE_NADP.key = 'nadp'; FREE_NADP.base = MOLBASE.nadp; }
+    const RIGID_FREE = [FREE_NADP, FREE_ATP, FREE_ADP, FREE_PI].filter(Boolean);   // every rigid species: the picker, the trackers and the collision list go through this
 
     /* ── Water orbitals inside the crisp zone ───────────────────────────────────────────────────────
        Every water within gCrisp gets the same orbital treatment the proteins get: core shells, the two
@@ -6622,6 +6653,7 @@ void main(void){
       { c: FREE_CO2.c,  v: FREE_CO2.v,  base: MOLBASE.co2, n: FREE_CO2.n },
       { c: FREE_O2.c,   v: FREE_O2.v,   base: MOLBASE.o2,  n: FREE_O2.n }];
     if(FREE_NADP) gSpecies.push({ c: FREE_NADP.c, v: FREE_NADP.v, base: MOLBASE.nadp, n: FREE_NADP.n });
+    for(const F of [FREE_ATP, FREE_ADP, FREE_PI]) gSpecies.push({ c: F.c, v: F.v, base: F.base, n: F.n });
     const gDVel = new Float32Array(MOL_N*3);   // velocity DELTA from collisions (added to the analytic one)
 
     /* ── Free protons are SIMULATED, not analytic ────────────────────────────────────────────────
@@ -6906,11 +6938,11 @@ void main(void){
         const S = spinAt(base+i, F.c, F.v, i, T); rot(S, F.ax[i*3],F.ax[i*3+1],F.ax[i*3+2], _o3); const ax=_o3[0], ay=_o3[1], az=_o3[2];
         for(let k=0;k<els.length;k++) test(q[0]+ax*offs[k], q[1]+ay*offs[k], q[2]+az*offs[k], rads[k], els[k], {kind:key, i, k, F, off:offs[k], base}); } };
       lin(FREE_P,   MOLBASE.p,   [codeH],             [0],             [hRad],           'p');
-      if(FREE_NADP){ const F = FREE_NADP, A = F.atoms;   // rigid species: every atom at its offset in the molecule frame, turned by the spin
-        for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,MOLBASE.nadp); const S = spinAt(MOLBASE.nadp+i, F.c, F.v, i, T);
+      for(const F of RIGID_FREE){ const A = F.atoms;   // rigid species (NADP, ATP, ADP, Pi): every atom at its offset in the molecule frame, turned by the spin
+        for(let i=0;i<F.n;i++){ if(!near(F.c,F.v,i)) continue; const q=centre(F.c,F.v,i,F.base); const S = spinAt(F.base+i, F.c, F.v, i, T);
           for(let k=0;k<A.length;k++){ const a=A[k], o=i*3;
             const lx=F.fu[o]*a.p[0]+F.fv[o]*a.p[1]+F.ax[o]*a.p[2], ly=F.fu[o+1]*a.p[0]+F.fv[o+1]*a.p[1]+F.ax[o+1]*a.p[2], lz=F.fu[o+2]*a.p[0]+F.fv[o+2]*a.p[1]+F.ax[o+2]*a.p[2];
-            rot(S, lx,ly,lz, _o3); test(q[0]+_o3[0], q[1]+_o3[1], q[2]+_o3[2], a.r, a.el, {kind:'nadp', i, k, F, p:a.p, base:MOLBASE.nadp}); } } }
+            rot(S, lx,ly,lz, _o3); test(q[0]+_o3[0], q[1]+_o3[1], q[2]+_o3[2], a.r, a.el, {kind:F.key, i, k, F, p:a.p, base:F.base}); } } }
       lin(FREE_CO2, MOLBASE.co2, [codeC,codeO,codeO], [0,1.16,-1.16],  [cRad,oRad,oRad], 'co2');
       lin(FREE_O2,  MOLBASE.o2,  [codeO,codeO],       [0.605,-0.605],  [oRad,oRad],      'o2');
       if(!best) return null;
@@ -6928,7 +6960,7 @@ void main(void){
           atom.center.set(x,y,z); atom.world.set(x,y,z); return true; };
         atom.fill = (buf, cap, foc) => k < 0 ? 0 : copyLobes(buf, cap, k, atom.center.x, atom.center.y, atom.center.z,
           wCoreM, wCoreC, wCoreN, wBondM, wBondC, wBondN, wOrbBond.tap, null, wOrbCore.oid, wOrbBond.oid, foc === undefined ? -1 : foc); }
-      else if((src.kind === 'co2' || src.kind === 'o2' || src.kind === 'nadp') && ORB_LIN[src.kind]){ let k = -1;
+      else if(ORB_LIN[src.kind]){ let k = -1;   // any free species with an orbital placer (CO2, O2, NADP, ATP, ADP, Pi)
         atom.track = () => { const O = ORB_LIN[src.kind]; if(!O) return false;
           const cnt = O.cMesh.thinInstanceCount / O.coreN; k = -1;
           for(let m=0;m<cnt;m++) if(O.pick[m] === src.i){ k = m; break; }
@@ -7201,6 +7233,14 @@ void main(void){
        far more than ever sit inside the crisp zone at once. */
     if(FREE_NADP){ FREE_NADP.base = MOLBASE.nadp; const nm = mols.find(m => m.cfg && m.cfg.match === 'nadph');
       if(nm && nm.na){ const set = rigidOrbSet(nm); ORB_LIN.nadp = freeOrb('nadp', FREE_NADP, set.core, set.bond, rigidFrame(FREE_NADP), Math.min(FREE_NADP.n, 160)); } }
+    /* ATP, ADP, Pi: the cartoon geometry has no bond table, so bonds are inferred - two atoms closer than
+       1.35 x their bond length are bonded (the ring chords and the P-O legs pass, nothing across groups). */
+    for(const F of [FREE_ATP, FREE_ADP, FREE_PI]){ const at = F.local, N = at.length;
+      const pm = { na:N, x:new Float32Array(N), y:new Float32Array(N), z:new Float32Array(N), el:new Int32Array(N), b1:[], b2:[], bo:[], nb:0 };
+      for(let k=0;k<N;k++){ pm.x[k]=at[k].x; pm.y[k]=at[k].y; pm.z[k]=at[k].z; pm.el[k]=codeOf(at[k].sym); }
+      for(let i=0;i<N;i++) for(let j=i+1;j<N;j++){ const d=Math.hypot(at[i].x-at[j].x, at[i].y-at[j].y, at[i].z-at[j].z);
+        if(d < 1.35*bondL(at[i].sym, at[j].sym)){ pm.b1.push(i); pm.b2.push(j); pm.bo.push(1); pm.nb++; } }
+      const set = rigidOrbSet(pm); ORB_LIN[F.key] = freeOrb(F.key, F, set.core, set.bond, rigidFrame(F), Math.min(F.n, 160)); }
   }
 
   // Headlight follows the camera; fog darkens fragments by distance (front→back)
@@ -8932,7 +8972,6 @@ void main(void){
     rec = { nuc, orb }; spawnMeshes.set(sym, rec); return rec;
   };
   // Valence-shell radius (Å) of an element's outermost orbitals — how far its lobes reach.
-  const reachOf = sym => (ECONF[sym]||[[1,0]]).reduce((mx,sh)=>Math.max(mx,sh[0]),0) * SHELL_STEP;
   // Rebuild all spawn geometry from the `spawned` list (called on spawn / drag / clear).
   const rebuildSpawn = () => {
     // ── Bonding by orbital overlap: while you DRAG an atom near another (any elements — H, O, C…),
@@ -9127,18 +9166,6 @@ void main(void){
 
   // ── Real spawned molecules: multi-atom structures (rendered like protein atoms — nuclei + orbitals)
   //    that drift and bounce around the scene. Built from the same `spawned[]` list + rebuildSpawn(). ──
-  const bondL = (a,b) => 0.52*(reachOf(a)+reachOf(b));
-  const phosphate = (cx,cy,cz) => { const b=bondL('P','O'), n=1.7320508, t=[[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]];   // PO₄ tetrahedron
-    const a=[{sym:'P',x:cx,y:cy,z:cz}]; for(const d of t) a.push({sym:'O',x:cx+b*d[0]/n,y:cy+b*d[1]/n,z:cz+b*d[2]/n}); return a; };
-  const ringAt = (cx,cy,R,syms) => { const a=[], n=syms.length; for(let i=0;i<n;i++){ const th=i/n*6.2831853; a.push({sym:syms[i],x:cx+R*Math.cos(th),y:cy+R*Math.sin(th),z:0}); } return a; };   // planar ring
-  const MOL_BUILD = {   // each returns local atom positions {sym,x,y,z} (Å) — centred on the centroid at spawn
-    'H₂O': () => { const b=bondL('O','H'), a=0.912; return [{sym:'O',x:0,y:0,z:0},{sym:'H',x:b*Math.sin(a),y:-b*Math.cos(a),z:0},{sym:'H',x:-b*Math.sin(a),y:-b*Math.cos(a),z:0}]; },
-    'CO₂': () => { const b=bondL('C','O'); return [{sym:'C',x:0,y:0,z:0},{sym:'O',x:b,y:0,z:0},{sym:'O',x:-b,y:0,z:0}]; },
-    'Pi':  () => phosphate(0,0,0),
-    'ADP': () => { const g=bondL('P','O')*2.4; return [...phosphate(0,0,0), ...phosphate(g,0,0), ...ringAt(g*2.1,0,bondL('C','C')*1.1,['C','O','C','C','C']), ...ringAt(g*3.25,0,bondL('C','N')*1.15,['N','C','N','C','N','C'])]; },
-    'ATP': () => { const g=bondL('P','O')*2.4; return [...phosphate(0,0,0), ...phosphate(g,0,0), ...phosphate(g*2,0,0), ...ringAt(g*3.05,0,bondL('C','C')*1.1,['C','O','C','C','C']), ...ringAt(g*4.2,0,bondL('C','N')*1.15,['N','C','N','C','N','C'])]; },
-    'NADPH': () => { const g=bondL('P','O')*2.4; return [...phosphate(0,0,0), ...ringAt(g*1.3,0,bondL('C','N')*1.15,['N','C','C','C','C','C']), ...ringAt(g*2.6,0,bondL('C','N')*1.15,['N','C','N','C','N','C']), ...ringAt(g*1.95,g*1.15,bondL('C','C')*1.1,['C','O','C','C','C'])]; },
-  };
   const gMolecules = [];   // {name, refs:[spawned atom…], off:[[dx,dy,dz]…], cx,cy, vx,vy, ang, av}
   const spawnMolecule = (name, x, y) => {
     const build = MOL_BUILD[name]; if(!build) return false;
@@ -10898,6 +10925,23 @@ void main(void){
   }
   // Apply the dev-only visibility ONCE now that everything it touches exists (minimap, cheatsheet,
   // floor sheet, read-outs). It used to run only on toggle, so all of those started out visible.
+  /* ── Top pill list: toggles, beige off / green on (owner's request, 2026-09-06). State in gTopToggles. ── */
+  { const host = document.getElementById('toplist'); window.gTopToggles = {};
+    if(host) for(const name of ['p-orbitaali','ATP-syntaasi','hiilidioksidi','Oxygen-Evolving Complex','klorofylli','plastokinoni','ferredoksiini','NADP','fotoni','fotosysteemi']){
+      const b = document.createElement('button'); b.className = 'pill'; b.textContent = name; window.gTopToggles[name] = false;
+      b.addEventListener('click', () => { const on = !b.classList.contains('on'); b.classList.toggle('on', on); window.gTopToggles[name] = on; });
+      host.appendChild(b); } }
+  /* ── Chrome dock: every toggle button, the speed slider and the GPU badge live bottom-right now. The
+     buttons keep their ids, classes and handlers - only their placement changes (inline static beats the
+     absolute rules in the stylesheet). The dev panel is capped in height so it stays clear of the dock. ── */
+  { const dock = document.createElement('div'); dock.id = 'btndock';
+    dock.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:14;display:flex;flex-wrap:wrap-reverse;flex-direction:row;justify-content:flex-end;align-items:flex-end;gap:6px;width:min(380px, 60vw);pointer-events:none;';   // a fixed width so the buttons wrap into a block, not one tall column
+    for(const id of ['darkmode-btn','gfx-btn','color-btn','etc-btn','dev-btn','lantern-btn','membrane-btn','memcut-btn','memonly-btn','outline-btn','shade-btn','particles-btn','vr-btn','fs-btn','settings-btn','speedbox','gpu-lbl']){
+      const el = document.getElementById(id); if(!el) continue;
+      el.style.position = 'static'; el.style.left = el.style.top = el.style.right = el.style.bottom = ''; el.style.transform = 'none'; el.style.margin = '0'; el.style.pointerEvents = 'auto';
+      dock.appendChild(el); }
+    document.body.appendChild(dock);
+    if(typeof devPanel !== 'undefined' && devPanel){ devPanel.style.maxHeight = 'calc(100vh - 380px)'; devPanel.style.overflowY = 'auto'; } }
   try { applyDevMode(); } catch(_){}
   setBar(1); setLbl('Valmis');
   document.getElementById('overlay').classList.add('gone');
