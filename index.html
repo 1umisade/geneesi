@@ -11036,7 +11036,7 @@ void main(void){
     /* Every pill is worth 0.5 points (owner's request, 2026-09-07 - the per-difficulty scale was dropped).
        [name, points] is kept so the values can be varied again. Shown with a decimal comma. */
     const PILLS = [['p-orbitaali',0.5],['ATP-syntaasi',0.5],['hiilidioksidi',0.5],['klorofylli',0.5],['plastokinoni',0.5],['ferredoksiini',0.5],['fotoni',0.5],['fotosysteemi I',0.5],['fotosysteemi II',0.5],
-                   ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5],['typpiatomi',0.5],['plastosyaani',0.5],['vesi',0.5],['happi',0.5],['karotenoidi',0.5]];
+                   ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5],['typpiatomi',0.5],['plastosyaani',0.5],['vesi',0.5],['happi',0.5],['karotenoidi',0.5],['hemi',0.5],['Oxygen-Evolving Complex',0.5]];
     const PILL_PTS = Object.fromEntries(PILLS), PILL_NAMES = PILLS.map(x => x[0]), PILL_TOTAL = PILLS.reduce((a,x) => a + x[1], 0);
     const fmtP = v => String(Math.round(v * 2) / 2).replace('.', ',');   // 4.5 -> '4,5'
     window.gPillPoints = PILL_PTS;
@@ -11073,7 +11073,7 @@ void main(void){
       'ferredoksiini': protein('Ferredoxin'), 'fotoni': photon, 'fotosysteemi I': protein('Photosystem I'), 'fotosysteemi II': protein('Photosystem II'),
       'rikkiatomi': atom('S', 'Ferredoxin'), 'magnesium-atomi': atom('MG', 'Chlorophyll'), 'vetyioni': free('p'), 'piisidos': dblBond('Chlorophyll'),
       'NADP+': free('nadp'), 'sytokromi b6f': protein('Cytochrome b6f'), 'fosfaatti': free('pi'), 'ATP': free('atp'),
-      'typpiatomi': atom('N', 'Chlorophyll'), 'plastosyaani': protein('Plastocyanin'), 'vesi': free('w'), 'happi': free('o2'), 'karotenoidi': residue(8) };
+      'typpiatomi': atom('N', 'Chlorophyll'), 'plastosyaani': protein('Plastocyanin'), 'vesi': free('w'), 'happi': free('o2'), 'karotenoidi': residue(8), 'hemi': residue(4), 'Oxygen-Evolving Complex': residue(1, 'Photosystem II') };
     window.gPillGoto = PILL_GOTO;
     const flyTo = (pos, dist) => { scene.stopAnimation(cam); orbitLocked = false; gCamFollow = false; gZoomVel = 0;
       if(gFocusRadiusObs){ scene.onBeforeRenderObservable.remove(gFocusRadiusObs); gFocusRadiusObs = null; }
