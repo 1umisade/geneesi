@@ -6721,6 +6721,16 @@ void main(void){
     if(FREE_NADP) gSpecies.push({ c: FREE_NADP.c, v: FREE_NADP.v, base: MOLBASE.nadp, n: FREE_NADP.n });
     for(const F of [FREE_ATP, FREE_ADP, FREE_PI]) gSpecies.push({ c: F.c, v: F.v, base: F.base, n: F.n });
     const gDVel = new Float32Array(MOL_N*3);   // velocity DELTA from collisions (added to the analytic one)
+    /* For the pill right-click flight (top pill row): the world centre of the instance of a free species
+       nearest to a point. Analytic bounce position plus the collision displacement (the same mirror the
+       pick uses), protons from their simulated positions. key = a MOLBASE key (w, p, co2, o2, nadp, atp, adp, pi). */
+    window.__freeNearest = (key, qx, qy, qz) => { const sp = gSpecies.find(z => z.base === MOLBASE[key]); if(!sp || !sp.n) return null;
+      const T = gWaveT, o = [0,0,0]; let best = null, bd = Infinity;
+      for(let i=0;i<sp.n;i++){ let x, y, z;
+        if(key === 'p'){ x = pPos[i*3]; y = pPos[i*3+1]; z = pPos[i*3+2]; }
+        else { anaC(sp.c, sp.v, i, T, o); const id = sp.base + i; x = o[0] + gMolDisp[id*4]; y = o[1] + gMolDisp[id*4+1]; z = o[2] + gMolDisp[id*4+2]; }
+        const d = (x-qx)*(x-qx) + (y-qy)*(y-qy) + (z-qz)*(z-qz); if(d < bd){ bd = d; best = [x, y, z]; } }
+      return best; };
 
     /* ── Free protons are SIMULATED, not analytic ────────────────────────────────────────────────
        Directional passage through ATP synthase (lumen to stroma only) and the rotor step it drives need
@@ -8318,6 +8328,9 @@ void main(void){
         const r = 4 + 22*(F.t/FLASH_S), m = fn*16, B = flash.buf; B[m]=r; B[m+1]=0; B[m+2]=0; B[m+3]=0; B[m+4]=0; B[m+5]=r; B[m+6]=0; B[m+7]=0; B[m+8]=0; B[m+9]=0; B[m+10]=r; B[m+11]=0; B[m+12]=F.x; B[m+13]=F.y; B[m+14]=F.z; B[m+15]=1; fn++; }
       if(fn) flash.m.thinInstancePartialBufferUpdate('matrix', flash.buf.subarray(0, fn*16), 0); flash.m.thinInstanceCount = fn; flash.m.setEnabled(fn > 0);
     });
+    window.__photonNearest = (qx, qy, qz) => { let best = null, bd = Infinity;   // for the pill right-click flight: the live photon nearest to a point
+      for(let i=0;i<N_PH;i++){ if(!alive[i]) continue; const o = i*3, d = (px[o]-qx)*(px[o]-qx) + (px[o+1]-qy)*(px[o+1]-qy) + (px[o+2]-qz)*(px[o+2]-qz); if(d < bd){ bd = d; best = [px[o], px[o+1], px[o+2]]; } }
+      return best; };
     window.__photons = () => ({ chlorophylls: N_CH, photons: N_PH, glowing: glows.size, gSpeed, chlSample: [0, (N_CH/2)|0, N_CH-1].map(k => [chW[k*3]|0, chW[k*3+1]|0, chW[k*3+2]|0]), photonSample: [0,1].map(i => [px[i*3]|0, px[i*3+1]|0, px[i*3+2]|0]), shuttles: gShuttles.map(s => ({mi:s.mi, pq:s.pq, phase:s.phase, at:s.cur.map(v=>v|0)})) });
   }
   /* ── RTS floor ── flatten every model onto ONE plane (perpendicular to the membrane, at the models'
@@ -11006,13 +11019,55 @@ void main(void){
     /* Every pill is worth 0.5 points (owner's request, 2026-09-07 - the per-difficulty scale was dropped).
        [name, points] is kept so the values can be varied again. Shown with a decimal comma. */
     const PILLS = [['p-orbitaali',0.5],['ATP-syntaasi',0.5],['hiilidioksidi',0.5],['Oxygen-Evolving Complex',0.5],['klorofylli',0.5],['plastokinoni',0.5],['ferredoksiini',0.5],['fotoni',0.5],['fotosysteemi I',0.5],['fotosysteemi II',0.5],
-                   ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5],['typpiatomi',0.5],['plastosyaani',0.5],['vesi',0.5],['happi',0.5]];
+                   ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5],['typpiatomi',0.5],['plastosyaani',0.5],['vesi',0.5],['happi',0.5],['karotenoidi',0.5]];
     const PILL_PTS = Object.fromEntries(PILLS), PILL_NAMES = PILLS.map(x => x[0]), PILL_TOTAL = PILLS.reduce((a,x) => a + x[1], 0);
     const fmtP = v => String(Math.round(v * 2) / 2).replace('.', ',');   // 4.5 -> '4,5'
     window.gPillPoints = PILL_PTS;
+    /* RIGHT-click on a pill flies the camera to that thing - the instance nearest to where the camera is
+       looking. Proteins by their model label (live hull centre), cofactors by the ETC type of one residue
+       (its centroid), single atoms by element inside a named model (live model transform), a pi bond as
+       the midpoint of the first double bond, free species and photons through the getters their own
+       blocks publish (window.__freeNearest, window.__photonNearest). Left-click still toggles the pill. */
+    const _fm = new BABYLON.Matrix(), _fv = new BABYLON.Vector3();
+    const atomW = (mi, k) => { const m = mols[mi]; BABYLON.Matrix.FromArrayToRef(gModelXform, mi*16, _fm);
+      BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(m.x[k]+m.ox, m.y[k]+m.oy, m.z[k]+m.oz, _fm, _fv); return _fv.clone(); };
+    const modelByLabel = lbl => mols.findIndex(m => m.cfg && m.cfg.label === lbl);
+    const allModels = () => mols.map((_, i) => i);
+    const modelCentre = mi => { const hs = gHulls.findIndex(h => h.mi === mi); if(hs >= 0) return new BABYLON.Vector3(gShellCen[hs*3], gShellCen[hs*3+1], gShellCen[hs*3+2]);
+      const c = mInfo[mi]; BABYLON.Matrix.FromArrayToRef(gModelXform, mi*16, _fm); return BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(c.cx, c.cy, c.cz), _fm); };
+    const modelSize = mi => { const c = mInfo[mi]; return Math.hypot(c.x1-c.x0, c.y1-c.y0, c.z1-c.z0); };
+    const protein = lbl => () => { const mi = modelByLabel(lbl); return mi < 0 ? null : { pos: modelCentre(mi), dist: modelSize(mi) * 1.1 }; };
+    const residue = (type, lbl) => () => { for(const mi of (lbl ? [modelByLabel(lbl)] : allModels())){ if(mi < 0) continue; const m = mols[mi]; if(!m.cof) continue;
+        for(let k=0;k<m.na;k++) if(m.cof[k] === type){ const sid = m.sid[k], sum = new BABYLON.Vector3(); let n = 0;
+          for(let j=k;j<m.na;j++) if(m.cof[j] === type && m.sid[j] === sid){ sum.addInPlace(atomW(mi, j)); n++; }
+          return { pos: sum.scaleInPlace(1/n), dist: 45 }; } }
+      return null; };
+    const atom = (sym, lbl) => () => { for(const mi of (lbl ? [modelByLabel(lbl)] : allModels())){ if(mi < 0) continue; const m = mols[mi];
+        for(let k=0;k<m.na;k++) if(EL_LIST[m.el[k]] === sym) return { pos: atomW(mi, k), dist: 22 }; }
+      return null; };
+    const dblBond = lbl => () => { for(const mi of [modelByLabel(lbl)].concat(allModels())){ if(mi < 0) continue; const m = mols[mi]; if(!m.bo) continue;
+        for(let b=0;b<m.nb;b++) if(m.bo[b] === 2) return { pos: atomW(mi, m.b1[b]).addInPlace(atomW(mi, m.b2[b])).scaleInPlace(0.5), dist: 22 }; }
+      return null; };
+    const free = key => () => { const t = cam.target, r = window.__freeNearest ? window.__freeNearest(key, t.x, t.y, t.z) : null; return r ? { pos: new BABYLON.Vector3(r[0], r[1], r[2]), dist: 40 } : null; };
+    const photon = () => { const t = cam.target, r = window.__photonNearest ? window.__photonNearest(t.x, t.y, t.z) : null; return r ? { pos: new BABYLON.Vector3(r[0], r[1], r[2]), dist: 60 } : null; };
+    const PILL_GOTO = {
+      'p-orbitaali': atom('C', 'Chlorophyll'), 'ATP-syntaasi': protein('ATP synthase'), 'hiilidioksidi': free('co2'),
+      'Oxygen-Evolving Complex': residue(1, 'Photosystem II'), 'klorofylli': protein('Chlorophyll'), 'plastokinoni': protein('Plastoquinone'),
+      'ferredoksiini': protein('Ferredoxin'), 'fotoni': photon, 'fotosysteemi I': protein('Photosystem I'), 'fotosysteemi II': protein('Photosystem II'),
+      'rikkiatomi': atom('S', 'Ferredoxin'), 'magnesium-atomi': atom('MG', 'Chlorophyll'), 'vetyioni': free('p'), 'piisidos': dblBond('Chlorophyll'),
+      'NADP+': free('nadp'), 'sytokromi b6f': protein('Cytochrome b6f'), 'fosfaatti': free('pi'), 'ATP': free('atp'),
+      'typpiatomi': atom('N', 'Chlorophyll'), 'plastosyaani': protein('Plastocyanin'), 'vesi': free('w'), 'happi': free('o2'), 'karotenoidi': residue(8) };
+    window.gPillGoto = PILL_GOTO;
+    const flyTo = (pos, dist) => { scene.stopAnimation(cam); orbitLocked = false; gCamFollow = false; gZoomVel = 0;
+      if(gFocusRadiusObs){ scene.onBeforeRenderObservable.remove(gFocusRadiusObs); gFocusRadiusObs = null; }
+      const ease = new BABYLON.CubicEase(); ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+      BABYLON.Animation.CreateAndStartAnimation('pillTgt', cam, 'target', 60, 45, cam.getTarget().clone(), pos.clone(), BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease);
+      BABYLON.Animation.CreateAndStartAnimation('pillR', cam, 'radius', 60, 45, cam.radius, Math.max(cam.lowerRadiusLimit || 0.3, dist), BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, ease); };
+    window.gPillFly = name => { const f = PILL_GOTO[name], t = f ? f() : null; if(t) flyTo(t.pos, t.dist); return t; };
     if(host) for(const name of PILL_NAMES){
       const b = document.createElement('button'); b.className = 'pill'; b.innerHTML = name + ' <span style="opacity:.75;font-size:11px">' + fmtP(PILL_PTS[name]) + ' p</span>'; window.gTopToggles[name] = false;
       b.addEventListener('click', () => { const on = !b.classList.contains('on'); b.classList.toggle('on', on); window.gTopToggles[name] = on; updateScore(); });
+      b.addEventListener('contextmenu', e => { e.preventDefault(); window.gPillFly(name); });   // right-click → fly there
       host.appendChild(b); }
     /* Score card above the controller picture: the points of the pills that are on, as a plain number. */
     const score = document.createElement('div'); score.id = 'scorebox';
