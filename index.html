@@ -7254,18 +7254,25 @@ void main(void){
         const cp=cam.position, R=gCrisp, R2=R*R;
         const T = gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed; live.T = T;
         let n=0;
+        /* Two passes: the molecules close enough to be REVEALED (inside BUBBLE_R their shells turn to glass,
+           so whatever is inside must be drawn) take the slots first, then the rest of the crisp zone fills
+           what is left of CAP. One index-ordered pass let molecules far out in the zone use up the cap while
+           a molecule right at the camera got none - a glass shell with a bare nucleon cluster inside, the
+           'free floating nuclei' seen all over the stroma once ATP / ADP / Pi were 1000 each. */
+        const NEAR2 = (BUBBLE_R + 12) * (BUBBLE_R + 12);
+        for(let pass=0; pass<2 && n<CAP; pass++){ const lo2 = pass ? NEAR2 : 0, hi2 = pass ? R2 : NEAR2;
         for(let i=0;i<F.n && n<CAP;i++){
           const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x);
-          const dx=px-cp.x; if(dx*dx>R2) continue;
+          const dx=px-cp.x; if(dx*dx>hi2) continue;
           const py=bncY(F.c[i*3+1], F.v[i*3+1], T);
-          const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
+          const dy=py-cp.y; if(dx*dx+dy*dy>hi2) continue;
           const pz=bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z);
-          const dz=pz-cp.z; if(dx*dx+dy*dy+dz*dz>R2) continue;
+          const dz=pz-cp.z; const d2=dx*dx+dy*dy+dz*dz; if(d2>hi2 || d2<lo2) continue;
           const md=(F.base+i)*4;   // same mirror, same order: displacement first, then the shells
           _lp[0]=px+gMolDisp[md]; _lp[1]=py+gMolDisp[md+1]; _lp[2]=pz+gMolDisp[md+2];
           repelShells(_lp);
           pick[n]=i; pos[n*3]=_lp[0]; pos[n*3+1]=_lp[1]; pos[n*3+2]=_lp[2]; n++;
-        }
+        } }
         for(let k=0;k<n;k++){
           const i=pick[k], px=pos[k*3], py=pos[k*3+1], pz=pos[k*3+2];
           frameOf(i, T, _R9);   // canonical → this molecule (its frame with the spin composed on), no allocation
