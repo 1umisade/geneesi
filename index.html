@@ -6990,11 +6990,14 @@ void main(void){
       const f=0.62, kL=0.24, kW=LOBE_W*0.5, pw=LOBE_W*0.42, pR=0.62; let hyb=0;
       for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b]; if(i<0||j<0||i>=N||j>=N) continue; const bo=m.bo ? m.bo[b] : 1;
         const p1=at[i], p2=at[j], bx=p2[0]-p1[0], by=p2[1]-p1[1], bz=p2[2]-p1[2], BL=Math.hypot(bx,by,bz)||1e-6, u=[bx/BL,by/BL,bz/BL];
-        const c1=info(els[i]).c, c2=info(els[j]).c;
-        put(p1[0],p1[1],p1[2], p1[0]+bx*f,p1[1]+by*f,p1[2]+bz*f, LOBE_W*1.35, c1, p1[0],p1[1],p1[2], 1000+(hyb++), 1.0, true);
-        put(p2[0],p2[1],p2[2], p2[0]-bx*f,p2[1]-by*f,p2[2]-bz*f, LOBE_W*1.35, c2, p2[0],p2[1],p2[2], 1000+(hyb++), 1.0, true);
-        put(p1[0],p1[1],p1[2], p1[0]-u[0]*kL,p1[1]-u[1]*kL,p1[2]-u[2]*kL, kW, c1, p1[0],p1[1],p1[2], 1000);
-        put(p2[0],p2[1],p2[2], p2[0]+u[0]*kL,p2[1]+u[1]*kL,p2[2]+u[2]*kL, kW, c2, p2[0],p2[1],p2[2], 1000);
+        const c1=info(els[i]).c, c2=info(els[j]).c, h1=EL_LIST[els[i]]==='H', h2=EL_LIST[els[j]]==='H';
+        /* A hydrogen end gets NO sigma horn and no back knob - the same convention as the protein builder:
+           its 1s ellipsoid leaning into the bond is its share, and the partner's horn reaches it. With
+           horn + knob + 1s every hydrogen read as a three-petal white flower. */
+        if(!h1) put(p1[0],p1[1],p1[2], p1[0]+bx*f,p1[1]+by*f,p1[2]+bz*f, LOBE_W*1.35, c1, p1[0],p1[1],p1[2], 1000+(hyb++), 1.0, true);
+        if(!h2) put(p2[0],p2[1],p2[2], p2[0]-bx*f,p2[1]-by*f,p2[2]-bz*f, LOBE_W*1.35, c2, p2[0],p2[1],p2[2], 1000+(hyb++), 1.0, true);
+        if(!h1) put(p1[0],p1[1],p1[2], p1[0]-u[0]*kL,p1[1]-u[1]*kL,p1[2]-u[2]*kL, kW, c1, p1[0],p1[1],p1[2], 1000);
+        if(!h2) put(p2[0],p2[1],p2[2], p2[0]+u[0]*kL,p2[1]+u[1]*kL,p2[2]+u[2]*kL, kW, c2, p2[0],p2[1],p2[2], 1000);
         if(bo >= 2){ const nv = pn[i] || pn[j] || nrm(crs([bx,by,bz], Math.abs(bx)<0.9*BL ? [1,0,0] : [0,1,0]));
           const mx=(p1[0]+p2[0])/2, my=(p1[1]+p2[1])/2, mz=(p1[2]+p2[2])/2, cm=[(c1[0]+c2[0])*0.5,(c1[1]+c2[1])*0.5,(c1[2]+c2[2])*0.5];
           for(const sg of [1,-1]){ const ex=nv[0]*pR*sg, ey=nv[1]*pR*sg, ez=nv[2]*pR*sg;
@@ -7276,6 +7279,13 @@ void main(void){
     const REVEAL2 = gCrisp*gCrisp;
     const M=macroGizmoNode.getWorldMatrix().m, cx0=psiiCenter.x, cy0=psiiCenter.y, cz0=psiiCenter.z;   // full PSII transform (rotation+translation)
     let matSwaps = 0;   // per-frame budget for LOD material changes (see the swap below)
+    /* Protein thinning is judged by the atom's size ON SCREEN, not by a fixed distance. A typical atom
+       (vdW radius 1.7) projects to pxK*1.7/d pixels - full count while that is 1.5 px or more, then the
+       fraction falls with the square of the size (a 0.75 px atom keeps a quarter), floor 1/16. The old
+       fixed steps (half beyond 600, a quarter beyond 1200) fired while atoms were still 5-9 px across on a
+       large display, so complexes went thin and dark and snapped back as you crossed 600. */
+    const pxK = engine.getRenderHeight() / (2 * Math.tan(cam.fov * 0.5));
+    const protFrac = d2 => { const px = 1.7 * pxK / Math.sqrt(Math.max(d2, 1)); return px >= 1.5 ? 1 : Math.max(0.0625, (px/1.5)*(px/1.5)); };
     // Membrane cross-cut is a smooth per-fragment fade done in the membrane shaders (NOT a block cull),
     // driven by camera ELEVATION: the front lipids dissolve gradually as the view drops to the
     // membrane's level. Here we only compute the fade parameters; the whole sheet still renders and
@@ -7405,7 +7415,10 @@ void main(void){
          outright by the slab underneath it, which costs two triangles for the whole sheet instead of
          a few thousand impostors per cell. Proteins are the content, so they are never dropped - they
          just thin much harder (see the instance count below). */
-      const mega = (cell.macro ? d2 > MEGA2 + cR*cR : (gSlabLod && d2 > MEMR2 + cR*cR)) || offSlab;   // a membrane cell only goes megacheap with the slab tier on
+      /* MEGACHEAP is the slab tier's protein half (1/16 of the atoms past memR) - with 'laatta-LoD' off it
+         is off for proteins too. Left on, complexes dropped to a sixteenth at 600 units in one step: the
+         'thin and dark, then snapping back' as you crossed 600. Thinning is now only protFrac (by size). */
+      const mega = (gSlabLod && d2 > (cell.macro ? MEGA2 : MEMR2) + cR*cR) || offSlab;
       const wantSph = vis && !!cell.sphere && (!gCullOnly || d2 < closeR*closeR) && !(mega && !cell.macro);
       const nucR = gCrisp + cR + 8;                         // nuclei wherever the orbitals show (they used to stop at half the crisp radius)
       const wantNuc = vis && gGfxMode === 1 && d2 < nucR*nucR;   // nuclei: mode 1, genuinely up close only
@@ -7423,7 +7436,7 @@ void main(void){
         // down to about a pixel, where they have already merged into a solid mass.
         const want = cell.macro
           ? (mega ? Math.max(1, cell.sphFull>>4)
-                  : d2 > 1440000 ? (cell.sphFull>>2) : d2 > 360000 ? (cell.sphFull>>1) : cell.sphFull)
+                  : Math.max(1, Math.round(cell.sphFull * protFrac(d2))))   // by projected size, smooth (see protFrac)
           : (d2 > MEMB[4] ? memFrac(cell, 0.03125)
              : d2 > MEMB[3] ? memFrac(cell, 0.0625)
              : d2 > MEMB[2] ? memFrac(cell, 0.125)

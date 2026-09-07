@@ -85,6 +85,9 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   rotor, shuttle sites, PSII gizmo). The particle box spans the whole membrane footprint (gMemFootX/Z)
   and the free-species counts scale with its volume via FILL (cap 3x, protons 2x) - the molecule id
   bases (MOLBASE) and the id texture size follow the counts. Build time 20-30 s, so a probe must wait.
+- Protein atom thinning is by PROJECTED size (`protFrac`: full while a 1.7-radius atom is 1.5 px or more,
+  then falling with the square, floor 1/16), never by fixed distance. The 1/16 'megacheap' step past
+  memR is part of the slab tier and is off with it (`gSlabLod`).
 - The membrane slab tier is OFF by default (`gSlabLod`, dev button 'laatta-LoD'): lipids at every
   distance, no sheet wrap, slab hidden. The protein hull handover still uses memR.
 - Gamepad (DualShock, standard mapping): polled every frame, drives the keyboard's own flags edge-
