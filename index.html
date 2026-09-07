@@ -68,8 +68,8 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   display:flex;align-items:center;justify-content:center}
 .zt:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 .ztlabel{font-size:11px;font-weight:bold;color:var(--brown);letter-spacing:1px}
-.pill{pointer-events:auto;flex:1 1 0;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--paper);background:var(--brown);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.35);white-space:nowrap;touch-action:manipulation}   /* dark brown, light text (owner's request) */
-.pill.on{background:var(--sage);color:var(--sageink);border-color:var(--brown)}
+.pill{pointer-events:auto;flex:1 1 0;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
+.pill.on{background:var(--sage);color:var(--sageink)}
 .pill:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 #darkmode-btn{position:absolute;left:16px;top:12px;z-index:12;touch-action:manipulation;
   font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
@@ -265,7 +265,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
     </div>
     <div class="loading-text" id="load-lbl">Ladataan…</div>
     <div class="ptr"><div class="pfil" id="load-bar"></div></div>
-    <button id="load-enter" class="load-enter" hidden>Astu sisään</button>
+    <button id="load-enter" class="load-enter" hidden>Käynnistä keskeneräisenä</button>
   </div>
 </div>
 <button id="darkmode-btn" title="Vaihda tummatila"><span id="darkmode-icon">☀️</span>Teema</button>
@@ -3499,7 +3499,8 @@ void main(void){
       const pads = navigator.getGamepads ? navigator.getGamepads() : null; let gp = null;
       if(pads) for(const g of pads) if(g && g.connected){ gp = g; break; }
       if(!gp){ for(const k in padPrev) if(padPrev[k]) setKey(k, false); for(const k in padOn) showHl(k, false); return; }   // the picture stays up, pad or no pad
-      const ax = gp.axes || [], bt = gp.buttons || [], b = i => !!(bt[i] && (bt[i].pressed || bt[i].value > 0.5));
+      const ax = gp.axes || [], bt = gp.buttons || [], b = i => !!(bt[i] && (bt[i].pressed || bt[i].value > 0.15));   // triggers count from a light squeeze (0.15), not from half travel
+      window.__padState = { id: gp.id, mapping: gp.mapping, axes: ax.slice(0, 4).map(v => +v.toFixed(2)), L1: bt[4] ? +bt[4].value.toFixed(2) : null, R1: bt[5] ? +bt[5].value.toFixed(2) : null, L2: bt[6] ? +bt[6].value.toFixed(2) : null, R2: bt[7] ? +bt[7].value.toFixed(2) : null };   // for the dev HUD
       const lx = ax[0]||0, ly = ax[1]||0, rx = ax[2]||0, ry = ax[3]||0;
       setKey('a', lx < -DZ); setKey('d', lx > DZ); setKey('w', ly < -DZ); setKey('s', ly > DZ);
       setKey('ArrowLeft', rx < -DZ); setKey('ArrowRight', rx > DZ); setKey('ArrowUp', ry < -DZ); setKey('ArrowDown', ry > DZ);
@@ -6429,8 +6430,12 @@ void main(void){
     const mkRigidFree = (key, nm, n, seed, col, base, src) => { const at = src ? src.at : MOL_BUILD[key](); let cx=0, cy=0, cz=0; for(const a of at){ cx+=a.x; cy+=a.y; cz+=a.z; } cx/=at.length; cy/=at.length; cz/=at.length;
       const atoms = at.map((a,k) => { const e = codeOf(a.sym), I = info(e); return { tag:'a'+k, r:I.vr*FILL_SCALE, col:[col[0],col[1],col[2]], d:0, p:[a.x-cx, a.y-cy, a.z-cz], el:e }; });
       const F = mkFree(nm, n, seed, atoms, base, false, MEMBRANE_Y + gMemHalfT + 12); F.atoms = atoms; F.base = base; F.key = key.toLowerCase(); F.local = at.map(a => ({ sym:a.sym, x:a.x-cx, y:a.y-cy, z:a.z-cz })); F.bonds = src ? src.bonds : null; return F; };
-    const FREE_ATP = mkRigidFree('ATP', 'atp', NATP, 881237, [0.85,0.70,0.29], MOLBASE.atp, adpFromNadp(true));
-    const FREE_ADP = mkRigidFree('ADP', 'adp', NADP2, 913511, [0.79,0.64,0.29], MOLBASE.adp, adpFromNadp(false));
+    /* ADP is ATP minus its terminal phosphate group (owner's instruction): the gamma P and its three O are
+       the last four atoms appended by adpFromNadp(true), so ADP is that list cut before them. */
+    const ATP_SRC = adpFromNadp(true);
+    const ADP_SRC = ATP_SRC ? { at: ATP_SRC.at.slice(0, ATP_SRC.at.length - 4), bonds: ATP_SRC.bonds.filter(b => b[0] < ATP_SRC.at.length - 4 && b[1] < ATP_SRC.at.length - 4) } : null;
+    const FREE_ATP = mkRigidFree('ATP', 'atp', NATP, 881237, [0.85,0.70,0.29], MOLBASE.atp, ATP_SRC);
+    const FREE_ADP = mkRigidFree('ADP', 'adp', NADP2, 913511, [0.79,0.64,0.29], MOLBASE.adp, ADP_SRC);
     const FREE_PI  = mkRigidFree('Pi',  'pi',  NPI,  947717, [0.88,0.50,0.23], MOLBASE.pi, null);
     if(FREE_NADP){ FREE_NADP.key = 'nadp'; FREE_NADP.base = MOLBASE.nadp; }
     const RIGID_FREE = [FREE_NADP, FREE_ATP, FREE_ADP, FREE_PI].filter(Boolean);   // every rigid species: the picker, the trackers and the collision list go through this
@@ -7339,6 +7344,7 @@ void main(void){
                     + '<br>hsl '+eng2.getHardwareScalingLevel().toFixed(2) : '')
           +'<br>sij. '+p.x.toFixed(0)+', '+p.y.toFixed(0)+', '+p.z.toFixed(0)
           +'<br>α '+(cam.alpha*DEG).toFixed(1)+'°  β '+(cam.beta*DEG).toFixed(1)+'°  kierto '+roll.toFixed(1)+'°'
+          +(window.__padState ? '<br>ohjain '+(window.__padState.mapping||'?')+'  L2 '+window.__padState.L2+'  R2 '+window.__padState.R2+'  L1 '+window.__padState.L1+'  R1 '+window.__padState.R1+'<br>tikut '+window.__padState.axes.join(' ') : '<br>ohjain: ei')
           +'<br>et. '+Math.abs(cam.radius).toFixed(0);
         // Drop the dev slider panel below this readout — both are pinned right:16px, so the panel's own
         // top ran straight through it. Measured AFTER the text above is in place (an empty readout has
