@@ -99,7 +99,7 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 - UI layout: a full-width top pill row (`#toplist`, 22 pills in `PILLS` as [name, points], every one 0,5, wrapping, `.pill.on` =
   green, state in `window.gTopToggles`, no other behaviour yet) with a score card (`#scorebox`, 'Pisteet n', no total
   = the sum of the points of the pills that are on, in half-point steps (0,5 - 2,5), no dots,
-  `window.updateScore`) above the controller picture and a bottom-right dock (`#btndock`) holding the gear
+  `window.updateScore`) and a plain 10-minute countdown card (`#timerbox`, stops at 0:00 and turns red, click = reset) stacked above the controller picture and a bottom-right dock (`#btndock`) holding the gear
   (`settings-btn`), fullscreen, the speed slider and the GPU badge. The toggle buttons live in the gear's
   `settings-menu`, re-anchored at the end of startup to open UPWARD above the dock, right-aligned. The
   dev panel is height-capped to stay clear of the dock.
