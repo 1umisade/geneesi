@@ -7004,19 +7004,21 @@ void main(void){
       for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b]; if(i<0||j<0||i>=N||j>=N) continue; const bo=m.bo ? m.bo[b] : 1;
         const p1=at[i], p2=at[j], bx=p2[0]-p1[0], by=p2[1]-p1[1], bz=p2[2]-p1[2], BL=Math.hypot(bx,by,bz)||1e-6, u=[bx/BL,by/BL,bz/BL];
         const c1=info(els[i]).c, c2=info(els[j]).c, h1=EL_LIST[els[i]]==='H', h2=EL_LIST[els[j]]==='H';
+        const sw = bo >= 2 ? LOBE_W*1.35 : LOBE_W, sprof = bo >= 2;   // a SINGLE bond gets the plain sigma lobe every protein and lipid bond has - the fat profiled horn is the double/triple-bond picture (it made every carbon a four-leaf balloon)
         /* A hydrogen end gets NO sigma horn and no back knob - the same convention as the protein builder:
            its 1s ellipsoid leaning into the bond is its share, and the partner's horn reaches it. With
            horn + knob + 1s every hydrogen read as a three-petal white flower. */
-        if(!h1) put(p1[0],p1[1],p1[2], p1[0]+bx*f,p1[1]+by*f,p1[2]+bz*f, LOBE_W*1.35, c1, p1[0],p1[1],p1[2], 1000+(hyb++), 1.0, true);
-        if(!h2) put(p2[0],p2[1],p2[2], p2[0]-bx*f,p2[1]-by*f,p2[2]-bz*f, LOBE_W*1.35, c2, p2[0],p2[1],p2[2], 1000+(hyb++), 1.0, true);
+        if(!h1) put(p1[0],p1[1],p1[2], p1[0]+bx*f,p1[1]+by*f,p1[2]+bz*f, sw, c1, p1[0],p1[1],p1[2], 1000+(hyb++), 1.0, sprof);
+        if(!h2) put(p2[0],p2[1],p2[2], p2[0]-bx*f,p2[1]-by*f,p2[2]-bz*f, sw, c2, p2[0],p2[1],p2[2], 1000+(hyb++), 1.0, sprof);
         if(!h1) put(p1[0],p1[1],p1[2], p1[0]-u[0]*kL,p1[1]-u[1]*kL,p1[2]-u[2]*kL, kW, c1, p1[0],p1[1],p1[2], 1000);
         if(!h2) put(p2[0],p2[1],p2[2], p2[0]+u[0]*kL,p2[1]+u[1]*kL,p2[2]+u[2]*kL, kW, c2, p2[0],p2[1],p2[2], 1000);
         if(bo >= 2){ const nv = pn[i] || pn[j] || nrm(crs([bx,by,bz], Math.abs(bx)<0.9*BL ? [1,0,0] : [0,1,0]));
           const mx=(p1[0]+p2[0])/2, my=(p1[1]+p2[1])/2, mz=(p1[2]+p2[2])/2, cm=[(c1[0]+c2[0])*0.5,(c1[1]+c2[1])*0.5,(c1[2]+c2[2])*0.5];
           for(const sg of [1,-1]){ const ex=nv[0]*pR*sg, ey=nv[1]*pR*sg, ez=nv[2]*pR*sg;
             put(p1[0]+ex,p1[1]+ey,p1[2]+ez, p2[0]+ex,p2[1]+ey,p2[2]+ez, pw*1.7, cm, mx,my,mz, 1002, 0.9); } } }
-      for(let k=0;k<N;k++){ const q=at[k], c=info(els[k]).c;
-        for(const d of lonePairDirs(bd[k], lonePairs(els[k]))) put(q[0],q[1],q[2], q[0]+d[0]*0.75,q[1]+d[1]*0.75,q[2]+d[2]*0.75, LOBE_W, c, q[0],q[1],q[2], 2000); }
+      for(let k=0;k<N;k++){ const q=at[k], c=info(els[k]).c, lpn=lonePairs(els[k]);
+        if(lpn===0 || bd[k].length===0) continue;   // the same guard every other builder has: lonePairDirs fills the tetrahedron regardless, so without it a hydrogen got three 'lone pairs' (the four-petal flowers) and a three-bonded carbon one
+        for(const d of lonePairDirs(bd[k], lpn)) put(q[0],q[1],q[2], q[0]+d[0]*0.75,q[1]+d[1]*0.75,q[2]+d[2]*0.75, LOBE_W, c, q[0],q[1],q[2], 2000); }
       return { core, bond };
     };
     const linearOrb = (nm, F, els, offs) => {
