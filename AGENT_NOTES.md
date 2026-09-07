@@ -90,9 +90,11 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   memR is part of the slab tier and is off with it (`gSlabLod`).
 - The membrane slab tier is OFF by default (`gSlabLod`, dev button 'laatta-LoD'): lipids at every
   distance, no sheet wrap, slab hidden. The protein hull handover still uses memR.
-- Free ATP, ADP and Pi (1000 each, stroma) are rigid free species built from the spawn tool's cartoon
-  geometry (`MOL_BUILD`, moved above the free-species block with `reachOf`), bonds inferred by distance
-  (1.35 x bond length) for the orbital set. `RIGID_FREE` lists every rigid species for the picker, the
+- Free ATP, ADP and Pi (1000 each, stroma) are rigid free species. ADP is carved out of the real NADP
+  model by fixed atom indices (`adpFromNadp`: adenosine + both pyrophosphate phosphates, file bonds kept),
+  ATP adds a gamma phosphate tetrahedrally on O5D, Pi is the spawn tool's PO4 tetrahedron (`MOL_BUILD`,
+  moved above the free-species block with `reachOf`) with bonds inferred by distance. The straight-line
+  cartoon is only the fallback if nadph.mol2 is missing. `RIGID_FREE` lists every rigid species for the picker, the
   trackers and the collision list (`gSpecies`). Each new species needs an id base in MOLBASE.
 - UI layout: a full-width top pill row (`#toplist`, `.pill` stretch evenly, `.pill.on` = green, state in
   `window.gTopToggles`, no other behaviour yet) and a bottom-right dock (`#btndock`) holding the gear
