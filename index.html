@@ -441,7 +441,7 @@ const ETC_TYRZ = 9;                                             // assigned geom
 // and PG is the ONLY one with a phosphate head — so a realistic mix shows all four head groups.
 const LIPID_RES = { LMG:1, DGD:2, SQD:3, LHG:4 };
 // Every cofactor type is one of five bright hues: RED, GREEN, CORAL, BLUE, PINK.
-const _RED=[1.00,0.16,0.16], _GRN=[0.16,0.90,0.36], _COR=[1.00,0.50,0.34], _BLU=[0.28,0.56,1.00], _PNK=[1.00,0.42,0.80], _ORG=[1.00,0.58,0.10];
+const _RED=[1.00,0.16,0.16], _GRN=[0.16,0.90,0.36], _COR=[1.00,0.50,0.34], _BLU=[0.28,0.56,1.00], _PNK=[1.00,0.42,0.80], _ORG=[1.00,0.58,0.10], _BABY=[0.54,0.81,0.94];   // _BABY = baby blue (#89CFF0)
 /* One stable colour per MOLECULE (residue instance). Hashing the id spreads neighbouring residues to
    far-apart hues, so two chlorophylls sitting side by side never come out the same shade, while every
    atom of one molecule shares exactly one colour - which is what makes the grouping readable. */
@@ -456,7 +456,7 @@ function molCol(id){
   return [rgb[0]+m, rgb[1]+m, rgb[2]+m];
 }
 const ETC_COL = [ [0,0,0],   // 0 unused
-  _COR,   // 1 OEC (Mn₄CaO₅)        — coral
+  _BABY,  // 1 OEC (Mn₄CaO₅)        — baby blue (was coral, owner's request 2026-09-07)
   _PNK,   // 2 pheophytin           — pink
   _BLU,   // 3 plasto/phyllo-quinone — blue
   _RED,   // 4 heme                  — red
