@@ -3950,7 +3950,7 @@ void main(void){
   let gSpeed = 0.1;           // master speed (wiggle + camera), driven by the top slider - 0.1x by default (owner's request, 2026-09-06)
   let gPaused = false;        // space bar: everything gSpeed drives stops dead and resumes where it left off
   let gApplySpeed = () => {};  // set by the speed slider below, so the space bar can re-apply it
-  let gBright = 0.70;         // global brightness multiplier (dev "lighting" slider → brightness post-process)
+  let gBright = 1.0;         // global brightness multiplier (dev "lighting" slider → brightness post-process)
   let gZoomPull = 1.0;        // how far the view slides toward the cursor when wheel-zooming (0 = straight in, 1 = cursor stays pinned). Dev slider.
   let gSat = 1.51;            // saturation, dev slider
   let gHi = 0.01;             // highlight gain (bright end only), dev slider
@@ -7357,7 +7357,7 @@ void main(void){
         // Drop the dev slider panel below this readout — both are pinned right:16px, so the panel's own
         // top ran straight through it. Measured AFTER the text above is in place (an empty readout has
         // almost no height) and only once per dev-mode enable, never every frame.
-        if(gDevPanelEl && !gDevTopSet){ const r = camcoordsEl.getBoundingClientRect();
+        if(gDevPanelEl && !gDevTopSet && !gDevPanelEl.style.left){ const r = camcoordsEl.getBoundingClientRect();   // only a RIGHT-side panel has to clear the camera readout - the panel is on the left now, so this is skipped
           if(r.height > 20){ gDevPanelEl.style.top = Math.round(r.bottom + 10) + 'px'; gDevTopSet = true; } } }
       else camcoordsEl.style.display='none'; }
     if(gMacroSel && !wholeInView()) deselectMacro();   // zoomed back in → drop the macromolecule selection, atoms become selectable
@@ -8382,7 +8382,7 @@ void main(void){
   });
   // ── Dev panel: a forward reveal/culling CONE size slider + a live camera-coordinate readout. ──
   const devPanel = document.createElement('div');
-  devPanel.style.cssText = 'position:fixed;right:16px;top:56px;z-index:22;display:none;flex-direction:column;gap:7px;'
+  devPanel.style.cssText = 'position:fixed;left:16px;top:56px;z-index:22;display:none;flex-direction:column;gap:7px;'   // on the LEFT (owner's request, 2026-09-06)
     + 'font:11px ui-monospace,monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);'
     // Anchored between the top bar and the bottom console (sc2-console is ~229 tall) instead of a bare
     // max-height, so the panel can never run underneath it — it just scrolls internally when it is taller.
@@ -8423,7 +8423,7 @@ void main(void){
     return { row, sld };
   };
   const zpG = mkGrade('zp','zoomin kohdistus', 0, 100, 100, v=>v+'%', v=>{ gZoomPull = v/100; });
-  const brG = mkGrade('br','kirkkaus',       20, 250,  70, v=>(v/100).toFixed(2)+'×', v=>{ gBright = v/100; });
+  const brG = mkGrade('br','kirkkaus',       20, 250, 100, v=>(v/100).toFixed(2)+'×', v=>{ gBright = v/100; });
   const saG = mkGrade('sa','kylläisyys',    0, 250, 151, v=>(v/100).toFixed(2)+'×', v=>{ gSat   = v/100; });
   const hiG = mkGrade('hi','huippuvalot',  -100, 100,   1, v=>(v>0?'+':'')+(v/100).toFixed(2), v=>{ gHi = v/100; });
   const shG = mkGrade('sh','varjot',       -100, 100, -50, v=>(v>0?'+':'')+(v/100).toFixed(2), v=>{ gSh = v/100; });
