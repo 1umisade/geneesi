@@ -68,7 +68,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   display:flex;align-items:center;justify-content:center}
 .zt:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 .ztlabel{font-size:11px;font-weight:bold;color:var(--brown);letter-spacing:1px}
-.pill{pointer-events:auto;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 14px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
+.pill{pointer-events:auto;flex:1 1 0;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;font:13px/1 "Courier New",monospace;color:var(--ink);background:var(--paper);border:2.5px solid var(--brown);border-radius:999px;padding:7px 10px;cursor:pointer;box-shadow:0 3px 0 var(--brown);white-space:nowrap;touch-action:manipulation}
 .pill.on{background:var(--sage);color:var(--sageink)}
 .pill:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 #darkmode-btn{position:absolute;left:16px;top:12px;z-index:12;touch-action:manipulation;
@@ -283,7 +283,7 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
-<div id="toplist" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); z-index:11; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; max-width:94vw; pointer-events:none;"></div>
+<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:nowrap; justify-content:stretch; gap:8px; padding:0 12px; box-sizing:border-box; pointer-events:none;"></div>
 <div id="padbox" style="position:fixed; left:12px; bottom:12px; width:280px; max-width:34vw; z-index:10; pointer-events:none; user-select:none; line-height:0;">
   <img id="padimg" src="controls.png" alt="" style="display:block; width:100%;">
   <img class="padhl" data-k="left"  src="left.png"  alt="" style="position:absolute; left:0; top:0; width:100%; display:none;">
@@ -10935,12 +10935,18 @@ void main(void){
      buttons keep their ids, classes and handlers - only their placement changes (inline static beats the
      absolute rules in the stylesheet). The dev panel is capped in height so it stays clear of the dock. ── */
   { const dock = document.createElement('div'); dock.id = 'btndock';
-    dock.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:14;display:flex;flex-wrap:wrap-reverse;flex-direction:row;justify-content:flex-end;align-items:flex-end;gap:6px;width:min(380px, 60vw);pointer-events:none;';   // a fixed width so the buttons wrap into a block, not one tall column
-    for(const id of ['darkmode-btn','gfx-btn','color-btn','etc-btn','dev-btn','lantern-btn','membrane-btn','memcut-btn','memonly-btn','outline-btn','shade-btn','particles-btn','vr-btn','fs-btn','settings-btn','speedbox','gpu-lbl']){
+    dock.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:14;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;pointer-events:none;';
+    /* The toggle buttons stay INSIDE the gear's menu (settings-menu) - the dock holds only the gear, the
+       fullscreen button, the speed slider and the GPU badge, and the menu is re-anchored to open UPWARD
+       from the dock, right-aligned (a drop-up, since everything sits at the bottom now). */
+    for(const id of ['settings-btn','fs-btn','speedbox','gpu-lbl']){
       const el = document.getElementById(id); if(!el) continue;
       el.style.position = 'static'; el.style.left = el.style.top = el.style.right = el.style.bottom = ''; el.style.transform = 'none'; el.style.margin = '0'; el.style.pointerEvents = 'auto';
       dock.appendChild(el); }
     document.body.appendChild(dock);
+    { const menu = document.getElementById('settings-menu');
+      if(menu){ menu.style.left = 'auto'; menu.style.top = 'auto'; menu.style.right = '16px'; menu.style.bottom = (dock.offsetHeight + 26) + 'px';
+        menu.style.alignItems = 'flex-end'; menu.style.flexDirection = 'column-reverse'; menu.style.maxHeight = 'calc(100vh - 120px)'; menu.style.overflowY = 'auto'; } }
     if(typeof devPanel !== 'undefined' && devPanel){ devPanel.style.maxHeight = 'calc(100vh - 380px)'; devPanel.style.overflowY = 'auto'; } }
   try { applyDevMode(); } catch(_){}
   setBar(1); setLbl('Valmis');

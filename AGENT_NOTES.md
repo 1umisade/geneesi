@@ -94,10 +94,11 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   geometry (`MOL_BUILD`, moved above the free-species block with `reachOf`), bonds inferred by distance
   (1.35 x bond length) for the orbital set. `RIGID_FREE` lists every rigid species for the picker, the
   trackers and the collision list (`gSpecies`). Each new species needs an id base in MOLBASE.
-- UI layout: a top pill list (`#toplist`, `.pill`, `.pill.on` = green, state in `window.gTopToggles`, no
-  other behaviour yet) and a bottom-right dock (`#btndock`) that every old button, the speed slider and
-  the GPU badge are moved into at the end of startup (inline static placement beats the stylesheet's
-  absolute rules). The dev panel is height-capped to stay clear of the dock.
+- UI layout: a full-width top pill row (`#toplist`, `.pill` stretch evenly, `.pill.on` = green, state in
+  `window.gTopToggles`, no other behaviour yet) and a bottom-right dock (`#btndock`) holding the gear
+  (`settings-btn`), fullscreen, the speed slider and the GPU badge. The toggle buttons live in the gear's
+  `settings-menu`, re-anchored at the end of startup to open UPWARD above the dock, right-aligned. The
+  dev panel is height-capped to stay clear of the dock.
 - Gamepad (DualShock, standard mapping): polled every frame, drives the keyboard's own flags edge-
   triggered (left stick A/D + W/S, right stick arrows, L1/R1 = Q/E zoom, L2/R2 = F/R roll). The picture
   bottom-left is ALWAYS shown: controls.png as the base with left/right/L1/L2/R1/R2.png stacked on it as
