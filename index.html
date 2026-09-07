@@ -302,8 +302,8 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
   <input id="boilspeed" type="range" min="0" max="30" value="10" style="width:110px; cursor:pointer;">
 </div>
 <div id="elecbox" style="position:fixed; left:50%; top:12px; transform:translateX(-50%); text-align:center; z-index:10; font:11px ui-monospace,monospace; color:#6a6a5a; user-select:none;">
-  <div style="margin-bottom:4px; letter-spacing:.5px;">elektronit <span id="elecval">0.1×</span></div>
-  <input id="elecspeed" type="range" min="0" max="30" value="1" style="width:110px; cursor:pointer;">
+  <div style="margin-bottom:4px; letter-spacing:.5px;">elektronit <span id="elecval">1.0×</span></div>
+  <input id="elecspeed" type="range" min="0" max="30" value="10" style="width:110px; cursor:pointer;">
 </div>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
@@ -1064,14 +1064,6 @@ void main(void){
   // TRUE ALPHA — every fade below is a real coverage value written to gl_FragColor.a and blended.
   // (No screen-door dither anywhere.) Depth-write stays on, so fully opaque fragments still occlude.
   float alpha = 1.0;
-#ifdef WATERBOX
-  /* Near fade: a free molecule dissolves over the last units before the camera, shell and nucleons
-     alike (the free orbitals do the same under NEARFADE), so a nucleon cluster never fills the view
-     from inside a glass shell that is too close to read. */
-  { float nearF = smoothstep(8.0, 18.0, dist);
-    if(nearF < 0.02) discard;
-    alpha *= nearF; }
-#endif
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemAnc - memCut.x)*memCut.y);   // whole-lipid cut (per-molecule anchor) — only memCut.z (the fade) is ever partial
 #endif
@@ -1597,9 +1589,6 @@ void main(void){
   alpha *= 1.0 - memCut.z * step(0.0,(vMemAnc - memCut.x)*memCut.y);   // whole-lipid cut (per-molecule anchor) — only memCut.z (the fade) is ever partial
 #endif
   alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));   // fade in inside the bubble
-#ifdef NEARFADE
-  { float nearF = smoothstep(8.0, 18.0, length(vViewPos)); if(nearF < 0.02) discard; alpha *= nearF; }   // near fade, see the imp shader
-#endif
   if(coneCos > -0.5) alpha *= 1.0 - smoothstep(coneCos*0.86, coneCos, vCang);   // soft-edged forward cone
   if(alpha < 0.004) discard;
   vec3 N = normalize(vNrmV);
@@ -1903,9 +1892,6 @@ void main(void){
   alpha *= 1.0 - memCut.z * step(0.0,(vMemAnc - memCut.x)*memCut.y);   // whole-lipid cut (per-molecule anchor) — only memCut.z (the fade) is ever partial
 #endif
   alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));   // fade in inside the camera sphere
-#ifdef NEARFADE
-  { float nearF = smoothstep(8.0, 18.0, length(vViewPos)); if(nearF < 0.02) discard; alpha *= nearF; }   // near fade, see the imp shader
-#endif
   if(coneCos > -0.5) alpha *= 1.0 - smoothstep(coneCos*0.86, coneCos, vCang);   // soft-edged forward cone
 #ifdef COFHIDE
   if(cofHideOn > 0.5){
@@ -3988,7 +3974,7 @@ void main(void){
   const BUBBLE_R = 49.5;      // camera reveal-sphere radius (Å) — atoms within it go translucent
   let gWaveT = 0;             // global thermal-shake clock (bound as uT in every atom shader)
   let gBoilT = 0, gElecT = 0;                 // the boil and electron clocks (uTb, uTe) - real seconds × their own sliders
-  let gBoilSpeed = 1, gElecSpeed = 0.1;       // dock sliders 'värinä' and 'elektronit', 1.0× = the shaders' native rates (electrons 0.1× by default - 1× was far too fast, owner 2026-09-07)
+  let gBoilSpeed = 1, gElecSpeed = 1;         // dock sliders 'värinä' and 'elektronit', 1.0× = the shaders' native rates
   let gSpeed = 0.1;           // master speed (wiggle + camera), driven by the top slider - 0.1x by default (owner's request, 2026-09-06)
   let gPaused = false;        // space bar: everything gSpeed drives stops dead and resumes where it left off
   let gApplySpeed = () => {};  // set by the speed slider below, so the space bar can re-apply it
@@ -5944,7 +5930,7 @@ void main(void){
       const orbOn = gGfxMode === 1; gOrbLive = orbOn;
       const L = deriveLod(), memR2 = L.memR*L.memR, full2 = L.memFull*L.memFull, ST = L.step;
       const oR = L.orbR, oR2 = oR*oR, bR = blockR, bM2 = (bR + 14)*(bR + 14);
-      const fp = BABYLON.Frustum.GetPlanes(cam.getTransformationMatrix()), LOBE_MARGIN = 40;   // was 14 - a lipid reaches ~30 units from its origin, so a lipid at the camera lost its lobes while its atoms were on screen
+      const fp = BABYLON.Frustum.GetPlanes(cam.getTransformationMatrix()), LOBE_MARGIN = 14;
       for(const E of sphTpl){ if(E){ E.nn=0; E.nf=0; } }
       for(let T=0;T<NTPL;T++) if(orbTpl[T]) orbTpl[T].n = 0;
       let nC = 0;
@@ -5998,7 +5984,7 @@ void main(void){
       if(!orbOn){ for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.core.setEnabled(false); E.bond.setEnabled(false); } return; }
       // the orbital budget: nearest first, adaptive to the frame rate
       { const f = engine.getFps();
-        if(f < 45) gOrbBudget = Math.max(120, gOrbBudget*0.92);   // floor 120 lipids with orbitals (was 40 - too few once the camera sits in the heads)
+        if(f < 45) gOrbBudget = Math.max(40, gOrbBudget*0.92);
         else if(f > 56) gOrbBudget = Math.min(ORB_TOTAL, gOrbBudget*1.03 + 1); }
       const budget = gOrbBudget|0;
       let cut = Infinity;
@@ -6326,7 +6312,7 @@ void main(void){
     // glow = the proton corona: same stateless positioning, but the fragment draws a soft additive red disc
     const wMat=(rad, solid, glow, bias, outline)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':'')+(bias?'b':''),scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
-        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','coneCos','boxLo','boxHi','memY','memHalf','shellSkip','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias'],
+        uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','memY','memHalf','shellSkip','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias'],
         samplers:['shellTex','molTex'],
         defines: (NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
                       : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']) });
@@ -6338,7 +6324,6 @@ void main(void){
       // AFTER realAlpha, which sets the blend mode to COMBINE - the corona has to be additive to read as light
       if(glow){ m.alphaMode = BABYLON.Constants.ALPHA_ADD; m.disableDepthWrite = true; }
       m.onBindObservable.add(()=>{const eff=m.getEffect();if(!eff)return; eff.setFloat('uT',gWaveT);
-        eff.setFloat('boil', (bias || glow || solid) ? 0 : gBoil);   // the free shells boil like the protein vdW ('boil' was never listed here, so it stayed 0) - nucleons, coronas and solid balls stay still
         eff.setFloat('bubbleR', solid ? 0 : gCrisp);   // glass only where the orbitals are actually drawn
         if(!glow) bindPLight(eff);
         eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi); eff.setFloat('memY', MEMBRANE_Y); eff.setFloat('memHalf', gMemHalfT);
@@ -6542,7 +6527,7 @@ void main(void){
     const wOrbMat = (nm, shader, attrs, extra, defs) => {
       const m = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes:attrs,
         uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','nElec','selCenter','focusId','coneCos','drawElec'].concat(extra||[]),
-        defines: ['#define NEARFADE'].concat(defs||[]) });   // free orbitals fade out close to the camera, together with their shells
+        defines: defs||[] });
       m.setFloat('bubbleR',1e9); m.setFloat('nElec',2); m.setFloat('coneCos',-1.0); m.setFloat('drawElec',1);
       m.setVector3('selCenter', new BABYLON.Vector3(1e6,1e6,1e6)); m.setFloat('focusId',-1); m.backFaceCulling=true;
       m.onBindObservable.add(()=>{ const eff=m.getEffect(); if(!eff) return; eff.setFloat('uT',gWaveT);
@@ -7269,25 +7254,18 @@ void main(void){
         const cp=cam.position, R=gCrisp, R2=R*R;
         const T = gWaveT + Math.min(engine.getDeltaTime(), 50) * 0.001 * gSpeed; live.T = T;
         let n=0;
-        /* Two passes: the molecules close enough to be REVEALED (inside BUBBLE_R their shells turn to glass,
-           so whatever is inside must be drawn) take the slots first, then the rest of the crisp zone fills
-           what is left of CAP. One index-ordered pass let molecules far out in the zone use up the cap while
-           a molecule right at the camera got none - a glass shell with a bare nucleon cluster inside, the
-           'free floating nuclei' seen all over the stroma once ATP / ADP / Pi were 1000 each. */
-        const NEAR2 = (BUBBLE_R + 12) * (BUBBLE_R + 12);
-        for(let pass=0; pass<2 && n<CAP; pass++){ const lo2 = pass ? NEAR2 : 0, hi2 = pass ? R2 : NEAR2;
         for(let i=0;i<F.n && n<CAP;i++){
           const px=bnc(F.c[i*3]  +F.v[i*3]  *T, bLo.x, bHi.x);
-          const dx=px-cp.x; if(dx*dx>hi2) continue;
+          const dx=px-cp.x; if(dx*dx>R2) continue;
           const py=bncY(F.c[i*3+1], F.v[i*3+1], T);
-          const dy=py-cp.y; if(dx*dx+dy*dy>hi2) continue;
+          const dy=py-cp.y; if(dx*dx+dy*dy>R2) continue;
           const pz=bnc(F.c[i*3+2]+F.v[i*3+2]*T, bLo.z, bHi.z);
-          const dz=pz-cp.z; const d2=dx*dx+dy*dy+dz*dz; if(d2>hi2 || d2<lo2) continue;
+          const dz=pz-cp.z; if(dx*dx+dy*dy+dz*dz>R2) continue;
           const md=(F.base+i)*4;   // same mirror, same order: displacement first, then the shells
           _lp[0]=px+gMolDisp[md]; _lp[1]=py+gMolDisp[md+1]; _lp[2]=pz+gMolDisp[md+2];
           repelShells(_lp);
           pick[n]=i; pos[n*3]=_lp[0]; pos[n*3+1]=_lp[1]; pos[n*3+2]=_lp[2]; n++;
-        } }
+        }
         for(let k=0;k<n;k++){
           const i=pick[k], px=pos[k*3], py=pos[k*3+1], pz=pos[k*3+2];
           frameOf(i, T, _R9);   // canonical → this molecule (its frame with the spin composed on), no allocation
@@ -11040,7 +11018,7 @@ void main(void){
   { const host = document.getElementById('toplist'); window.gTopToggles = {};
     /* Every pill is worth 0.5 points (owner's request, 2026-09-07 - the per-difficulty scale was dropped).
        [name, points] is kept so the values can be varied again. Shown with a decimal comma. */
-    const PILLS = [['p-orbitaali',0.5],['ATP-syntaasi',0.5],['hiilidioksidi',0.5],['klorofylli',0.5],['plastokinoni',0.5],['ferredoksiini',0.5],['fotoni',0.5],['fotosysteemi I',0.5],['fotosysteemi II',0.5],
+    const PILLS = [['p-orbitaali',0.5],['ATP-syntaasi',0.5],['hiilidioksidi',0.5],['Oxygen-Evolving Complex',0.5],['klorofylli',0.5],['plastokinoni',0.5],['ferredoksiini',0.5],['fotoni',0.5],['fotosysteemi I',0.5],['fotosysteemi II',0.5],
                    ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5],['typpiatomi',0.5],['plastosyaani',0.5],['vesi',0.5],['happi',0.5],['karotenoidi',0.5]];
     const PILL_PTS = Object.fromEntries(PILLS), PILL_NAMES = PILLS.map(x => x[0]), PILL_TOTAL = PILLS.reduce((a,x) => a + x[1], 0);
     const fmtP = v => String(Math.round(v * 2) / 2).replace('.', ',');   // 4.5 -> '4,5'
@@ -11074,7 +11052,7 @@ void main(void){
     const photon = () => { const t = cam.target, r = window.__photonNearest ? window.__photonNearest(t.x, t.y, t.z) : null; return r ? { pos: new BABYLON.Vector3(r[0], r[1], r[2]), dist: 60 } : null; };
     const PILL_GOTO = {
       'p-orbitaali': atom('C', 'Chlorophyll'), 'ATP-syntaasi': protein('ATP synthase'), 'hiilidioksidi': free('co2'),
-      'klorofylli': protein('Chlorophyll'), 'plastokinoni': protein('Plastoquinone'),
+      'Oxygen-Evolving Complex': residue(1, 'Photosystem II'), 'klorofylli': protein('Chlorophyll'), 'plastokinoni': protein('Plastoquinone'),
       'ferredoksiini': protein('Ferredoxin'), 'fotoni': photon, 'fotosysteemi I': protein('Photosystem I'), 'fotosysteemi II': protein('Photosystem II'),
       'rikkiatomi': atom('S', 'Ferredoxin'), 'magnesium-atomi': atom('MG', 'Chlorophyll'), 'vetyioni': free('p'), 'piisidos': dblBond('Chlorophyll'),
       'NADP+': free('nadp'), 'sytokromi b6f': protein('Cytochrome b6f'), 'fosfaatti': free('pi'), 'ATP': free('atp'),

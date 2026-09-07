@@ -96,7 +96,7 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   moved above the free-species block with `reachOf`) with bonds inferred by distance. The straight-line
   cartoon is only the fallback if nadph.mol2 is missing. `RIGID_FREE` lists every rigid species for the picker, the
   trackers and the collision list (`gSpecies`). Each new species needs an id base in MOLBASE.
-- UI layout: a full-width top pill row (`#toplist`, 22 pills in `PILLS` as [name, points], every one 0,5, RIGHT-click flies the camera to the thing via `PILL_GOTO` / `window.gPillFly(name)` - proteins by model label, cofactors by ETC residue type, atoms by element in a named model, free species and photons through `window.__freeNearest` / `window.__photonNearest`, wrapping, `.pill.on` =
+- UI layout: a full-width top pill row (`#toplist`, 23 pills in `PILLS` as [name, points], every one 0,5, RIGHT-click flies the camera to the thing via `PILL_GOTO` / `window.gPillFly(name)` - proteins by model label, cofactors by ETC residue type, atoms by element in a named model, free species and photons through `window.__freeNearest` / `window.__photonNearest`, wrapping, `.pill.on` =
   green, state in `window.gTopToggles`, no other behaviour yet) with a score card (`#scorebox`, 'Pisteet n', no total
   = the sum of the points of the pills that are on, in half-point steps (0,5 - 2,5), no dots,
   `window.updateScore`) and a plain 10-minute countdown card (`#timerbox`, stops at 0:00 and turns red, click = reset) stacked above the controller picture and a bottom-right dock (`#btndock`) holding the gear
@@ -114,12 +114,7 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   speed slider `gSpeed`. The vdW boil (`uTb`, `gBoilT`) and the orbital electrons (`uTe`, `gElecT`) have their
   OWN clocks and dock sliders ('värinä', 'elektronit', 1.0× = the shaders' native rates), pushed into every
   ShaderMaterial through `gShaderMats` each frame (registered in `onNewMaterialAddedObservable` before the
-  effect compiles, like `boilHzAdj`). Space pauses all three. Electrons default 0,1× (1× was far too fast).
-- Free molecules near the camera: their shells go glass inside `gCrisp`, and they FADE OUT over the last
-  8-18 units before the camera (imp shader under WATERBOX, orb/bond shaders under NEARFADE) so a nucleon
-  cluster never fills the view. The free shells boil (the `boil` uniform must be LISTED in `wMat`'s uniforms
-  or it stays 0). Rigid free species hand their orbital slots to the revealed molecules first. Lipid orbital
-  pass: frustum margin 40 on the lipid origin, budget floor 120.
+  effect compiles, like `boilHzAdj`). Space pauses all three.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a
