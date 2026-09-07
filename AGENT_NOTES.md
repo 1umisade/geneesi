@@ -109,6 +109,11 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 
 ## Pitfalls already paid for
 
+- NUCLEON instance matrices carry the atom centre in m[3], m[7], m[11] (world0.w, world1.w, world2.w),
+  read by the imp vertex shader so a nucleus hashes its jitter and sway from the atom centre, not from
+  each nucleon's own position (which scattered the cluster off centre). Never zero those slots, never
+  let Babylon sync bounds from those meshes (`doNotSyncBoundingInfo`), and any new nucleon writer must
+  pack them too (the lipid pool has a second writer that does not yet - those nucleons fall back).
 - `hash2` overflowed float64 until `Math.imul` was used; rotamer picks were all 0.
 - Sway phase must be seeded from the lipid origin, or some lipids lose their vdW spheres.
 - ETC group centroids are already normalised - do not divide by n again.

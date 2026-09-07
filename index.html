@@ -788,12 +788,25 @@ void main(void){
   // The thermal shake stays ON outside the crisp zone too - the far tier has to drift and sway exactly
   // like the near tier, or the boundary shows up as a line between moving and frozen geometry. Only the
   // BOIL hash (three fract/sin per vertex) is dropped out there.
-  vec3 wc = shake(base);
+  /* The point the sway phase and the boil hash are taken from is the ATOM CENTRE. A shell IS its
+     atom's centre, but a nucleon sits up to 0.05 off it, and the boil hash of that point is a different
+     random number - so every nucleon of a nucleus jittered on its own and the cluster sat off the
+     centre of its shell and its orbitals, worst while everything wiggled. A nucleon instance now
+     carries its atom's centre in the three unused w slots of its matrix (world0.w, world1.w, world2.w,
+     zero on every other instance), and hashes from that. */
+  vec3 hb = base;
+  { vec3 pc = vec3(W[0].w, W[1].w, W[2].w);
+    if(dot(pc, pc) > 0.0){ hb = pc;
+#ifdef LIPTILE
+      hb += tileOff;
+#endif
+    } }
+  vec3 wc = base + (shake(hb) - hb);
 #ifndef CHEAP
   if(boil > 0.001){ float bt = floor(uT * 7.0);   // stepped clock → jitter jumps ~7x/sec (hand-drawn boil, not smooth)
-    float hx = fract(sin(dot(base, vec3(12.9898, 78.233, 37.719)) + bt) * 43758.5453) - 0.5;
-    float hy = fract(sin(dot(base, vec3(93.989, 47.271, 23.157)) + bt*2.3) * 19349.663) - 0.5;
-    float hz = fract(sin(dot(base, vec3(39.346, 11.135, 83.155)) + bt*1.7) * 24634.633) - 0.5;
+    float hx = fract(sin(dot(hb, vec3(12.9898, 78.233, 37.719)) + bt) * 43758.5453) - 0.5;
+    float hy = fract(sin(dot(hb, vec3(93.989, 47.271, 23.157)) + bt*2.3) * 19349.663) - 0.5;
+    float hz = fract(sin(dot(hb, vec3(39.346, 11.135, 83.155)) + bt*1.7) * 24634.633) - 0.5;
     wc += boil * 0.2 * vec3(hx, hy, hz);   // small per-atom drift — the SHAPE warp itself is done in the fragment, this is just a little life
   }
 #endif
@@ -4179,7 +4192,7 @@ void main(void){
         for(let i=0;i<A;i++){
           const idx = a*A+i, o = idx*16;
           nb[o]=1; nb[o+5]=1; nb[o+10]=1; nb[o+15]=1;              // identity rotation/scale
-          nb[o+12] = cx + fcc[i][0]*sc; nb[o+13] = cy + fcc[i][1]*sc; nb[o+14] = cz + fcc[i][2]*sc;
+          nb[o+12] = cx + fcc[i][0]*sc; nb[o+13] = cy + fcc[i][1]*sc; nb[o+14] = cz + fcc[i][2]*sc; nb[o+3] = cx; nb[o+7] = cy; nb[o+11] = cz;   // the atom centre, packed in the unused w slots (see the imp vertex shader)
           const proton = Math.floor((i+1)*Z/A) > Math.floor(i*Z/A);   // spread Z protons evenly through the A nucleons
           const col = proton ? PC : NC, co = idx*4;
           nc[co]=col[0]; nc[co+1]=col[1]; nc[co+2]=col[2]; nc[co+3]=proton?1:0;   // alpha flags proton for the red rim
@@ -4793,7 +4806,7 @@ void main(void){
         entry = { cx,cy,cz, mi:modelOf(cx,cy,cz), meshes:[], nuc:null, sphere:null, macro:true, r:cellHalfDiag, visOn:false, nucOn:false, sphOn:false, k };
         macroCellByKey.set(k, entry); cellList.push(entry);
       }
-      if(c.nucM.length){ const m=BABYLON.MeshBuilder.CreatePlane('cn'+k,{size:2},scene); m.material=nucMatG; m.isPickable=false;
+      if(c.nucM.length){ const m=BABYLON.MeshBuilder.CreatePlane('cn'+k,{size:2},scene); m.material=nucMatG; m.isPickable=false; m.doNotSyncBoundingInfo=true;   // the matrices carry the atom centre in their w slots - Babylon must not derive bounds from them
         m.thinInstanceSetBuffer('matrix', new Float32Array(c.nucM),16,true);
         m.thinInstanceSetBuffer('instanceColor', new Float32Array(c.nucC),4,true);
         m.thinInstanceSetBuffer('modelId', mdlBuf(c.nucM),1,true);
@@ -5965,7 +5978,7 @@ void main(void){
         const px=pos[k*3], py=pos[k*3+1], pz=pos[k*3+2];
         for(let i=0;i<A;i++){ const proton=Math.floor((i+1)*Z/A)>Math.floor(i*Z/A), o=ni*16;
           mt[o]=1;mt[o+5]=1;mt[o+10]=1;mt[o+15]=1;
-          mt[o+12]=px+fcc[i][0]*SPACING; mt[o+13]=py+fcc[i][1]*SPACING; mt[o+14]=pz+fcc[i][2]*SPACING;
+          mt[o+12]=px+fcc[i][0]*SPACING; mt[o+13]=py+fcc[i][1]*SPACING; mt[o+14]=pz+fcc[i][2]*SPACING; mt[o+3]=px; mt[o+7]=py; mt[o+11]=pz;   // atom centre in the w slots
           const c=proton?[1.0,0.5,0.5]:[0.62,0.62,0.62];
           cl[ni*4]=c[0];cl[ni*4+1]=c[1];cl[ni*4+2]=c[2];cl[ni*4+3]=0; ni++; } }
       return {mt,cl};
@@ -5990,7 +6003,7 @@ void main(void){
     const POOL = 10;   // tiles per leaflet that carry nuclei at once
     const nucPool = [];
     for(let leaf=0;leaf<2;leaf++) for(let p=0;p<POOL;p++){
-      const mesh=BABYLON.MeshBuilder.CreatePlane('lipNuc'+leaf+'_'+p,{size:2},scene);
+      const mesh=BABYLON.MeshBuilder.CreatePlane('lipNuc'+leaf+'_'+p,{size:2},scene); mesh.doNotSyncBoundingInfo=true;   // w slots carry the atom centre
       mesh.material=nucMatL; mesh.isPickable=false; mesh.alwaysSelectAsActiveMesh=true; mesh.renderingGroupId=1;
       mesh.thinInstanceSetBuffer('instanceColor', nucTplV[0][leaf][0].cl,4,true);
       mesh.thinInstanceSetBuffer('matrix', nucTplV[0][leaf][0].mt,16,true);
@@ -7692,7 +7705,7 @@ void main(void){
   const selNucMat = impostorMat('selNucMat', NUCLEON_R, 0.0, 1.0);   // isShell=0, protonOutline on
   selNucMat.setFloat('bubbleR', 1e9); selNucMat.setFloat('coneCos', -1.0);   // always visible (never gated by bubble or cone)
   selNucMat.depthFunction = BABYLON.Constants.ALWAYS; selNucMat.disableDepthWrite = true;   // depth handled by the stencil gate
-  const selNuc = BABYLON.MeshBuilder.CreatePlane('selNuc', {size:2}, scene);
+  const selNuc = BABYLON.MeshBuilder.CreatePlane('selNuc', {size:2}, scene); selNuc.doNotSyncBoundingInfo = true;   // w slots carry the atom centre
   selNuc.material=selNucMat; selNuc.isPickable=false; selNuc.setEnabled(false); selNuc.renderingGroupId=3; selNuc.alwaysSelectAsActiveMesh=true;
   selNuc.onBeforeRenderObservable.add(() => {
     engine.setStencilBuffer(true); engine.setStencilMask(0x00);   // read stencil, don't modify it
@@ -7718,7 +7731,7 @@ void main(void){
     selNucA=A; selNucCtr.set(cx,cy,cz);
     for(let i=0;i<A;i++){ const o=i*16;
       selNucM[o]=1;selNucM[o+5]=1;selNucM[o+10]=1;selNucM[o+15]=1;
-      selNucM[o+12]=cx+fcc[i][0]*SPACING; selNucM[o+13]=cy+fcc[i][1]*SPACING; selNucM[o+14]=cz+fcc[i][2]*SPACING;
+      selNucM[o+12]=cx+fcc[i][0]*SPACING; selNucM[o+13]=cy+fcc[i][1]*SPACING; selNucM[o+14]=cz+fcc[i][2]*SPACING; selNucM[o+3]=cx; selNucM[o+7]=cy; selNucM[o+11]=cz;
       const proton=Math.floor((i+1)*Z/A)>Math.floor(i*Z/A), c=proton?[1.0,0.5,0.5]:[0.62,0.62,0.62];
       selNucC[i*4]=c[0];selNucC[i*4+1]=c[1];selNucC[i*4+2]=c[2];selNucC[i*4+3]=proton?1:0; }
     selNuc.thinInstanceSetBuffer('matrix', selNucM,16,true); selNuc.thinInstanceSetBuffer('instanceColor', selNucC,4,true);
@@ -8911,7 +8924,7 @@ void main(void){
   const spawnMeshFor = sym => {
     let rec = spawnMeshes.get(sym); if(rec) return rec;
     const nuc = BABYLON.MeshBuilder.CreatePlane('spwN_'+sym,{size:2},scene);
-    nuc.material = spawnNucMat; nuc.isPickable=false; nuc.alwaysSelectAsActiveMesh=true; nuc.renderingGroupId=1;
+    nuc.material = spawnNucMat; nuc.isPickable=false; nuc.alwaysSelectAsActiveMesh=true; nuc.renderingGroupId=1; nuc.doNotSyncBoundingInfo=true;   // w slots carry the atom centre
     const orb = BABYLON.MeshBuilder.CreateSphere('spwO_'+sym,{segments:3,diameter:1},scene);
     orb.material = orbSpawnMat; orb.isPickable=false; orb.alwaysSelectAsActiveMesh=true;   // always-shown orbitals, inline electrons, stable phase
     rec = { nuc, orb }; spawnMeshes.set(sym, rec); return rec;
@@ -8945,7 +8958,7 @@ void main(void){
       for(let ai=0; ai<n; ai++){ const at=atoms[ai], cx=at.x, cy=at.y, cz=at.z;
         for(let i=0;i<A;i++){ const idx=ai*A+i, o=idx*16;
           nMb[o]=1;nMb[o+5]=1;nMb[o+10]=1;nMb[o+15]=1;
-          nMb[o+12]=cx+fcc[i][0]*SPACING; nMb[o+13]=cy+fcc[i][1]*SPACING; nMb[o+14]=cz+fcc[i][2]*SPACING;
+          nMb[o+12]=cx+fcc[i][0]*SPACING; nMb[o+13]=cy+fcc[i][1]*SPACING; nMb[o+14]=cz+fcc[i][2]*SPACING; nMb[o+3]=cx; nMb[o+7]=cy; nMb[o+11]=cz;
           const proton = Math.floor((i+1)*Z/A) > Math.floor(i*Z/A);
           nCb[idx*4]=proton?1.0:0.62; nCb[idx*4+1]=proton?0.5:0.62; nCb[idx*4+2]=proton?0.5:0.62; nCb[idx*4+3]=proton?1:0; }
         let w=ai*oc, li=0;
