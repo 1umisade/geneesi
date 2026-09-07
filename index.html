@@ -624,7 +624,8 @@ attribute vec3 atomOff;
 uniform mat4 view;
 uniform mat4 projection;
 uniform float radius;
-uniform float uT;        // thermal-shake time (0 = still)
+uniform float uT;
+uniform float boilHzAdj;        // thermal-shake time (0 = still)
 uniform float boil;      // line-boil: STEPPED per-atom jitter of the billboard centre (0 = off)
 #if defined(LIPTILE) || defined(LIPWRAP)
 uniform vec3 tileOff;    // per-mesh translation - the nucleon pool shares ONE template buffer with it, and
@@ -807,7 +808,7 @@ void main(void){
     } }
   vec3 wc = base + (shake(hb) - hb);
 #ifndef CHEAP
-  if(boil > 0.001){ float bt = floor(uT * 7.0);   // stepped clock → jitter jumps ~7x/sec (hand-drawn boil, not smooth)
+  if(boil > 0.001){ float bt = floor(uT * (7.0 + boilHzAdj));   // stepped clock → jitter jumps ~7x/sec (hand-drawn boil, not smooth)
     float hx = fract(sin(dot(hb, vec3(12.9898, 78.233, 37.719)) + bt) * 43758.5453) - 0.5;
     float hy = fract(sin(dot(hb, vec3(93.989, 47.271, 23.157)) + bt*2.3) * 19349.663) - 0.5;
     float hz = fract(sin(dot(hb, vec3(39.346, 11.135, 83.155)) + bt*1.7) * 24634.633) - 0.5;
@@ -887,7 +888,8 @@ BABYLON.Effect.ShadersStore['impFragmentShader'] = `
 #extension GL_OES_standard_derivatives : enable
 precision highp float;
 uniform mat4 projection;
-uniform float uT;        // shared clock → the moving electric-blue shimmer
+uniform float uT;
+uniform float boilHzAdj;        // shared clock → the moving electric-blue shimmer
 uniform float radius;
 uniform vec3 fogColor;
 uniform float fogStart;
@@ -1037,7 +1039,7 @@ void main(void){
   if(boil > 0.001){                          // WARP the silhouette (not just shift): push the disc radius in/out
     float zc0 = sqrt(max(0.0, 1.0 - min(r2, 1.0)));
     vec3 nW = vWB0 * vUV.x + vWB1 * vUV.y + vWB2 * (-zc0);   // world-space surface normal → lumps ride WITH the sphere
-    float bt = floor(uT * 7.0);              // stepped clock → the wobble redraws ~7x/sec (hand-drawn boil, not smooth)
+    float bt = floor(uT * (7.0 + boilHzAdj));              // stepped clock → the wobble redraws ~7x/sec (hand-drawn boil, not smooth)
     float lump = sin(nW.x * 5.5 + vWCen.x * 0.6 + bt)
                + sin(nW.y * 5.5 + vWCen.y * 0.6 + bt * 1.3)
                + sin(nW.z * 5.5 + vWCen.z * 0.6 + bt * 0.7);   // ±3 world-locked lumpy field, per-atom phase from vWCen
@@ -1225,7 +1227,8 @@ attribute float modelId;                       // which loaded model this cofact
 uniform mat4 view; uniform mat4 projection;
 uniform mat4 modelXform[80];                   // per-model transform so the silhouette follows a moved molecule
 uniform float boilQuad;                        // quad expansion so the boil bulge is not clipped
-uniform float uT; uniform float boil;
+uniform float uT;
+uniform float boilHzAdj; uniform float boil;
 varying vec2 vq; varying vec3 vWC;
 void main(void){
   vec3 base = vec3(world3.x, world3.y, world3.z);
@@ -1234,7 +1237,7 @@ void main(void){
   // SAME per-atom MOTION as the vdW sphere shader: always-on thermal shake + stepped boil drift, so the
   // mask disc rides WITH each wobbling atom (this is what the outline was missing).
   vec3 wc = base + 0.12*vec3(sin(uT*1.3+base.x*0.12+base.y*0.08), sin(uT*1.1+base.y*0.12+base.z*0.08), sin(uT*1.6+base.z*0.12+base.x*0.08));
-  if(boil > 0.001){ float bt = floor(uT*7.0);
+  if(boil > 0.001){ float bt = floor(uT * (7.0 + boilHzAdj));
     float hx = fract(sin(dot(base, vec3(12.9898,78.233,37.719))+bt)*43758.5453)-0.5;
     float hy = fract(sin(dot(base, vec3(93.989,47.271,23.157))+bt*2.3)*19349.663)-0.5;
     float hz = fract(sin(dot(base, vec3(39.346,11.135,83.155))+bt*1.7)*24634.633)-0.5;
@@ -2726,6 +2729,11 @@ async function run(){
   engine.setHardwareScalingLevel(chooseScale());
   // (No resize adjustment either: the quality slider's choice stands whatever the window does.)
   const scene = new BABYLON.Scene(engine);
+  /* Boil rate (dev slider 'jiggle-nopeus'): the stepped jitter clock in the impostor and cofactor-mask
+     shaders runs at (7 + boilHzAdj) jumps per second. The uniform is pushed into every ShaderMaterial as
+     it is created (before its effect compiles), so no material's uniform list has to name it. */
+  let gBoilHz = 7;
+  scene.onNewMaterialAddedObservable.add(m => { if(m instanceof BABYLON.ShaderMaterial) m.setFloat('boilHzAdj', gBoilHz - 7); });
   scene.skipPointerMovePicking = true;   // perf: we never auto-pick on pointer-move (all picking is done manually in our own handlers)
   scene.clearColor = new BABYLON.Color4(0.055,0.135,0.082,1);   // static dark green (matches the bg quad)
   scene.fogMode  = BABYLON.Scene.FOGMODE_NONE;                 // NO distance darkening — every atom keeps its true colour at any depth
@@ -8458,6 +8466,12 @@ void main(void){
   bSld.type='range'; bSld.min='0'; bSld.max='20'; bSld.value='20'; bSld.style.cssText='width:100%;cursor:pointer;';   // default 0.2 = the top of the range (max 20 on request, 2026-09-06)
   const bValEl = bRow.querySelector('#dev-b-val');
   bSld.oninput = () => { const v = +bSld.value; gBoil = v/100; bValEl.textContent = v===0 ? 'off' : gBoil.toFixed(2); };
+  // Boil RATE: how many times per second the jitter redraws (0-20, the built-in 7 by default).
+  const bhRow = document.createElement('div'); bhRow.innerHTML = 'vdW-pallojen jiggle-nopeus: <b id="dev-bh-val">7</b> /s';
+  const bhSld = document.createElement('input'); bhSld.type='range'; bhSld.min='0'; bhSld.max='20'; bhSld.value='7'; bhSld.style.cssText='width:100%;cursor:pointer;';
+  const bhValEl = bhRow.querySelector('#dev-bh-val');
+  bhSld.oninput = () => { gBoilHz = +bhSld.value; bhValEl.textContent = String(gBoilHz);
+    for(const m of scene.materials) if(m instanceof BABYLON.ShaderMaterial) m.setFloat('boilHzAdj', gBoilHz - 7); };
   // Cofactor see-through cone — width AT the atom (tip) and toward the CAMERA (base).
   const ctRow = document.createElement('div'); ctRow.innerHTML = 'cone tip (atom): <b id="dev-ct-val">0.12</b>';
   const ctSld = document.createElement('input'); ctSld.type='range'; ctSld.min='0'; ctSld.max='100'; ctSld.value='12'; ctSld.style.cssText='width:100%;cursor:pointer;';   // 0 = point tip
@@ -8637,7 +8651,7 @@ void main(void){
   devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
-  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld); devPanel.appendChild(bRow); devPanel.appendChild(bSld);
+  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld); devPanel.appendChild(bRow); devPanel.appendChild(bSld); devPanel.appendChild(bhRow); devPanel.appendChild(bhSld);
   // Membrane slab tier on/off (see gSlabLod).
   const slRow = document.createElement('div'); const slBtn = document.createElement('button');
   const syncSl = () => { slBtn.textContent = gSlabLod ? 'laatta-LoD: ON' : 'laatta-LoD: OFF'; slBtn.style.cssText = cullStyle(gSlabLod); };
