@@ -96,8 +96,8 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   moved above the free-species block with `reachOf`) with bonds inferred by distance. The straight-line
   cartoon is only the fallback if nadph.mol2 is missing. `RIGID_FREE` lists every rigid species for the picker, the
   trackers and the collision list (`gSpecies`). Each new species needs an id base in MOLBASE.
-- UI layout: a full-width top pill row (`#toplist`, 18 pills in `PILLS` as [name, points], wrapping, `.pill.on` =
-  green, state in `window.gTopToggles`, no other behaviour yet) with a score card (`#scorebox`, 'Pisteet n / 41'
+- UI layout: a full-width top pill row (`#toplist`, 17 pills in `PILLS` as [name, points], every one 0,5, wrapping, `.pill.on` =
+  green, state in `window.gTopToggles`, no other behaviour yet) with a score card (`#scorebox`, 'Pisteet n', no total
   = the sum of the points of the pills that are on, in half-point steps (0,5 - 2,5), no dots,
   `window.updateScore`) above the controller picture and a bottom-right dock (`#btndock`) holding the gear
   (`settings-btn`), fullscreen, the speed slider and the GPU badge. The toggle buttons live in the gear's
