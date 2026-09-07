@@ -8359,7 +8359,7 @@ void main(void){
   const bRow = document.createElement('div');
   bRow.innerHTML = 'vdW-pallojen jiggle (boil): <b id="dev-b-val">0.20</b>';   // the stepped per-atom jitter (gBoil) - this slider existed but was never attached to the panel until 2026-09-06
   const bSld = document.createElement('input');
-  bSld.type='range'; bSld.min='0'; bSld.max='100'; bSld.value='20'; bSld.style.cssText='width:100%;cursor:pointer;';   // default 0.2
+  bSld.type='range'; bSld.min='0'; bSld.max='20'; bSld.value='20'; bSld.style.cssText='width:100%;cursor:pointer;';   // default 0.2 = the top of the range (max 20 on request, 2026-09-06)
   const bValEl = bRow.querySelector('#dev-b-val');
   bSld.oninput = () => { const v = +bSld.value; gBoil = v/100; bValEl.textContent = v===0 ? 'off' : gBoil.toFixed(2); };
   // Cofactor see-through cone — width AT the atom (tip) and toward the CAMERA (base).
