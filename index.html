@@ -620,7 +620,8 @@ attribute vec3 atomOff;
 uniform mat4 view;
 uniform mat4 projection;
 uniform float radius;
-uniform float uT;        // thermal-shake time (0 = still)
+uniform float uT;
+uniform float shakeMul;        // thermal-shake time (0 = still)
 uniform float boil;      // line-boil: STEPPED per-atom jitter of the billboard centre (0 = off)
 #if defined(LIPTILE) || defined(LIPWRAP)
 uniform vec3 tileOff;    // per-mesh translation - the nucleon pool shares ONE template buffer with it, and
@@ -655,7 +656,7 @@ attribute float memAnc;
 attribute float groupId;   // per-cofactor-atom group index → the fragment brightens the hovered / flashing group
 varying float vGid;
 #endif
-vec3 shake(vec3 p){ return p + 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shake(vec3 p){ return p + (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef WATERBOX
 // Free water: the molecule flies at a constant velocity and reflects off the container walls. Folding
 // (start + v*t) into a TRIANGLE WAVE gives exactly that, analytically, with no state - so 20000 molecules
@@ -1208,7 +1209,8 @@ attribute float modelId;                       // which loaded model this cofact
 uniform mat4 view; uniform mat4 projection;
 uniform mat4 modelXform[80];                   // per-model transform so the silhouette follows a moved molecule
 uniform float boilQuad;                        // quad expansion so the boil bulge is not clipped
-uniform float uT; uniform float boil;
+uniform float uT;
+uniform float shakeMul; uniform float boil;
 varying vec2 vq; varying vec3 vWC;
 void main(void){
   vec3 base = vec3(world3.x, world3.y, world3.z);
@@ -1216,7 +1218,7 @@ void main(void){
   vWC = base;                                   // raw centre → the boil warp's world-locked field (matches the imp shader)
   // SAME per-atom MOTION as the vdW sphere shader: always-on thermal shake + stepped boil drift, so the
   // mask disc rides WITH each wobbling atom (this is what the outline was missing).
-  vec3 wc = base + 0.12*vec3(sin(uT*1.3+base.x*0.12+base.y*0.08), sin(uT*1.1+base.y*0.12+base.z*0.08), sin(uT*1.6+base.z*0.12+base.x*0.08));
+  vec3 wc = base + (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+base.x*0.12+base.y*0.08), sin(uT*1.1+base.y*0.12+base.z*0.08), sin(uT*1.6+base.z*0.12+base.x*0.08));
   if(boil > 0.001){ float bt = floor(uT*7.0);
     float hx = fract(sin(dot(base, vec3(12.9898,78.233,37.719))+bt)*43758.5453)-0.5;
     float hy = fract(sin(dot(base, vec3(93.989,47.271,23.157))+bt*2.3)*19349.663)-0.5;
@@ -1338,7 +1340,8 @@ attribute float oid;       // orbital id (hybrid = 1000+i, π = 900, lone pair =
 uniform mat4 view;
 uniform mat4 projection;
 uniform vec3 selCenter;
-uniform float uT;          // thermal-shake time
+uniform float uT;
+uniform float shakeMul;          // thermal-shake time
 #ifdef MACROMOVE
 uniform mat4 macroXform; uniform vec3 macroCenter;
 #endif
@@ -1378,7 +1381,7 @@ attribute vec3 localDir;
    back knobs, pi lobes and lone pairs stay symmetric ellipsoids. */
 attribute float prof;
 #endif
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/orb shaders exactly so a lipid's bonds ride with its atoms.
 uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 restores the rigid sheet
@@ -1651,7 +1654,8 @@ attribute vec4 world3;
 uniform mat4 view;
 uniform mat4 projection;
 uniform vec3 selCenter;    // focused atom centre (or far away = none selected)
-uniform float uT;          // thermal-shake time
+uniform float uT;
+uniform float shakeMul;          // thermal-shake time
 #ifdef MACROMOVE
 uniform mat4 macroXform; uniform vec3 macroCenter;  // whole-macromolecule drag offset (only movable materials define this)
 #endif
@@ -1683,7 +1687,7 @@ uniform vec3 tileOff;    // membrane wrap - see the imp shader
    which normalize(position) can no longer recover, and ocen, which is now lipid-local. */
 attribute vec3 localDir;
 #endif
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 #ifdef MEMFADE
 // Membrane fluid sway — must match the imp/bond shaders exactly so a lipid's orbitals ride with it.
 uniform float memDrift;   // lateral crowd-shuffle amplitude (scene units) - 0 restores the rigid sheet
@@ -1909,6 +1913,7 @@ uniform mat4 view;
 uniform mat4 projection;
 uniform vec3 selCenter;
 uniform float uT;
+uniform float shakeMul;
 varying vec3 vViewPos;
 varying vec3 vNrmV;
 varying vec3 vCol;
@@ -1921,7 +1926,7 @@ varying float vMid;      // spawn orbitals are not model-tagged (always -1) but 
 #ifdef MEMFADE
 varying vec3 vMemW; uniform vec3 memCut;
 #endif
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
   // Shake by the lobe's world position (like the protein AND the outline shader) → all of an atom's
@@ -2132,12 +2137,13 @@ attribute vec4 world2;
 attribute vec4 world3;
 uniform mat4 view;
 uniform mat4 projection;
-uniform float uT;          // thermal-shake time (matches the orbital shake so the outline follows)
+uniform float uT;
+uniform float shakeMul;          // thermal-shake time (matches the orbital shake so the outline follows)
 uniform vec3 selDelta;     // how far fillOutline already shifted these lobes off their BAKED spot
 varying vec3 vVP;
 varying vec3 vN;
 varying float vR;          // the lobe's world radius (largest axis) - the fragment shader sizes the stroke by how big that is on screen
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
   // Sample the shake at the lobe's PRE-transform centre - the exact point the orb shader samples. These
@@ -2203,8 +2209,9 @@ attribute vec4 world3;
 uniform mat4 view;
 uniform mat4 projection;
 uniform float uT;
+uniform float shakeMul;
 uniform vec3 selDelta;   // see the hlo shader - keeps the mask on the outline's phase
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
   vec4 wp = W * vec4(position, 1.0); wp.xyz += shakeOff(W[3].xyz - selDelta);
@@ -2219,7 +2226,8 @@ precision highp float;
 attribute vec3 position;
 attribute vec4 world0; attribute vec4 world1; attribute vec4 world2; attribute vec4 world3;
 uniform mat4 view; uniform mat4 projection; uniform float uT;
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+uniform float shakeMul;
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 void main(void){ mat4 W = mat4(world0, world1, world2, world3);
   vec4 wp = W * vec4(position, 1.0); wp.xyz += shakeOff(W[3].xyz);
   gl_Position = projection * view * wp; }`;
@@ -2245,11 +2253,12 @@ uniform mat4 modelXform[80];   // per-model transform - the tori must follow the
 uniform mat4 macroXform;
 uniform vec3 macroCenter;
 uniform float uT;
+uniform float shakeMul;
 varying vec3 vViewPos;
 varying vec3 vNrmV;
 varying vec3 vLoc;
 varying vec3 vRcol;
-vec3 shakeOff(vec3 p){ return 0.12*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
+vec3 shakeOff(vec3 p){ return (0.12*(1.0+shakeMul))*vec3(sin(uT*1.3+p.x*0.12+p.y*0.08), sin(uT*1.1+p.y*0.12+p.z*0.08), sin(uT*1.6+p.z*0.12+p.x*0.08)); }
 void main(void){
   mat4 W = mat4(world0, world1, world2, world3);
   vec4 wp = W * vec4(position, 1.0); wp.xyz += shakeOff(W[3].xyz);
@@ -2709,6 +2718,12 @@ async function run(){
   engine.setHardwareScalingLevel(chooseScale());
   // (No resize adjustment either: the quality slider's choice stands whatever the window does.)
   const scene = new BABYLON.Scene(engine);
+  /* vdW wiggle amplitude (dev slider). Every shader that shakes with the atoms (the impostors, the orbital,
+     bond, mask, outline and ring shaders) scales its 0.12 by (1 + shakeMul). The uniform is pushed into
+     every ShaderMaterial the moment it is created, before its effect compiles, so no material's uniform
+     list has to name it - and the slider then re-sets it on all of them. */
+  let gShakeMul = 0;
+  scene.onNewMaterialAddedObservable.add(m => { if(m instanceof BABYLON.ShaderMaterial) m.setFloat('shakeMul', gShakeMul); });
   scene.skipPointerMovePicking = true;   // perf: we never auto-pick on pointer-move (all picking is done manually in our own handlers)
   scene.clearColor = new BABYLON.Color4(0.055,0.135,0.082,1);   // static dark green (matches the bg quad)
   scene.fogMode  = BABYLON.Scene.FOGMODE_NONE;                 // NO distance darkening — every atom keeps its true colour at any depth
@@ -8488,6 +8503,12 @@ void main(void){
   const plSld = document.createElement('input'); plSld.type='range'; plSld.min='0'; plSld.max='30'; plSld.value='0'; plSld.style.cssText='width:100%;cursor:pointer;';
   const plValEl = plRow.querySelector('#dev-pl-val');
   plSld.oninput = () => { gPLR = +plSld.value; plValEl.textContent = String(gPLR); };
+  // vdW sphere wiggle amplitude (the thermal shake every atom-following shader shares) - 100 % = the built-in 0.12.
+  const wgRow = document.createElement('div'); wgRow.innerHTML = 'vdW-pallojen värinä: <b id="dev-wg-val">100</b> %';
+  const wgSld = document.createElement('input'); wgSld.type='range'; wgSld.min='0'; wgSld.max='300'; wgSld.value='100'; wgSld.style.cssText='width:100%;cursor:pointer;';
+  const wgValEl = wgRow.querySelector('#dev-wg-val');
+  wgSld.oninput = () => { const v = +wgSld.value; gShakeMul = v/100 - 1; wgValEl.textContent = String(v);
+    for(const m of scene.materials) if(m instanceof BABYLON.ShaderMaterial) m.setFloat('shakeMul', gShakeMul); };
   blSld.value = String(Math.round(gMemBlend)); blValEl.textContent = String(Math.round(gMemBlend));
   // Speed of the loose proteins drifting in the box, and how many protons have gone through ATP synthase
   const psRow = document.createElement('div');
@@ -8541,7 +8562,7 @@ void main(void){
   devPanel.appendChild(backRow); devPanel.appendChild(qRow); devPanel.appendChild(qSld);   // render-resolution slider - it was built but had fallen out of the panel
   devPanel.appendChild(czRow); devPanel.appendChild(czSld);
   devPanel.appendChild(mgRow); devPanel.appendChild(mgSld);
-  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld);
+  devPanel.appendChild(blRow); devPanel.appendChild(blSld); devPanel.appendChild(sdRow); devPanel.appendChild(sdSld); devPanel.appendChild(plRow); devPanel.appendChild(plSld); devPanel.appendChild(wgRow); devPanel.appendChild(wgSld);
   // Membrane slab tier on/off (see gSlabLod).
   const slRow = document.createElement('div'); const slBtn = document.createElement('button');
   const syncSl = () => { slBtn.textContent = gSlabLod ? 'laatta-LoD: ON' : 'laatta-LoD: OFF'; slBtn.style.cssText = cullStyle(gSlabLod); };
