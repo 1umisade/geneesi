@@ -1026,7 +1026,11 @@ void main(void){
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemAnc - memCut.x)*memCut.y);   // whole-lipid cut (per-molecule anchor) — only memCut.z (the fade) is ever partial
 #endif
-  float edge = smoothstep(bubbleR - 8.0, bubbleR, dist);      // 0 inside the reveal radius, 1 beyond it
+  /* The reveal band is 40 units wide (it was 8): as you approached a complex, the cells inside the
+     crisp radius turned to glass with their orbitals lit while the next ones were still solid, and the
+     8-unit ramp read as a hard line between light and dark sweeping over the protein. Forty units
+     spreads that change over a zone. The orbital, bond and electron shaders use the same 40. */
+  float edge = smoothstep(bubbleR - 40.0, bubbleR, dist);      // 0 inside the reveal radius, 1 beyond it
   float perp = (vCenterV.z > 0.0) ? length(vCenterV.xy)/vCenterV.z : 1e9;   // tan(angle) from the view axis → forward cone (matches the orbital shaders)
   float inCone = (coneCos < -0.5) ? 1.0 : 1.0 - smoothstep(coneCos*0.86, coneCos, perp);   // soft-edged cone rim
   float reveal = (1.0 - edge) * inCone;                       // 1 = orbitals/nuclei show here, 0 = vdW shell
@@ -1544,7 +1548,7 @@ void main(void){
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemAnc - memCut.x)*memCut.y);   // whole-lipid cut (per-molecule anchor) — only memCut.z (the fade) is ever partial
 #endif
-  alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));   // fade in inside the bubble
+  alpha *= 1.0 - smoothstep(bubbleR - 40.0, bubbleR, length(vViewPos));   // fade in inside the bubble
   if(coneCos > -0.5) alpha *= 1.0 - smoothstep(coneCos*0.86, coneCos, vCang);   // soft-edged forward cone
   if(alpha < 0.004) discard;
   vec3 N = normalize(vNrmV);
@@ -1613,7 +1617,7 @@ void main(void){
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemW.z - memCut.x)*memCut.y);   // hard cut plane — only memCut.z (the 2.5 s fade) is ever partial
 #endif
-  alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));   // fade in inside the bubble
+  alpha *= 1.0 - smoothstep(bubbleR - 40.0, bubbleR, length(vViewPos));   // fade in inside the bubble
   if(alpha < 0.004) discard;
   vec3 N = normalize(vNrmV);
   vec3 c = vCol;   // flat - the silhouette/fresnel terms below are what give these lobes their shape
@@ -1846,7 +1850,7 @@ void main(void){
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemAnc - memCut.x)*memCut.y);   // whole-lipid cut (per-molecule anchor) — only memCut.z (the fade) is ever partial
 #endif
-  alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));   // fade in inside the camera sphere
+  alpha *= 1.0 - smoothstep(bubbleR - 40.0, bubbleR, length(vViewPos));   // fade in inside the camera sphere
   if(coneCos > -0.5) alpha *= 1.0 - smoothstep(coneCos*0.86, coneCos, vCang);   // soft-edged forward cone
 #ifdef COFHIDE
   if(cofHideOn > 0.5){
@@ -2013,7 +2017,7 @@ void main(void){
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemW.z - memCut.x)*memCut.y);   // hard cut plane — only memCut.z (the 2.5 s fade) is ever partial
 #endif
-  alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));
+  alpha *= 1.0 - smoothstep(bubbleR - 40.0, bubbleR, length(vViewPos));
   if(coneCos > -0.5) alpha *= 1.0 - smoothstep(coneCos*0.86, coneCos, vCang);
   if(alpha < 0.004) discard;
   float ne = (vCol.r > 0.82 && vCol.g > 0.82 && vCol.b > 0.82) ? 1.0 : nElec;
@@ -2098,7 +2102,7 @@ void main(void){
 #ifdef MEMFADE
   alpha *= 1.0 - memCut.z * step(0.0,(vMemW.z - memCut.x)*memCut.y);   // hard cut plane — only memCut.z (the 2.5 s fade) is ever partial
 #endif
-  alpha *= 1.0 - smoothstep(bubbleR - 8.0, bubbleR, length(vViewPos));
+  alpha *= 1.0 - smoothstep(bubbleR - 40.0, bubbleR, length(vViewPos));
   if(coneCos > -0.5) alpha *= 1.0 - smoothstep(coneCos*0.86, coneCos, vCang);
   if(alpha < 0.004) discard;
   float foc = (focusId >= 0.0 && vSel > 0.5 && abs(vOid - focusId) > 0.5) ? 0.05 : 1.0;   // isolate → other orbitals' electrons dim to  5%
