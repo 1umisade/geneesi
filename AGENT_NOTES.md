@@ -114,7 +114,12 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   speed slider `gSpeed`. The vdW boil (`uTb`, `gBoilT`) and the orbital electrons (`uTe`, `gElecT`) have their
   OWN clocks and dock sliders ('värinä', 'elektronit', 1.0× = the shaders' native rates), pushed into every
   ShaderMaterial through `gShaderMats` each frame (registered in `onNewMaterialAddedObservable` before the
-  effect compiles, like `boilHzAdj`). Space pauses all three.
+  effect compiles, like `boilHzAdj`). Space pauses all three. Electrons default 0,1× (1× was far too fast).
+- Free molecules near the camera: their shells go glass inside `gCrisp`, and they FADE OUT over the last
+  8-18 units before the camera (imp shader under WATERBOX, orb/bond shaders under NEARFADE) so a nucleon
+  cluster never fills the view. The free shells boil (the `boil` uniform must be LISTED in `wMat`'s uniforms
+  or it stays 0). Rigid free species hand their orbital slots to the revealed molecules first. Lipid orbital
+  pass: frustum margin 40 on the lipid origin, budget floor 120.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a
