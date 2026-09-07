@@ -11005,8 +11005,8 @@ void main(void){
   { const host = document.getElementById('toplist'); window.gTopToggles = {};
     /* Every pill is worth 0.5 points (owner's request, 2026-09-07 - the per-difficulty scale was dropped).
        [name, points] is kept so the values can be varied again. Shown with a decimal comma. */
-    const PILLS = [['p-orbitaali',0.5],['ATP-syntaasi',0.5],['hiilidioksidi',0.5],['Oxygen-Evolving Complex',0.5],['klorofylli',0.5],['plastokinoni',0.5],['ferredoksiini',0.5],['fotoni',0.5],['fotosysteemi',0.5],
-                   ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5]];
+    const PILLS = [['p-orbitaali',0.5],['ATP-syntaasi',0.5],['hiilidioksidi',0.5],['Oxygen-Evolving Complex',0.5],['klorofylli',0.5],['plastokinoni',0.5],['ferredoksiini',0.5],['fotoni',0.5],['fotosysteemi I',0.5],['fotosysteemi II',0.5],
+                   ['rikkiatomi',0.5],['magnesium-atomi',0.5],['vetyioni',0.5],['piisidos',0.5],['NADP+',0.5],['sytokromi b6f',0.5],['fosfaatti',0.5],['ATP',0.5],['typpiatomi',0.5],['plastosyaani',0.5],['vesi',0.5],['happi',0.5]];
     const PILL_PTS = Object.fromEntries(PILLS), PILL_NAMES = PILLS.map(x => x[0]), PILL_TOTAL = PILLS.reduce((a,x) => a + x[1], 0);
     const fmtP = v => String(Math.round(v * 2) / 2).replace('.', ',');   // 4.5 -> '4,5'
     window.gPillPoints = PILL_PTS;
