@@ -3512,7 +3512,7 @@ void main(void){
        left stick   LIIKU    → A/D strafe, W/S up/down on screen
        right stick  KATSO    → arrow keys, yaw / pitch
        L1 / R1      LOITONNA / LÄHENNÄ → Q / E, out / in along the view
-       L2 / R2      KALLISTA → N / M, roll
+       L2 / R2      KALLISTA → M / N, roll
      The picture bottom-left (controls.png) is ALWAYS shown - above the vignette, and never hidden by
      the idle-cursor rule. The six highlight images (left/right/L1/L2/R1/R2.png, the owner's files, source
      kontrollit.psd) are transparent layers stacked on it, each shown while its control is in use - so
@@ -3538,7 +3538,7 @@ void main(void){
       const lx = ax[0], ly = ax[1], rx = ax[2], ry = ax[3];
       setKey('a', lx < -DZ); setKey('d', lx > DZ); setKey('w', ly < -DZ); setKey('s', ly > DZ);
       setKey('ArrowLeft', rx < -DZ); setKey('ArrowRight', rx > DZ); setKey('ArrowUp', ry < -DZ); setKey('ArrowDown', ry > DZ);
-      setKey('q', b(4)); setKey('e', b(5)); setKey('n', b(6)); setKey('m', b(7));
+      setKey('q', b(4)); setKey('e', b(5)); setKey('m', b(6)); setKey('n', b(7));
       showHl('left', Math.hypot(lx,ly) > DZ); showHl('right', Math.hypot(rx,ry) > DZ);
       showHl('L1', b(4)); showHl('R1', b(5)); showHl('L2', b(6)); showHl('R2', b(7));
     };
@@ -3568,7 +3568,7 @@ void main(void){
     let ya=0, pa=0, ra=0;
     if(arrowKeys.ArrowLeft) ya -= rot; if(arrowKeys.ArrowRight) ya += rot;   // ← / → → yaw (look left / right), continuous while held
     if(arrowKeys.ArrowUp) pa += rot; if(arrowKeys.ArrowDown) pa -= rot;      // ↑ / ↓ → pitch (hold ↑ → backflip)
-    if(wasdKeys.m) ra += rot; if(wasdKeys.n) ra -= rot;                      // M / N → roll (tilt the horizon left / right)
+    if(wasdKeys.n) ra += rot; if(wasdKeys.m) ra -= rot;                      // N / M → roll (N tilts left, M right / clockwise)
     if(!ya && !pa && !ra) return;
     const pos = cam.position, t = cam.getTarget();
     _flF.set(t.x-pos.x, t.y-pos.y, t.z-pos.z); const dist=_flF.length()||50; _flF.scaleInPlace(1/dist);   // forward
@@ -10801,7 +10801,7 @@ void main(void){
     const rows = [['Keskinapin veto','pyöritä kameraa'],['Rulla','lähennys'],['Keskinappi + rulla','hidas lähennys'],
       ['W / S','ylös ja alas'],['A / D','sivuaskel'],['E / Q','lähennä ja loitonna'],['Nuolinäppäimet','katso ympärille'],['Oikea klikkaus','siirräkäsky'],['Tuplaklikkaus','valitse atomi/kofaktori'],
       ['Minikartan klikkaus','panoroi kohtaan'],['O (pohjassa)','himmennä muut'],['I','oletusnäkymä'],
-      ['H','piilota käyttöliittymä'],['K','maalausefekti'],['M / N','kallista vasemmalle ja oikealle'],['M','valittu molekyyli liikkeelle'],['X','pysäytä molekyylit']];
+      ['H','piilota käyttöliittymä'],['K','maalausefekti'],['N / M','kallista vasemmalle ja oikealle'],['M','valittu molekyyli liikkeelle'],['X','pysäytä molekyylit']];
     sc.innerHTML = '<b style="font-size:12.5px;color:var(--brown)">Pikanäppäimet</b><br>'
       + rows.map(([k,v]) => '<span style="color:var(--brown);font-weight:bold">'+k+'</span> — '+v).join('<br>');
     document.body.appendChild(sc); gShortcuts = sc; }
