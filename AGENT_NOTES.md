@@ -200,9 +200,26 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
   over the lobes and hid them. Element colours only, no cofactor tints in the editor.
 - Nucleons take no boil DRIFT (imp vertex shader, `#ifndef NUCLEON`): 0.02 units is invisible on a shell but
   a nucleon width on a nucleus and made every nucleus hop. Applies to the viewer's nucG too.
-- Camera: ArcRotate looking along +Z at the plane, the viewer's scheme - WASD pans the target on the plane,
-  arrows turn, Q/E zoom, N/M roll, wheel zooms toward the cursor (detent ramp + smoothing), middle/right drag
-  look, LEFT drag pans, merged gamepads, I resets, space pauses the simulation. Held keys ramp 5 % -> 100 % in 3.5 s.
+- Camera: ArcRotate, the viewer's FLIGHT - E/Q in and out along the view, A/D strafe, W/S screen-up/down
+  (target and camera move together, so it passes through the plane), arrows turn, N/M roll, wheel zooms toward
+  the cursor (detent ramp + smoothing), middle/right drag look, LEFT drag pans, merged gamepads, I resets, space
+  pauses. No beta limits. Held keys ramp 5 % -> 100 % in 3.5 s.
+- Selection: a left CLICK (< 4 px of motion) picks by a ray against every molecule's bounding sphere
+  (`pickMol`, shared with the eraser): shells tint sage (proteins via the shader's selModel), `#valinta` card
+  names it, the target eases onto it (`focusAnim`). Empty click or Esc clears.
+- 2D / 3D toggle (`#mode3d-btn`): in 3D the arena is an 840 x 472 x 472 box (HD 236), particles get vz, bounce
+  in z and tumble about their own axis (`ax3`) instead of the z-spin + rock. Back to 2D flattens z.
+- List thumbnails = the info cards' pictures: atoms and molecules are rendered into `thumbRT` (128 px, transparent)
+  with the card's recipe - lobes + nucleus only, no shell, alpha -pi/2.5, beta pi/2.7, fov 0.7, radius 3 x the
+  orbital cloud (`sp.orbR`), one per frame from a queue that starts after 30 frames (the first frames still
+  compile and drew partial atoms), a blank result is retried. A protein gets the card's dot image
+  (`drawProteinDots`, the viewer's drawProteinImage in a pastel of its own). File-based species join the queue
+  when they load. A background preload (1.5 s after start, small files first, proteins smallest to largest)
+  fetches and builds every file-based species so all pictures appear and a drop is instant. Species lobe
+  arrays are typed (Float32Array) - every protein resident is ~1 GB heap.
+- Electron spot size: the orb/bond shaders (all variants) scale the highlight exponents and the ripple by the
+  lobe's mean diameter (`vLobeR`, from the instance matrix), so the spot has one size in world units on every
+  lobe - it used to be a fixed ANGLE, huge on a hydrogen 1s and a dot on a horn.
   `window.gVesi` exposes spawn / remove / mols / SPECIES / ensureSpecies / cam for tests.
 
 Moving molecules and the boil (both modes): the imp shader hashes the stepped boil offset and the silhouette
