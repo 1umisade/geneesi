@@ -17,7 +17,6 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 - Models: the `*.mol2` files in the root. `Chlorophyll.mol` is the 2D structural formula.
 - `PERFORMANCE.md` (Finnish): the page must run on the discrete GPU. Never fix a GPU problem by
   editing the registry or OS settings - the owner forbade it. The GPU name is shown bottom-right.
-- `smooth.html` is an old experiment, not part of the site.
 - Language of the owner: Finnish, messages often in fast informal English with typos. They
   test on their own machine and describe what they see. Ask when the ask is ambiguous.
 
