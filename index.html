@@ -890,7 +890,9 @@ void main(void){
     float hx = fract(sin(dot(hb, vec3(12.9898, 78.233, 37.719)) + bt) * 43758.5453) - 0.5;
     float hy = fract(sin(dot(hb, vec3(93.989, 47.271, 23.157)) + bt*2.3) * 19349.663) - 0.5;
     float hz = fract(sin(dot(hb, vec3(39.346, 11.135, 83.155)) + bt*1.7) * 24634.633) - 0.5;
-    wc += boil * 0.2 * vec3(hx, hy, hz);   // small per-atom drift — the SHAPE warp itself is done in the fragment, this is just a little life
+#ifndef NUCLEON
+    wc += boil * 0.2 * vec3(hx, hy, hz);   // small per-atom drift - the SHAPE warp itself is done in the fragment, this is just a little life. NOT the nucleons: 0.02 is invisible on a shell but a nucleon width on a nucleus, and made every nucleus hop
+#endif
   }
 #endif
 #ifdef MEMFADE
@@ -11402,7 +11404,8 @@ const PAPER = new BABYLON.Color3(0.949, 0.902, 0.788);
 scene.clearColor = new BABYLON.Color4(PAPER.r, PAPER.g, PAPER.b, 1);
 scene.fogColor = PAPER; scene.fogStart = 1e8; scene.fogEnd = 1e9;
 scene.skipPointerMovePicking = true;
-const HW = 420, HH = 236, DETAIL_R = 90;   // half extents of the arena (840 x 472 Å - RuBisCO's 140 Å is a sixth of the width), and how close the camera must be for a protein's nuclei and orbitals to draw
+scene.setRenderingAutoClearDepthStencil(1, false);   // shells and nuclei (group 1) are depth-tested against the orbitals (group 0), as in the viewer - a lobe in front of a shell surface stays uncovered
+const HW = 420, HH = 236;   // half extents of the arena (840 x 472 Å - RuBisCO's 140 Å is a sixth of the width)
 const CAM_R0 = HH / Math.tan(0.4) * 1.08;
 const cam = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, Math.PI/2, CAM_R0, new BABYLON.Vector3(0, 0, 0), scene);
 cam.fov = 0.8; cam.minZ = 0.3; cam.maxZ = 9000; cam.lowerRadiusLimit = 2.5; cam.upperRadiusLimit = 5000; cam.lowerBetaLimit = 0.25; cam.upperBetaLimit = Math.PI - 0.25;
@@ -11420,7 +11423,7 @@ const FAR = new BABYLON.Vector3(1e6, 1e6, 1e6), SAGE = new BABYLON.Color3(0.64,0
 const MAXMODEL = 80; const gModelXform = new Float32Array(MAXMODEL*16), gModelCol = new Float32Array(48*3); for(let i=0;i<MAXMODEL;i++){ gModelXform[i*16]=1; gModelXform[i*16+5]=1; gModelXform[i*16+10]=1; gModelXform[i*16+15]=1; }
 const IMP_U = ['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','uTb','boil','boilHzAdj','depthBias','selCenter','coneCos','selModel','selCol'];
 const MM_U = ['modelXform','modelCol','colorMode','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'];
-const REVEAL = 70;   // glass + orbitals within this camera distance, an opaque ball beyond (the viewer's convention, so a protein seen from afar is a solid body)
+const REVEAL = 132;   // glass + orbitals within this camera distance (the viewer's gCrisp), an opaque ball beyond. 70 stacked shells that were already half opaque a few dozen units out into a wall that hid every lobe inside a protein
 const impMat = (nm, shell, defs, movable) => { const m = new BABYLON.ShaderMaterial(nm, scene, 'imp', { attributes:['position','instanceColor','world0','world1','world2','world3'].concat(shell ? ['instR'] : []).concat(movable ? ['modelId'] : []), uniforms: IMP_U.concat(movable ? MM_U : []), defines: defs });
   m.setFloat('radius', shell ? 1.0 : NUCLEON_R); m.setFloat('isShell', shell ? 1 : 0); m.setFloat('shellMin', shell ? 0.22 : 0); m.setFloat('revealFade', shell ? 0.95 : 0);
   m.setFloat('bubbleR', shell ? REVEAL : 1e9); m.setFloat('protonOutline', 0); m.setFloat('depthBias', shell ? 0 : NUC_BIAS); m.setFloat('boil', BOIL); m.setFloat('boilHzAdj', 0);
@@ -11434,14 +11437,19 @@ const orbMat = (nm, shader, attrs, extra, defs, movable) => { const m = new BABY
   m.setFloat('selModel', -1); m.setColor3('selCol', SAGE); m.setFloat('focusAmt', 0); m.setFloat('focusMode', 0); m.setVector3('focusCenterV', FAR); m.setFloat('focusR', 0); m.setFloat('focusDark', 0); if(movable){ m.setFloat('colorMode', 0); m.setFloat('focusGroup', -1); }
   m.backFaceCulling = true; return realAlpha(m); };
 const CORE_A = ['position','normal','ocol','ocen','oid','world0','world1','world2','world3'], BOND_A = ['position','normal','taper','prof','ocen','bcol','oid','world0','world1','world2','world3'];
-const dynShell = impMat('dynShell', true, ['#define IMPRAD','#define NOSWAY']), dynNuc = impMat('dynNuc', false, ['#define NOSWAY']);
+const dynShell = impMat('dynShell', true, ['#define IMPRAD','#define NOSWAY']), dynNuc = impMat('dynNuc', false, ['#define NOSWAY','#define NUCLEON']);
 const dynCore = orbMat('dynCore', 'orb', CORE_A), dynBond = orbMat('dynBond', 'bond', BOND_A, ['opacity'], ['#define HORNPROF']); dynBond.setFloat('nElec', 1); dynBond.setFloat('opacity', 1);
 const protShell = impMat('protShell', true, ['#define IMPRAD','#define MODELMOVE'], true), protNuc = impMat('protNuc', false, ['#define MODELMOVE','#define NUCLEON'], true);
 const protCore = orbMat('protCore', 'orb', CORE_A, null, null, true), protBond = orbMat('protBond', 'bond', BOND_A, ['opacity'], ['#define HORNPROF'], true); protBond.setFloat('nElec', 1); protBond.setFloat('opacity', 1);
-const ALL_MATS = [dynShell, dynNuc, dynCore, dynBond, protShell, protNuc, protCore, protBond];
+/* the CHEAP tier - the viewer's vdwLODfar: an OPAQUE flat-shaded ball, no reveal, no boil, plain depth write (early-Z) */
+const protCheap = new BABYLON.ShaderMaterial('protCheap', scene, 'imp', { attributes:['position','instanceColor','instR','modelId','world0','world1','world2','world3'], uniforms: IMP_U.concat(MM_U), defines:['#define IMPRAD','#define MODELMOVE','#define CHEAP'] });
+protCheap.setFloat('radius',1.0); protCheap.setFloat('isShell',0); protCheap.setFloat('shellMin',0); protCheap.setFloat('revealFade',0); protCheap.setFloat('bubbleR',1e9); protCheap.setFloat('protonOutline',0); protCheap.setFloat('depthBias',0); protCheap.setFloat('boil',0); protCheap.setFloat('boilHzAdj',0);
+protCheap.setFloat('coneCos',-1.0); protCheap.setVector3('selCenter', FAR); protCheap.setFloat('selModel',-1); protCheap.setColor3('selCol', SAGE); protCheap.setFloat('colorMode',0); protCheap.setFloat('focusAmt',0); protCheap.setFloat('focusMode',0); protCheap.setVector3('focusCenterV', FAR); protCheap.setFloat('focusR',0); protCheap.setFloat('focusGroup',-1); protCheap.setFloat('focusDark',0);
+protCheap.backFaceCulling = false; protCheap.forceDepthWrite = true;
+const ALL_MATS = [dynShell, dynNuc, dynCore, dynBond, protShell, protNuc, protCore, protBond, protCheap];
 for(const m of ALL_MATS) m.onBindObservable.add(() => { const e = m.getEffect(); if(!e) return;
   e.setFloat('uT', uT); e.setFloat('uTb', uTb); e.setFloat('uTe', uTe); e.setColor3('fogColor', scene.fogColor); e.setFloat('fogStart', scene.fogStart); e.setFloat('fogEnd', scene.fogEnd);
-  if(m === protShell || m === protNuc || m === protCore || m === protBond){ e.setMatrices('modelXform', gModelXform); e.setArray3('modelCol', gModelCol); e.setFloat('colorMode', 0); } });
+  if(m === protShell || m === protNuc || m === protCore || m === protBond || m === protCheap){ e.setMatrices('modelXform', gModelXform); e.setArray3('modelCol', gModelCol); e.setFloat('colorMode', 0); } });
 
 /* ── the dynamic meshes for the small molecules (rebuilt every frame) ───────────────────────────── */
 const MAXMOL = 200, MAXATOM = MAXMOL*12, MAXNUC = MAXATOM*16, MAXLOBE = MAXMOL*120;
@@ -11461,20 +11469,40 @@ coreMesh.thinInstanceSetBuffer('matrix', B.coM, 16, false); coreMesh.thinInstanc
 bondMesh.thinInstanceSetBuffer('matrix', B.boM, 16, false); bondMesh.thinInstanceSetBuffer('bcol', B.boCol, 3, false); bondMesh.thinInstanceSetBuffer('ocen', B.boCen, 3, false); bondMesh.thinInstanceSetBuffer('oid', B.boOid, 1, false); bondMesh.thinInstanceSetBuffer('seed', B.boSeed, 1, false); bondMesh.thinInstanceSetBuffer('taper', B.boTap, 1, false); bondMesh.thinInstanceSetBuffer('prof', B.boProf, 1, false);
 for(const m of [shellMesh, nucMesh, coreMesh, bondMesh]) m.thinInstanceCount = 0;
 
-/* ── a protein instance: four static meshes in LOCAL coordinates, slot = its modelXform index ──── */
-const slots = new Array(MAXMODEL).fill(null);
-const protBuild = (sp, slot) => { const n = sp.atoms.length; const M = new Float32Array(n*16), C = new Float32Array(n*4), R = new Float32Array(n), ID = new Float32Array(n).fill(slot);
-  const NM = new Float32Array(sp.nucN*16), NCc = new Float32Array(sp.nucN*4), NID = new Float32Array(sp.nucN).fill(slot); let nn = 0;
-  sp.atoms.forEach((a, k) => { const o = k*16; M[o]=1; M[o+5]=1; M[o+10]=1; M[o+15]=1; M[o+12]=a.q[0]; M[o+13]=a.q[1]; M[o+14]=a.q[2]; C[k*4]=a.col[0]; C[k*4+1]=a.col[1]; C[k*4+2]=a.col[2]; C[k*4+3]=0; R[k]=a.r;
-    for(const nu of a.nuc){ const p = nn*16; NM[p]=1; NM[p+5]=1; NM[p+10]=1; NM[p+15]=1; NM[p+12]=a.q[0]+nu.o[0]; NM[p+13]=a.q[1]+nu.o[1]; NM[p+14]=a.q[2]+nu.o[2]; NM[p+3]=a.q[0]; NM[p+7]=a.q[1]; NM[p+11]=a.q[2];
-      NCc[nn*4]=nu.col[0]; NCc[nn*4+1]=nu.col[1]; NCc[nn*4+2]=nu.col[2]; NCc[nn*4+3]=nu.p; nn++; } });
-  const tag = sp.key + '_' + slot;
-  const sh = mkMesh(BABYLON.MeshBuilder.CreatePlane('psh_' + tag, {size:2}, scene), protShell, 1); sh.thinInstanceSetBuffer('matrix', M, 16, true); sh.thinInstanceSetBuffer('instanceColor', C, 4, true); sh.thinInstanceSetBuffer('instR', R, 1, true); sh.thinInstanceSetBuffer('modelId', ID, 1, true);
-  const nu = mkMesh(BABYLON.MeshBuilder.CreatePlane('pnu_' + tag, {size:2}, scene), protNuc, 1); nu.thinInstanceSetBuffer('matrix', NM, 16, true); nu.thinInstanceSetBuffer('instanceColor', NCc, 4, true); nu.thinInstanceSetBuffer('modelId', NID, 1, true);
-  const co = mkMesh(BABYLON.MeshBuilder.CreateSphere('pco_' + tag, {segments:6, diameter:1}, scene), protCore, 0); co.thinInstanceSetBuffer('matrix', new Float32Array(sp.core.m), 16, true); co.thinInstanceSetBuffer('ocol', new Float32Array(sp.core.col), 3, true); co.thinInstanceSetBuffer('ocen', new Float32Array(sp.core.cen), 3, true); co.thinInstanceSetBuffer('oid', new Float32Array(sp.core.oid), 1, true); co.thinInstanceSetBuffer('modelId', new Float32Array(sp.coreN).fill(slot), 1, true);
-  const bo = mkMesh(BABYLON.MeshBuilder.CreateSphere('pbo_' + tag, {segments:5, diameter:1}, scene), protBond, 0); bo.thinInstanceSetBuffer('matrix', new Float32Array(sp.bond.m), 16, true); bo.thinInstanceSetBuffer('bcol', new Float32Array(sp.bond.col), 3, true); bo.thinInstanceSetBuffer('ocen', new Float32Array(sp.bond.cen), 3, true); bo.thinInstanceSetBuffer('oid', new Float32Array(sp.bond.oid), 1, true); bo.thinInstanceSetBuffer('taper', new Float32Array(sp.bond.tap), 1, true); bo.thinInstanceSetBuffer('prof', new Float32Array(sp.bond.prof), 1, true); bo.thinInstanceSetBuffer('modelId', new Float32Array(sp.bondN).fill(slot), 1, true);
-  sh.thinInstanceCount = n; nu.thinInstanceCount = sp.nucN; co.thinInstanceCount = sp.coreN; bo.thinInstanceCount = sp.bondN;
-  return { sh, nu, co, bo }; };
+/* ── a protein instance: the viewer's tiers. Atoms are binned into CELL cubes (60 units, as in the
+   viewer) in LOCAL coordinates, every cell gets a crisp set (glass shell + nucleons + orbitals) and a
+   CHEAP shell mesh, and each frame a cell is crisp when its near edge is within REVEAL of the camera and
+   in the frustum, cheap otherwise (thinned by projected atom size, like the viewer's protFrac). One
+   modelXform slot moves the whole protein. ───────────────────────────────────────────────────────── */
+const slots = new Array(MAXMODEL).fill(null);   // modelXform slot -> the protein instance holding it
+const CELL = 60;
+const protBuild = (sp, slot) => {
+  const at = sp.atoms, key = (x,y,z) => Math.floor(x/CELL) + ',' + Math.floor(y/CELL) + ',' + Math.floor(z/CELL), bins = new Map();
+  const bin = (k, kind, idx) => { let b = bins.get(k); if(!b){ const [ix, iy, iz] = k.split(',').map(Number); b = { ix, iy, iz, a: [], c: [], b: [] }; bins.set(k, b); } b[kind].push(idx); };
+  at.forEach((a, k) => bin(key(a.q[0], a.q[1], a.q[2]), 'a', k));
+  for(let q=0;q<sp.coreN;q++) bin(key(sp.core.cen[q*3], sp.core.cen[q*3+1], sp.core.cen[q*3+2]), 'c', q);
+  for(let q=0;q<sp.bondN;q++) bin(key(sp.bond.cen[q*3], sp.bond.cen[q*3+1], sp.bond.cen[q*3+2]), 'b', q);
+  const tag = sp.key + '_' + slot, cells = [];
+  const sliceOf = (src, idx, w) => { const out = new Float32Array(idx.length*w); idx.forEach((q, j) => { for(let t=0;t<w;t++) out[j*w+t] = src[q*w+t]; }); return out; };
+  for(const b of bins.values()){ if(!b.a.length) continue;
+    for(let j=b.a.length-1;j>0;j--){ const r = Math.floor(Math.random()*(j+1)); const t = b.a[j]; b.a[j] = b.a[r]; b.a[r] = t; }   // shuffled, so a thinned prefix is an even spatial sample
+    const n = b.a.length; const M = new Float32Array(n*16), C = new Float32Array(n*4), R = new Float32Array(n), ID = new Float32Array(n).fill(slot);
+    let nucN = 0; for(const k of b.a) nucN += at[k].nuc.length;
+    const NM = new Float32Array(nucN*16), NCc = new Float32Array(nucN*4), NID = new Float32Array(nucN).fill(slot); let nn = 0;
+    b.a.forEach((k, j) => { const a = at[k], o = j*16; M[o]=1; M[o+5]=1; M[o+10]=1; M[o+15]=1; M[o+12]=a.q[0]; M[o+13]=a.q[1]; M[o+14]=a.q[2]; C[j*4]=a.col[0]; C[j*4+1]=a.col[1]; C[j*4+2]=a.col[2]; C[j*4+3]=0; R[j]=a.r;
+      for(const nu of a.nuc){ const p = nn*16; NM[p]=1; NM[p+5]=1; NM[p+10]=1; NM[p+15]=1; NM[p+12]=a.q[0]+nu.o[0]; NM[p+13]=a.q[1]+nu.o[1]; NM[p+14]=a.q[2]+nu.o[2]; NM[p+3]=a.q[0]; NM[p+7]=a.q[1]; NM[p+11]=a.q[2];
+        NCc[nn*4]=nu.col[0]; NCc[nn*4+1]=nu.col[1]; NCc[nn*4+2]=nu.col[2]; NCc[nn*4+3]=nu.p; nn++; } });
+    const ck = b.ix + ',' + b.iy + ',' + b.iz;
+    const sh = mkMesh(BABYLON.MeshBuilder.CreatePlane('psh_' + tag + '_' + ck, {size:2}, scene), protShell, 1); sh.thinInstanceSetBuffer('matrix', M, 16, true); sh.thinInstanceSetBuffer('instanceColor', C, 4, true); sh.thinInstanceSetBuffer('instR', R, 1, true); sh.thinInstanceSetBuffer('modelId', ID, 1, true);
+    const ch = mkMesh(BABYLON.MeshBuilder.CreatePlane('pch_' + tag + '_' + ck, {size:2}, scene), protCheap, 1); ch.thinInstanceSetBuffer('matrix', M, 16, true); ch.thinInstanceSetBuffer('instanceColor', C, 4, true); ch.thinInstanceSetBuffer('instR', R, 1, true); ch.thinInstanceSetBuffer('modelId', ID, 1, true);
+    const nu = mkMesh(BABYLON.MeshBuilder.CreatePlane('pnu_' + tag + '_' + ck, {size:2}, scene), protNuc, 1); nu.thinInstanceSetBuffer('matrix', NM, 16, true); nu.thinInstanceSetBuffer('instanceColor', NCc, 4, true); nu.thinInstanceSetBuffer('modelId', NID, 1, true);
+    const co = mkMesh(BABYLON.MeshBuilder.CreateSphere('pco_' + tag + '_' + ck, {segments:6, diameter:1}, scene), protCore, 0);
+    co.thinInstanceSetBuffer('matrix', sliceOf(sp.core.m, b.c, 16), 16, true); co.thinInstanceSetBuffer('ocol', sliceOf(sp.core.col, b.c, 3), 3, true); co.thinInstanceSetBuffer('ocen', sliceOf(sp.core.cen, b.c, 3), 3, true); co.thinInstanceSetBuffer('oid', sliceOf(sp.core.oid, b.c, 1), 1, true); co.thinInstanceSetBuffer('modelId', new Float32Array(b.c.length).fill(slot), 1, true);
+    const bo = mkMesh(BABYLON.MeshBuilder.CreateSphere('pbo_' + tag + '_' + ck, {segments:5, diameter:1}, scene), protBond, 0);
+    bo.thinInstanceSetBuffer('matrix', sliceOf(sp.bond.m, b.b, 16), 16, true); bo.thinInstanceSetBuffer('bcol', sliceOf(sp.bond.col, b.b, 3), 3, true); bo.thinInstanceSetBuffer('ocen', sliceOf(sp.bond.cen, b.b, 3), 3, true); bo.thinInstanceSetBuffer('oid', sliceOf(sp.bond.oid, b.b, 1), 1, true); bo.thinInstanceSetBuffer('taper', sliceOf(sp.bond.tap, b.b, 1), 1, true); bo.thinInstanceSetBuffer('prof', sliceOf(sp.bond.prof, b.b, 1), 1, true); bo.thinInstanceSetBuffer('modelId', new Float32Array(b.b.length).fill(slot), 1, true);
+    sh.thinInstanceCount = n; ch.thinInstanceCount = n; nu.thinInstanceCount = nucN; co.thinInstanceCount = b.c.length; bo.thinInstanceCount = b.b.length;
+    cells.push({ cx: (b.ix + 0.5)*CELL, cy: (b.iy + 0.5)*CELL, cz: (b.iz + 0.5)*CELL, cR: CELL*0.866 + 2, n, sh, ch, nu, co, bo, near: false }); }
+  return { cells }; };
 
 /* ── the molecules ─────────────────────────────────────────────────────────────────────────────── */
 const mols = []; let nextId = 1, rxId = 0;
@@ -11485,7 +11513,7 @@ const spawn = (key, x, y, vx, vy, grp) => { const sp = SPECIES[key]; if(!sp || m
     rockAx: Math.random()*6.283, rockPh: Math.random()*6.283, rockAmp: sp.isProt ? 0.06 : rnd(0.35, 0.55), born: simT, grp: grp || 0 };
   if(sp.isProt){ let slot = slots.indexOf(null); if(slot < 0){ return null; } slots[slot] = m; m.slot = slot; m.meshes = protBuild(sp, slot); }
   mols.push(m); fmt(); return m; };
-const remove = m => { const i = mols.indexOf(m); if(i >= 0) mols.splice(i, 1); if(m.meshes){ for(const k in m.meshes) m.meshes[k].dispose(); slots[m.slot] = null; } };
+const remove = m => { const i = mols.indexOf(m); if(i >= 0) mols.splice(i, 1); if(m.meshes){ for(const c of m.meshes.cells) for(const k of ['sh','ch','nu','co','bo']) c[k].dispose(); slots[m.slot] = null; } };
 const hash = (a, b) => { const v = Math.sin(a*12.9898 + b*78.233) * 43758.5453; return v - Math.floor(v); };
 const fmt = () => {};   // (the counter box was removed - the hook stays so a tally can come back cheaply)
 
@@ -11521,11 +11549,19 @@ const xf = (v, out) => { out[0] = R9[0]*v[0] + R9[1]*v[1] + R9[2]*v[2]; out[1] =
 const _v = [0,0,0], _w = [0,0,0];
 const draw = () => {
   let na = 0, nn = 0, nc = 0, nb = 0; const cp = cam.position;
+  const planes = BABYLON.Frustum.GetPlanes(cam.getTransformationMatrix()), pxK = engine.getRenderHeight() / (2 * Math.tan(cam.fov * 0.5));
+  const protFrac = d2 => { const px = 1.7 * pxK / Math.sqrt(Math.max(d2, 1)); return px >= 1.5 ? 1 : Math.max(0.0625, (px/1.5)*(px/1.5)); };   // the viewer's thinning by projected atom size
   for(const m of mols){ rotOf(m, simT); const sp = m.sp, px = m.x, py = m.y;
     if(sp.isProt){   // one matrix per model (column-major: R in the 3x3, the translation in 12..14), detail only near the camera
       const o = m.slot*16; gModelXform[o]=R9[0]; gModelXform[o+1]=R9[3]; gModelXform[o+2]=R9[6]; gModelXform[o+3]=0; gModelXform[o+4]=R9[1]; gModelXform[o+5]=R9[4]; gModelXform[o+6]=R9[7]; gModelXform[o+7]=0;
       gModelXform[o+8]=R9[2]; gModelXform[o+9]=R9[5]; gModelXform[o+10]=R9[8]; gModelXform[o+11]=0; gModelXform[o+12]=px; gModelXform[o+13]=py; gModelXform[o+14]=0; gModelXform[o+15]=1;
-      const near = Math.hypot(cp.x - px, cp.y - py, cp.z) - sp.radius < DETAIL_R; m.meshes.nu.setEnabled(near); m.meshes.co.setEnabled(near); m.meshes.bo.setEnabled(near); continue; }
+      for(const c of m.meshes.cells){ const wx = R9[0]*c.cx + R9[1]*c.cy + R9[2]*c.cz + px, wy = R9[3]*c.cx + R9[4]*c.cy + R9[5]*c.cz + py, wz = R9[6]*c.cx + R9[7]*c.cy + R9[8]*c.cz;
+        const vx = wx - cp.x, vy = wy - cp.y, vz = wz - cp.z, d2 = vx*vx + vy*vy + vz*vz; let vis = true;
+        for(let q=0;q<6;q++){ const pl = planes[q]; if(pl.normal.x*wx + pl.normal.y*wy + pl.normal.z*wz + pl.d < -c.cR){ vis = false; break; } }
+        const nr = REVEAL + c.cR + 8, near = vis && d2 < nr*nr;   // the cell's NEAR EDGE reaches the reveal distance -> crisp (the viewer's rule)
+        c.sh.setEnabled(near); c.nu.setEnabled(near); c.co.setEnabled(near); c.bo.setEnabled(near); c.ch.setEnabled(vis && !near);
+        if(vis && !near) c.ch.thinInstanceCount = Math.max(1, Math.round(c.n * protFrac(d2))); }
+      continue; }
     if(na + sp.atoms.length > MAXATOM || nc + sp.coreN > MAXLOBE || nb + sp.bondN > MAXLOBE) continue;
     sp.atoms.forEach((a, ai) => { xf(a.q, _v); const ax = px + _v[0], ay = py + _v[1], az = _v[2];
       const kx = m.id*3.7 + 1.3, ky = ai*2.9 + 0.7, kz = 0.5;   // a FIXED per-atom key in the w slots: the boil hashes from it, not from the live centre

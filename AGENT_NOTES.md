@@ -191,10 +191,15 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
   counts, RULES for the small species (H+H -> H2, O+O -> O2, H+O -> OH, OH+H -> H2O, H2+O -> H2O, H2+OH -> H2O+H,
   H2+O2 -> H2O+O, O2+H -> OH+O, OH+OH -> H2O+O), siblings of one reaction get 0.4 s grace against each other.
 - Drawing: small molecules are rebuilt every frame into four dynamic thin-instance meshes (NOSWAY + SEEDATTR,
-  fixed per-atom boil keys in the matrix w slots). A protein gets four STATIC meshes in local coordinates moved by
-  `gModelXform[slot]` (MODELMOVE, 80 slots), its nuclei and orbitals enabled only within DETAIL_R (90) of the
-  camera - from afar it is an opaque space-filling body (REVEAL 70 = the glass radius). Element colours only, no
-  cofactor tints in the editor.
+  fixed per-atom boil keys in the matrix w slots). A protein is binned into CELL = 60 cubes (the viewer's cell
+  size) in local coordinates - per cell a crisp set (glass shell, nucleons, cores, bond lobes) and a CHEAP shell
+  mesh (`protCheap`, the viewer's vdwLODfar recipe) - all moved by `gModelXform[slot]` (MODELMOVE, 80 slots).
+  Per frame the viewer's rule: crisp when the cell's near edge is within REVEAL (132 = gCrisp) and in the
+  frustum, else cheap thinned by projected atom size (protFrac), off when out of the frustum. Rendering group 1
+  keeps depth (`setRenderingAutoClearDepthStencil(1,false)`) like the viewer - without it every shell painted
+  over the lobes and hid them. Element colours only, no cofactor tints in the editor.
+- Nucleons take no boil DRIFT (imp vertex shader, `#ifndef NUCLEON`): 0.02 units is invisible on a shell but
+  a nucleon width on a nucleus and made every nucleus hop. Applies to the viewer's nucG too.
 - Camera: ArcRotate looking along +Z at the plane, the viewer's scheme - WASD pans the target on the plane,
   arrows turn, Q/E zoom, N/M roll, wheel zooms toward the cursor (detent ramp + smoothing), middle/right drag
   look, LEFT drag pans, merged gamepads, I resets, space pauses the simulation. Held keys ramp 5 % -> 100 % in 3.5 s.
