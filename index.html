@@ -293,7 +293,7 @@ html.editori #lista{display:flex}
 #lista .ohje{font-size:11px;opacity:.75;line-height:1.35}
 .atomi{display:flex;align-items:center;gap:10px;padding:7px 10px;border:2.5px solid var(--brown);border-radius:999px;background:var(--paper2);cursor:grab;touch-action:none}
 .atomi:active{cursor:grabbing}
-.atomi .pallo{display:block;width:36px;height:36px;min-width:36px;max-width:36px;min-height:36px;max-height:36px;aspect-ratio:1/1;flex:0 0 36px;align-self:center;border-radius:50%;border:2px solid var(--brown);box-sizing:border-box;background-size:cover;background-position:center}   /* pinned square - it stretched with the row on some viewports */
+.atomi .pallo{display:block;width:36px;height:36px;min-width:36px;max-width:36px;min-height:36px;max-height:36px;aspect-ratio:1/1;flex:0 0 36px;align-self:center;border-radius:50%;border:2px solid var(--brown);box-sizing:border-box;object-fit:cover;background:var(--paper2) center/cover no-repeat}   /* an IMG (a replaced element with its own square size - a span still stretched with the row on some viewports) */
 #valinta{right:16px;top:16px;max-width:260px;font-size:12px;line-height:1.35}
 #valinta b{font-size:14px}
 .atomi b{font-size:13px}
@@ -11694,7 +11694,7 @@ window.addEventListener('resize', () => engine.resize());
 const host = document.getElementById('lista-items');
 const rgb = c => 'rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')';
 const item = (key, name, sub, col, big) => { const d = document.createElement('div'); d.className = 'atomi' + (big ? ' iso' : ''); d.dataset.sp = key;
-  d.innerHTML = '<span class="pallo" style="background:' + col + '"></span><span class="nimi"><span class="nimi-in"><b>' + name + '</b><small>' + sub + '</small></span></span><span class="tila"></span>';
+  d.innerHTML = '<img class="pallo" width="36" height="36" alt="" draggable="false" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" style="background-color:' + col + '"><span class="nimi"><span class="nimi-in"><b>' + name + '</b><small>' + sub + '</small></span></span><span class="tila"></span>';
   d.addEventListener('mouseenter', () => { const nimi = d.querySelector('.nimi'), inn = d.querySelector('.nimi-in'); inn.classList.add('liuku'); const dx = inn.scrollWidth - nimi.clientWidth;
     if(dx > 2) inn.style.setProperty('--dx', (-(dx + 6)) + 'px'); else inn.classList.remove('liuku'); });   // measured at hover time, so it follows the current width
   d.addEventListener('mouseleave', () => { d.querySelector('.nimi-in').classList.remove('liuku'); });
@@ -11787,7 +11787,7 @@ const drawProteinDots = (cv2, m, col) => { const ctx = cv2.getContext('2d'), W =
   const px=k=>ox+(m.x[k]-miX)*sc, py=k=>H-(oy+(m.y[k]-miY)*sc);
   ctx.fillStyle='rgba(18,14,9,0.92)'; for(const k of idx){ ctx.beginPath(); ctx.arc(px(k), py(k), r+2.2, 0, 6.2832); ctx.fill(); }
   for(const k of idx){ const sh=0.5+0.5*((m.z[k]-miZ)/dz); ctx.fillStyle='rgb('+Math.round(col[0]*255*sh)+','+Math.round(col[1]*255*sh)+','+Math.round(col[2]*255*sh)+')'; ctx.beginPath(); ctx.arc(px(k), py(k), r, 0, 6.2832); ctx.fill(); } };
-const setThumb = (key, url) => { for(const el of host.querySelectorAll('.atomi[data-sp="' + key + '"] .pallo')){ el.style.background = 'var(--paper2) url(' + url + ') center/cover no-repeat'; } };   // the shorthand, because the item's own inline shorthand had reset size and position (a 128 px image drawn unscaled, one corner showing)
+const setThumb = (key, url) => { for(const el of host.querySelectorAll('.atomi[data-sp="' + key + '"] .pallo')){ el.src = url; el.style.backgroundColor = 'var(--paper2)'; } };
 /* The card's orbital picture for an atom or a molecule: the same 'orb' / 'bond' shaders, lobes and nucleus
    only (no vdW shell), transparent background, the card's camera (alpha -pi/2.5, beta pi/2.7, fov 0.7,
    radius 3 x the orbital cloud) - renderPreviews in the viewer does exactly this for the info card. */
