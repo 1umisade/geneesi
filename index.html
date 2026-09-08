@@ -11622,7 +11622,9 @@ host.addEventListener('pointerdown', async e => { const el = e.target.closest('.
     if(!sp || d.done || drag !== d) return;
     const p = clampXY(sp, d.last || [0, 0]); const m = spawn(d.key, p[0], p[1], 0, 0); if(!m){ tila.textContent = 'täynnä'; return; }
     m.held = true; d.m = m; }
-  catch(err){ console.error(err); tila.textContent = 'virhe'; } });
+  catch(err){ console.error(err); const msg = String(err && (err.message || err)).slice(0, 60); tila.textContent = 'virhe: ' + msg; tila.title = String(err && (err.stack || err));
+    let tb = document.getElementById('virhe-toast'); if(!tb){ tb = document.createElement('div'); tb.id = 'virhe-toast'; tb.className = 'vesi card'; tb.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);max-width:70vw;font-size:12px;display:block;z-index:12;white-space:pre-wrap'; document.body.appendChild(tb); }
+    tb.textContent = 'Lataus epäonnistui (' + d.key + '): ' + String(err && (err.stack || err)).slice(0, 400); } });
 window.addEventListener('pointermove', e => { if(!drag || e.pointerId !== drag.id) return; const p = planeOf(e); if(!p) return; drag.last = p; if(drag.m){ const q = clampXY(drag.m.sp, p); drag.m.x = q[0]; drag.m.y = q[1]; } });
 const endDrag = e => { if(!drag || e.pointerId !== drag.id) return; const d = drag; drag = null; d.done = true;
   const lb = document.getElementById('lista').getBoundingClientRect(), inList = e.clientX >= lb.left && e.clientX <= lb.right && e.clientY >= lb.top && e.clientY <= lb.bottom;
