@@ -1474,7 +1474,9 @@ varying vec3 vNrmV;
 varying vec3 vLocalDir;
 varying float vOid;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying vec3 vBcol;
 varying float vCang;
@@ -1564,7 +1566,15 @@ void main(void){
 #else
   vLocalDir = normalize(position);                 // direction on the unit lobe → where the electrons ride
 #endif
-  vLobeR = pow(max(length(W[0].xyz) * length(W[1].xyz) * length(W[2].xyz), 1e-9), 1.0/3.0);   // the lobe's mean diameter (unit-sphere mesh) - the electron spot is sized against it, so a fat hydrogen 1s and a slim horn carry the same-sized electron
+  { mat3 Am = mat3(world0.xyz, world1.xyz, world2.xyz);   // the lobe's axes (with its scale) - the fragment places each electron on the real ellipsoid surface with them
+#ifdef MODELMOVE
+    Am = mat3(modelXform[int(modelId + 0.5)]) * Am;
+#endif
+#ifdef MACROMOVE
+    Am = mat3(macroXform) * Am;
+#endif
+    Am = mat3(view) * Am;
+    vAx0 = Am[0]; vAx1 = Am[1]; vAx2 = Am[2]; }
 #ifdef SEEDATTR
   vSeed = seed;                                    // free molecules: the slot's own stable phase
 #else
@@ -1617,7 +1627,9 @@ varying float vMemAnc;
 #endif
 varying float vOid;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying vec3 vBcol;
 uniform float selModel;   // index of the SELECTED complex (-1 = none)
@@ -1631,13 +1643,20 @@ uniform float focusDark;  // darken the grayscale (non-selection) environment
 varying float vMid;       // this instance's model index
 // Electron glow: a small breathing point of light that slowly orbits its camera-facing spot,
 // with flickering electric filaments crackling around it. nElec = 1 or 2.
+vec3 gElecP = vec3(0.0);   // the current electron's surface point (view space), set before each elecBolt
 float elecBolt(vec3 N, vec3 e, vec3 uref){
   float fr = (vOid >= 2000.0) ? 1.9 : (vOid >= 900.0) ? 1.2 : (0.6*max(0.0, floor(vOid/100.0) - 1.0));   // energy ladder: core shells (rise with n) < bonding σ/π (900–1999, stabilised) < lone pairs (≥2000, non-bonding, often the HOMO)
-  float d = clamp(dot(N, e), -1.0, 1.0);
+#ifdef LIPBAKE
+  float d = clamp(dot(N, e), -1.0, 1.0);   // baked lipid lobes carry no axes - the angular ripple stays
   vec3 tp = N - d*e;
+  float rad = acos(clamp(d, 0.0, 1.0));
+#else
+  vec3 tv = vViewPos - gElecP;             // from the electron's surface point to this fragment, view units
+  vec3 tp = tv - dot(tv, e)*e;
+  float rad = length(tv) / 0.21;           // world distance read as the angle it would be on a horn of radius 0.21 - the ripple keeps one size on every lobe
+#endif
   vec3 u = normalize(uref - dot(uref, e)*e), w = cross(e, u);
   float ang = atan(dot(tp, w), dot(tp, u));
-  float rad = acos(clamp(d, 0.0, 1.0)) * (max(vLobeR, 0.06) / 0.42);   // angular distance scaled by lobe size -> the ripple is the same size on every lobe               // angular distance from the electron point
   // A wave that TRAVELS around the ring: bright crests march around the circle over time via the
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
@@ -1669,14 +1688,32 @@ void electrons(inout vec3 c, float ne, float bri){
   vec3 axA = vec3(cos(ph), sin(ph), 0.0);
   vec3 axB = vec3(-sin(ph), cos(ph), 0.0);
   vec3 e1 = toFront(wanderDir(ph), V, axA);         // wandering electron, always on the camera-facing side
+#ifdef LIPBAKE
   float d1 = max(dot(N, e1), 0.0);
-  float ek2 = pow(max(vLobeR, 0.06) / 0.42, 2.0);   // exponent grows with the square of the lobe size -> the spot's linear size is constant
-  float glow = pow(d1, 44.0*ek2), core = pow(d1, 220.0*ek2), bolt = elecBolt(N, e1, axA);
+  float glow = pow(d1, 44.0), core = pow(d1, 220.0), bolt = elecBolt(N, e1, axA);
   if(ne > 1.5){
     vec3 e2 = toFront(wanderDir(ph + 2.4), V, axB); // second electron, an independent path
     float d2 = max(dot(N, e2), 0.0);
-    glow += pow(d2, 44.0*ek2); core += pow(d2, 220.0*ek2); bolt += elecBolt(N, e2, axB);
+    glow += pow(d2, 44.0); core += pow(d2, 220.0); bolt += elecBolt(N, e2, axB);
   }
+#else
+  /* The electron sits at the lobe's SURFACE POINT whose normal is its direction (the ellipsoid's support
+     point, from the instance axes), and the spot is a fixed radius in world units around that point - one
+     size on every lobe, never stretched along a thin horn nor blown up on a small core. */
+  vec3 pl = 0.5 * vLocalDir;                                          // this fragment on the unit lobe (the mesh is a sphere of radius 0.5, vLocalDir interpolates linearly)
+  vec3 cen = vViewPos - (vAx0*pl.x + vAx1*pl.y + vAx2*pl.z);          // the lobe centre, view space
+  float glow = 0.0, core = 0.0, bolt = 0.0;
+  for(int k = 0; k < 2; k++){
+    if(k == 1 && ne < 1.5) break;
+    vec3 e = (k == 0) ? e1 : toFront(wanderDir(ph + 2.4), V, axB);
+    vec3 ax = (k == 0) ? axA : axB;
+    vec3 uu = vec3(dot(vAx0, e), dot(vAx1, e), dot(vAx2, e));
+    gElecP = cen + 0.5 * (vAx0*uu.x + vAx1*uu.y + vAx2*uu.z) / max(length(uu), 1e-5);
+    float dd = distance(vViewPos, gElecP);
+    glow += exp(-dd*dd / 0.0036);                                     // the spot - radius 0.06 world units
+    core += exp(-dd*dd / 0.0005);                                     // its bright centre - radius 0.022
+    bolt += elecBolt(N, e, ax); }
+#endif
   // Steady blue electron: PAINT the orbital blue where the electron sits (not additive → stays
   // blue over red lobes, no black gaps), the point-waves gently ripple that blue.
   vec3 bb = vec3(0.34, 0.60, 1.0);   // blue
@@ -1802,7 +1839,9 @@ varying vec3 vNrmV;
 varying vec3 vCol;
 varying vec3 vLocalDir;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying float vOid;
 varying float vCang;
@@ -1878,7 +1917,15 @@ void main(void){
 #else
   vLocalDir = normalize(position);                 // direction on the unit lobe → where the electrons ride
 #endif
-  vLobeR = pow(max(length(W[0].xyz) * length(W[1].xyz) * length(W[2].xyz), 1e-9), 1.0/3.0);   // the lobe's mean diameter (unit-sphere mesh) - the electron spot is sized against it, so a fat hydrogen 1s and a slim horn carry the same-sized electron
+  { mat3 Am = mat3(world0.xyz, world1.xyz, world2.xyz);   // the lobe's axes (with its scale) - the fragment places each electron on the real ellipsoid surface with them
+#ifdef MODELMOVE
+    Am = mat3(modelXform[int(modelId + 0.5)]) * Am;
+#endif
+#ifdef MACROMOVE
+    Am = mat3(macroXform) * Am;
+#endif
+    Am = mat3(view) * Am;
+    vAx0 = Am[0]; vAx1 = Am[1]; vAx2 = Am[2]; }
 #ifdef SEEDATTR
   vSeed = seed;                                    // free molecules: the slot's own stable phase
 #else
@@ -1929,7 +1976,9 @@ varying vec3 vNrmV;
 varying vec3 vCol;
 varying vec3 vLocalDir;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying float vOid;
 varying float vCang;
@@ -1948,13 +1997,20 @@ uniform float focusDark;  // darken the grayscale (non-selection) environment
 varying float vMid;       // this instance's model index
 // Electron glow: a small breathing point of light that slowly orbits its camera-facing spot,
 // with flickering electric filaments crackling around it. nElec = 1 or 2.
+vec3 gElecP = vec3(0.0);   // the current electron's surface point (view space), set before each elecBolt
 float elecBolt(vec3 N, vec3 e, vec3 uref){
   float fr = (vOid >= 2000.0) ? 1.9 : (vOid >= 900.0) ? 1.2 : (0.6*max(0.0, floor(vOid/100.0) - 1.0));   // energy ladder: core shells (rise with n) < bonding σ/π (900–1999, stabilised) < lone pairs (≥2000, non-bonding, often the HOMO)
-  float d = clamp(dot(N, e), -1.0, 1.0);
+#ifdef LIPBAKE
+  float d = clamp(dot(N, e), -1.0, 1.0);   // baked lipid lobes carry no axes - the angular ripple stays
   vec3 tp = N - d*e;
+  float rad = acos(clamp(d, 0.0, 1.0));
+#else
+  vec3 tv = vViewPos - gElecP;             // from the electron's surface point to this fragment, view units
+  vec3 tp = tv - dot(tv, e)*e;
+  float rad = length(tv) / 0.21;           // world distance read as the angle it would be on a horn of radius 0.21 - the ripple keeps one size on every lobe
+#endif
   vec3 u = normalize(uref - dot(uref, e)*e), w = cross(e, u);
   float ang = atan(dot(tp, w), dot(tp, u));
-  float rad = acos(clamp(d, 0.0, 1.0)) * (max(vLobeR, 0.06) / 0.42);   // angular distance scaled by lobe size -> the ripple is the same size on every lobe               // angular distance from the electron point
   // A wave that TRAVELS around the ring: bright crests march around the circle over time via the
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
@@ -1986,14 +2042,32 @@ void electrons(inout vec3 c, float ne, float bri){
   vec3 axA = vec3(cos(ph), sin(ph), 0.0);
   vec3 axB = vec3(-sin(ph), cos(ph), 0.0);
   vec3 e1 = toFront(wanderDir(ph), V, axA);         // wandering electron, always on the camera-facing side
+#ifdef LIPBAKE
   float d1 = max(dot(N, e1), 0.0);
-  float ek2 = pow(max(vLobeR, 0.06) / 0.42, 2.0);   // exponent grows with the square of the lobe size -> the spot's linear size is constant
-  float glow = pow(d1, 44.0*ek2), core = pow(d1, 220.0*ek2), bolt = elecBolt(N, e1, axA);
+  float glow = pow(d1, 44.0), core = pow(d1, 220.0), bolt = elecBolt(N, e1, axA);
   if(ne > 1.5){
     vec3 e2 = toFront(wanderDir(ph + 2.4), V, axB); // second electron, an independent path
     float d2 = max(dot(N, e2), 0.0);
-    glow += pow(d2, 44.0*ek2); core += pow(d2, 220.0*ek2); bolt += elecBolt(N, e2, axB);
+    glow += pow(d2, 44.0); core += pow(d2, 220.0); bolt += elecBolt(N, e2, axB);
   }
+#else
+  /* The electron sits at the lobe's SURFACE POINT whose normal is its direction (the ellipsoid's support
+     point, from the instance axes), and the spot is a fixed radius in world units around that point - one
+     size on every lobe, never stretched along a thin horn nor blown up on a small core. */
+  vec3 pl = 0.5 * vLocalDir;                                          // this fragment on the unit lobe (the mesh is a sphere of radius 0.5, vLocalDir interpolates linearly)
+  vec3 cen = vViewPos - (vAx0*pl.x + vAx1*pl.y + vAx2*pl.z);          // the lobe centre, view space
+  float glow = 0.0, core = 0.0, bolt = 0.0;
+  for(int k = 0; k < 2; k++){
+    if(k == 1 && ne < 1.5) break;
+    vec3 e = (k == 0) ? e1 : toFront(wanderDir(ph + 2.4), V, axB);
+    vec3 ax = (k == 0) ? axA : axB;
+    vec3 uu = vec3(dot(vAx0, e), dot(vAx1, e), dot(vAx2, e));
+    gElecP = cen + 0.5 * (vAx0*uu.x + vAx1*uu.y + vAx2*uu.z) / max(length(uu), 1e-5);
+    float dd = distance(vViewPos, gElecP);
+    glow += exp(-dd*dd / 0.0036);                                     // the spot - radius 0.06 world units
+    core += exp(-dd*dd / 0.0005);                                     // its bright centre - radius 0.022
+    bolt += elecBolt(N, e, ax); }
+#endif
   // Steady blue electron: PAINT the orbital blue where the electron sits (not additive → stays
   // blue over red lobes, no black gaps), the point-waves gently ripple that blue.
   vec3 bb = vec3(0.34, 0.60, 1.0);   // blue
@@ -2063,7 +2137,9 @@ varying vec3 vNrmV;
 varying vec3 vCol;
 varying vec3 vLocalDir;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying float vOid;
 varying float vCang;
@@ -2084,7 +2160,15 @@ void main(void){
   vec4 vp = view * wp;
   vViewPos = vp.xyz;
   vLocalDir = normalize(position);
-  vLobeR = pow(max(length(W[0].xyz) * length(W[1].xyz) * length(W[2].xyz), 1e-9), 1.0/3.0);   // the lobe's mean diameter (unit-sphere mesh) - the electron spot is sized against it, so a fat hydrogen 1s and a slim horn carry the same-sized electron
+  { mat3 Am = mat3(world0.xyz, world1.xyz, world2.xyz);   // the lobe's axes (with its scale) - the fragment places each electron on the real ellipsoid surface with them
+#ifdef MODELMOVE
+    Am = mat3(modelXform[int(modelId + 0.5)]) * Am;
+#endif
+#ifdef MACROMOVE
+    Am = mat3(macroXform) * Am;
+#endif
+    Am = mat3(view) * Am;
+    vAx0 = Am[0]; vAx1 = Am[1]; vAx2 = Am[2]; }
   vSeed = seed;
   vec3 M0=world0.xyz, M1=world1.xyz, M2=world2.xyz;
   vec3 wn = cross(M1,M2)*normal.x + cross(M2,M0)*normal.y + cross(M0,M1)*normal.z;
@@ -2118,20 +2202,29 @@ varying vec3 vNrmV;
 varying vec3 vCol;
 varying vec3 vLocalDir;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying float vOid;
 varying float vCang;
 #ifdef MEMFADE
 varying vec3 vMemW; uniform vec3 memCut;
 #endif
+vec3 gElecP = vec3(0.0);   // the current electron's surface point (view space), set before each elecBolt
 float elecBolt(vec3 N, vec3 e, vec3 uref){
   float fr = (vOid >= 2000.0) ? 1.9 : (vOid >= 900.0) ? 1.2 : (0.6*max(0.0, floor(vOid/100.0) - 1.0));   // energy ladder: core shells (rise with n) < bonding σ/π (900–1999, stabilised) < lone pairs (≥2000, non-bonding, often the HOMO)
-  float d = clamp(dot(N, e), -1.0, 1.0);
+#ifdef LIPBAKE
+  float d = clamp(dot(N, e), -1.0, 1.0);   // baked lipid lobes carry no axes - the angular ripple stays
   vec3 tp = N - d*e;
+  float rad = acos(clamp(d, 0.0, 1.0));
+#else
+  vec3 tv = vViewPos - gElecP;             // from the electron's surface point to this fragment, view units
+  vec3 tp = tv - dot(tv, e)*e;
+  float rad = length(tv) / 0.21;           // world distance read as the angle it would be on a horn of radius 0.21 - the ripple keeps one size on every lobe
+#endif
   vec3 u = normalize(uref - dot(uref, e)*e), w = cross(e, u);
   float ang = atan(dot(tp, w), dot(tp, u));
-  float rad = acos(clamp(d, 0.0, 1.0)) * (max(vLobeR, 0.06) / 0.42);   // angular distance scaled by lobe size -> the ripple is the same size on every lobe               // angular distance from the electron point
   // A wave that TRAVELS around the ring: bright crests march around the circle over time via the
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
@@ -2161,14 +2254,32 @@ vec3 electronGlow(float ne){
   vec3 axB = vec3(-sin(ph), cos(ph), 0.0);
   // Steady electric radiation (no flash) — every atom's electrons crackle at once.
   vec3 e1 = toFront(wanderDir(ph), V, axA);
+#ifdef LIPBAKE
   float d1 = max(dot(N, e1), 0.0);
-  float ek2 = pow(max(vLobeR, 0.06) / 0.42, 2.0);   // exponent grows with the square of the lobe size -> the spot's linear size is constant
-  float glow = pow(d1, 44.0*ek2), core = pow(d1, 220.0*ek2), bolt = elecBolt(N, e1, axA);
+  float glow = pow(d1, 44.0), core = pow(d1, 220.0), bolt = elecBolt(N, e1, axA);
   if(ne > 1.5){
-    vec3 e2 = toFront(wanderDir(ph + 2.4), V, axB);
+    vec3 e2 = toFront(wanderDir(ph + 2.4), V, axB); // second electron, an independent path
     float d2 = max(dot(N, e2), 0.0);
-    glow += pow(d2, 44.0*ek2); core += pow(d2, 220.0*ek2); bolt += elecBolt(N, e2, axB);
+    glow += pow(d2, 44.0); core += pow(d2, 220.0); bolt += elecBolt(N, e2, axB);
   }
+#else
+  /* The electron sits at the lobe's SURFACE POINT whose normal is its direction (the ellipsoid's support
+     point, from the instance axes), and the spot is a fixed radius in world units around that point - one
+     size on every lobe, never stretched along a thin horn nor blown up on a small core. */
+  vec3 pl = 0.5 * vLocalDir;                                          // this fragment on the unit lobe (the mesh is a sphere of radius 0.5, vLocalDir interpolates linearly)
+  vec3 cen = vViewPos - (vAx0*pl.x + vAx1*pl.y + vAx2*pl.z);          // the lobe centre, view space
+  float glow = 0.0, core = 0.0, bolt = 0.0;
+  for(int k = 0; k < 2; k++){
+    if(k == 1 && ne < 1.5) break;
+    vec3 e = (k == 0) ? e1 : toFront(wanderDir(ph + 2.4), V, axB);
+    vec3 ax = (k == 0) ? axA : axB;
+    vec3 uu = vec3(dot(vAx0, e), dot(vAx1, e), dot(vAx2, e));
+    gElecP = cen + 0.5 * (vAx0*uu.x + vAx1*uu.y + vAx2*uu.z) / max(length(uu), 1e-5);
+    float dd = distance(vViewPos, gElecP);
+    glow += exp(-dd*dd / 0.0036);                                     // the spot - radius 0.06 world units
+    core += exp(-dd*dd / 0.0005);                                     // its bright centre - radius 0.022
+    bolt += elecBolt(N, e, ax); }
+#endif
   vec3 bb = vec3(0.34, 0.60, 1.0);   // blue
   return bb * (glow*0.9 + bolt*1.0)
        + vec3(0.72, 0.86, 1.0) * core * 0.45;
@@ -2206,20 +2317,29 @@ varying vec3 vNrmV;
 varying vec3 vLocalDir;
 varying float vOid;
 varying float vSeed;
-varying float vLobeR;
+varying vec3 vAx0;
+varying vec3 vAx1;
+varying vec3 vAx2;
 varying float vSel;
 varying vec3 vBcol;
 varying float vCang;
 #ifdef MEMFADE
 varying vec3 vMemW; uniform vec3 memCut;
 #endif
+vec3 gElecP = vec3(0.0);   // the current electron's surface point (view space), set before each elecBolt
 float elecBolt(vec3 N, vec3 e, vec3 uref){
   float fr = (vOid >= 2000.0) ? 1.9 : (vOid >= 900.0) ? 1.2 : (0.6*max(0.0, floor(vOid/100.0) - 1.0));   // energy ladder: core shells (rise with n) < bonding σ/π (900–1999, stabilised) < lone pairs (≥2000, non-bonding, often the HOMO)
-  float d = clamp(dot(N, e), -1.0, 1.0);
+#ifdef LIPBAKE
+  float d = clamp(dot(N, e), -1.0, 1.0);   // baked lipid lobes carry no axes - the angular ripple stays
   vec3 tp = N - d*e;
+  float rad = acos(clamp(d, 0.0, 1.0));
+#else
+  vec3 tv = vViewPos - gElecP;             // from the electron's surface point to this fragment, view units
+  vec3 tp = tv - dot(tv, e)*e;
+  float rad = length(tv) / 0.21;           // world distance read as the angle it would be on a horn of radius 0.21 - the ripple keeps one size on every lobe
+#endif
   vec3 u = normalize(uref - dot(uref, e)*e), w = cross(e, u);
   float ang = atan(dot(tp, w), dot(tp, u));
-  float rad = acos(clamp(d, 0.0, 1.0)) * (max(vLobeR, 0.06) / 0.42);   // angular distance scaled by lobe size -> the ripple is the same size on every lobe               // angular distance from the electron point
   // A wave that TRAVELS around the ring: bright crests march around the circle over time via the
   // azimuthal phase (m·ang − ω·t + spiral) while the concentric rings breathe outward. m (crests
   // around the ring) rises with orbital energy — the moving, phase-shifting ripple, not a static bloom.
@@ -2249,14 +2369,32 @@ vec3 electronGlow(float ne){
   vec3 axB = vec3(-sin(ph), cos(ph), 0.0);
   // Steady electric radiation (no flash) — every atom's electrons crackle at once.
   vec3 e1 = toFront(wanderDir(ph), V, axA);
+#ifdef LIPBAKE
   float d1 = max(dot(N, e1), 0.0);
-  float ek2 = pow(max(vLobeR, 0.06) / 0.42, 2.0);   // exponent grows with the square of the lobe size -> the spot's linear size is constant
-  float glow = pow(d1, 44.0*ek2), core = pow(d1, 220.0*ek2), bolt = elecBolt(N, e1, axA);
+  float glow = pow(d1, 44.0), core = pow(d1, 220.0), bolt = elecBolt(N, e1, axA);
   if(ne > 1.5){
-    vec3 e2 = toFront(wanderDir(ph + 2.4), V, axB);
+    vec3 e2 = toFront(wanderDir(ph + 2.4), V, axB); // second electron, an independent path
     float d2 = max(dot(N, e2), 0.0);
-    glow += pow(d2, 44.0*ek2); core += pow(d2, 220.0*ek2); bolt += elecBolt(N, e2, axB);
+    glow += pow(d2, 44.0); core += pow(d2, 220.0); bolt += elecBolt(N, e2, axB);
   }
+#else
+  /* The electron sits at the lobe's SURFACE POINT whose normal is its direction (the ellipsoid's support
+     point, from the instance axes), and the spot is a fixed radius in world units around that point - one
+     size on every lobe, never stretched along a thin horn nor blown up on a small core. */
+  vec3 pl = 0.5 * vLocalDir;                                          // this fragment on the unit lobe (the mesh is a sphere of radius 0.5, vLocalDir interpolates linearly)
+  vec3 cen = vViewPos - (vAx0*pl.x + vAx1*pl.y + vAx2*pl.z);          // the lobe centre, view space
+  float glow = 0.0, core = 0.0, bolt = 0.0;
+  for(int k = 0; k < 2; k++){
+    if(k == 1 && ne < 1.5) break;
+    vec3 e = (k == 0) ? e1 : toFront(wanderDir(ph + 2.4), V, axB);
+    vec3 ax = (k == 0) ? axA : axB;
+    vec3 uu = vec3(dot(vAx0, e), dot(vAx1, e), dot(vAx2, e));
+    gElecP = cen + 0.5 * (vAx0*uu.x + vAx1*uu.y + vAx2*uu.z) / max(length(uu), 1e-5);
+    float dd = distance(vViewPos, gElecP);
+    glow += exp(-dd*dd / 0.0036);                                     // the spot - radius 0.06 world units
+    core += exp(-dd*dd / 0.0005);                                     // its bright centre - radius 0.022
+    bolt += elecBolt(N, e, ax); }
+#endif
   vec3 bb = vec3(0.34, 0.60, 1.0);   // blue
   return bb * (glow*0.9 + bolt*1.0)
        + vec3(0.72, 0.86, 1.0) * core * 0.45;
@@ -11800,11 +11938,11 @@ const renderThumb = async key => { const sp = SPECIES[key]; if(!sp) return;
   thumbCam.target.set(50000, 0, 0); thumbCam.alpha = -Math.PI/2.5; thumbCam.beta = Math.PI/2.7; thumbCam.fov = 0.7; thumbCam.radius = Math.max(0.6, sp.orbR*(sp.model.na > 1 ? 2.6 : 3.0)); thumbCam.upVector.set(0, 1, 0);   // the card's 3 x the cloud for an atom, a little tighter for a molecule (its bounding sphere is mostly empty)
   thumbCam.freezeProjectionMatrix(BABYLON.Matrix.PerspectiveFovLH(thumbCam.fov, 1.0, thumbCam.minZ, thumbCam.maxZ));   // a SQUARE projection - left to itself the camera took the screen's aspect, and on a wide screen every thumbnail came out squeezed into a narrow ellipse
   const was = mols.slice(); mols.length = 0; mols.push(m); draw(); mols.length = 0; mols.push(...was);   // build this frame's instance buffers for the thumbnail molecule alone
-  thumbRT.renderList = [coreMesh, bondMesh, nucMesh]; const saveCam = scene.activeCamera; scene.activeCamera = thumbCam; thumbRT.render(); scene.activeCamera = saveCam;
+  thumbRT.renderList = (sp.coreN + sp.bondN) ? [coreMesh, bondMesh, nucMesh] : [shellMesh, nucMesh]; const saveCam = scene.activeCamera;   // a bare ion (the proton) has no lobes - its small shell stands in scene.activeCamera = thumbCam; thumbRT.render(); scene.activeCamera = saveCam;
   try { const px = await thumbRT.readPixels(); const img = thumbCanvas.getContext('2d').createImageData(THUMB, THUMB); const src = new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
     for(let y=0;y<THUMB;y++) img.data.set(src.subarray((THUMB-1-y)*THUMB*4, (THUMB-y)*THUMB*4), y*THUMB*4);   // GL rows run bottom-up
-    let any = false; for(let i=3;i<src.length;i+=4) if(src[i] > 8){ any = true; break; }
-    if(!any){ thumbTries[key] = (thumbTries[key] || 0) + 1; if(thumbTries[key] < 4){ thumbDone[key] = false; thumbQueue.push(key); } remove(m); return; }   // blank (a first-frame compile, a not-yet-uploaded buffer) - try again a few frames later
+    let cov = 0; for(let i=3;i<src.length;i+=4) if(src[i] > 8) cov++;
+    if(cov < ((sp.coreN + sp.bondN) ? THUMB*THUMB*0.015 : 1)){ thumbTries[key] = (thumbTries[key] || 0) + 1; if(thumbTries[key] < 6){ thumbDone[key] = false; thumbQueue.push(key); } remove(m); return; }   // (nearly) blank - a nucleus alone, before the lobe materials were ready - try again a few frames later
     thumbCanvas.getContext('2d').putImageData(img, 0, 0); setThumb(key, thumbCanvas.toDataURL('image/png')); }
   catch(err){ console.warn('thumbnail', key, err); }
   remove(m); };

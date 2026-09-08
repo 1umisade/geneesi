@@ -221,9 +221,13 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
   when they load. A background preload (1.5 s after start, small files first, proteins smallest to largest)
   fetches and builds every file-based species so all pictures appear and a drop is instant. Species lobe
   arrays are typed (Float32Array) - every protein resident is ~1 GB heap.
-- Electron spot size: the orb/bond shaders (all variants) scale the highlight exponents and the ripple by the
-  lobe's mean diameter (`vLobeR`, from the instance matrix), so the spot has one size in world units on every
-  lobe - it used to be a fixed ANGLE, huge on a hydrogen 1s and a dot on a horn.
+- Electron spot: the orb/bond shaders (all variants) place each electron at the lobe's SURFACE POINT whose
+  normal is the electron's direction (the ellipsoid support point, from the instance axes passed as vAx0-2 in
+  view space, model/macro rotation included) and shade by WORLD distance - a spot of radius 0.06 with a 0.022
+  core, the ripple in world units - so it is one round size on every lobe. It used to be a cap of normals, a
+  fixed ANGLE: stretched along thin horns, huge on small cores. Lipid-baked lobes (LIPBAKE) carry no axes and
+  keep the angular method. Thumbnails: a render under 1.5 % coverage is retried (a nucleus alone slipped past
+  a blank check), a lobe-less species (the proton) renders with its shell instead.
   `window.gVesi` exposes spawn / remove / mols / SPECIES / ensureSpecies / cam for tests.
 
 Moving molecules and the boil (both modes): the imp shader hashes the stepped boil offset and the silhouette
