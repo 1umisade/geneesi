@@ -271,7 +271,12 @@ html.editori body > :not(#c):not(.vesi){display:none !important}
 html.editori .vesi{display:block}
 html.editori #lista{display:flex}
 .vesi.card{position:fixed;z-index:10;background:var(--paper);border:2.5px solid var(--brown);border-radius:14px;box-shadow:0 3px 0 var(--brown);padding:10px 12px;user-select:none;font:13px/1.3 "Courier New",monospace;color:var(--ink)}
-#lista{left:16px;top:16px;flex-direction:column;gap:10px;width:150px}
+#lista{left:16px;top:16px;flex-direction:column;gap:6px;width:200px;max-height:calc(100vh - 32px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box}
+#lista .atomi > span:nth-child(2){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lista .ryhma{font-size:11px;opacity:.7;letter-spacing:.5px;margin-top:8px;text-transform:uppercase}
+#lista .atomi{padding:5px 9px;gap:8px}
+#lista .atomi.iso .pallo{border-radius:6px}
+#lista .atomi .tila{margin-left:auto;font-size:10px;opacity:.6}
 #lista h1{margin:0 0 2px;font-size:14px;letter-spacing:.5px}
 #lista .ohje{font-size:11px;opacity:.75;line-height:1.35}
 .atomi{display:flex;align-items:center;gap:10px;padding:7px 10px;border:2.5px solid var(--brown);border-radius:999px;background:var(--paper2);cursor:grab;touch-action:none}
@@ -302,12 +307,9 @@ html.editori #lista{display:flex}
 </div>
 <div id="lista" class="vesi card">
   <h1>Atomit</h1>
-  <div class="ohje">Raahaa atomi näkymään. Ne pomppivat ja reagoivat törmätessään.</div>
-  <div class="atomi" data-sp="H"><span class="pallo" style="background:#e0e0e0"></span><span><b>vety</b><small>H</small></span></div>
-  <div class="atomi" data-sp="O"><span class="pallo" style="background:#f02626"></span><span><b>happi</b><small>O</small></span></div>
+  <div class="ohje">Raahaa hiukkanen näkymään. Ne pomppivat tasossa ja reagoivat törmätessään. Kamera: WASD, nuolet, Q/E, N/M, rulla, keskinäppäin, ohjain, I.</div>
+  <div id="lista-items"></div>
 </div>
-<div id="laskuri" class="vesi card">vesimolekyylejä <b id="vesi-n">0</b><div class="rivi" id="muut"></div></div>
-<div id="vinkki" class="vesi card">2 H + O → H₂O &nbsp;·&nbsp; H + H → H₂ &nbsp;·&nbsp; O + O → O₂ &nbsp;·&nbsp; H₂ + O → H₂O</div>
 <div id="editorspeed" class="vesi card"><div style="margin-bottom:4px; letter-spacing:.5px;">nopeus <span id="editorspeedval">1.0×</span></div><input id="editorspeedsld" type="range" min="0" max="30" value="10" style="width:130px; cursor:pointer;"></div>
 <div id="haamu" class="vesi"></div>
 <div id="overlay">
@@ -11213,15 +11215,26 @@ void main(void){
    Nothing of run() executes in this mode. window.gVesi exposes spawn / mols / scene for tests.
    ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 function runEditor(){
+/* Element data comes from the page's own tables (ELEM / EL_LIST / codeOf / info are globals above);
+   the electron configurations and the p/d/f lobe templates are the viewer's, lifted verbatim. */
 const FILL_SCALE = 0.72;
-const ELEM = { H:{c:[0.88,0.88,0.88], vr:1.10, n:1,  z:1}, O:{c:[0.94,0.15,0.15], vr:1.52, n:16, z:8} };
-const EL_LIST = ['H','O'], EL_CODE = { H:0, O:1 };
-const info = code => ELEM[EL_LIST[code]];
 const SHELL_STEP = 0.34;
-const ECONF = { H:[[1,0]], O:[[1,0],[2,0],[2,1]] };
-const econf = e => ECONF[EL_LIST[e]];
-const OTMPL = [ [], [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] ];
-const LP = { O:2 }; const lonePairs = e => LP[EL_LIST[e]] || 0;
+const ECONF = {
+  H:[[1,0]], C:[[1,0],[2,0],[2,1]], N:[[1,0],[2,0],[2,1]], O:[[1,0],[2,0],[2,1]], FB:[[1,0],[2,0],[2,1]],
+  S:[[1,0],[2,0],[2,1],[3,0],[3,1]], P:[[1,0],[2,0],[2,1],[3,0],[3,1]], CL:[[1,0],[2,0],[2,1],[3,0],[3,1]],
+  MG:[[1,0],[2,0],[2,1],[3,0]], NA:[[1,0],[2,0],[2,1],[3,0]],
+  CA:[[1,0],[2,0],[2,1],[3,0],[3,1],[4,0]], K:[[1,0],[2,0],[2,1],[3,0],[3,1],[4,0]],
+  FE:[[1,0],[2,0],[2,1],[3,0],[3,1],[3,2],[4,0]], MN:[[1,0],[2,0],[2,1],[3,0],[3,1],[3,2],[4,0]],
+  ZN:[[1,0],[2,0],[2,1],[3,0],[3,1],[3,2],[4,0]], CU:[[1,0],[2,0],[2,1],[3,0],[3,1],[3,2],[4,0]],
+  CO:[[1,0],[2,0],[2,1],[3,0],[3,1],[3,2],[4,0]]
+};
+const econf = e => ECONF[EL_LIST[e]] || [[1,0]];
+const cube = (() => { const o=[]; for(let a=-1;a<=1;a+=2)for(let b=-1;b<=1;b+=2)for(let c=-1;c<=1;c+=2) o.push([a/1.732,b/1.732,c/1.732]); return o; })();
+const OTMPL = [ [],                                                          // s (sphere, handled separately)
+                [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]],        // p — 6 lobes
+                cube,                                                        // d — 8 lobes
+                cube.concat([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) ];
+const LP = { N:1, O:2, S:2, P:1, CL:3 }; const lonePairs = e => LP[EL_LIST[e]] || 0;
 const NUCLEON_R = 0.013, SPACING = 1.55*NUCLEON_R, NUC_BIAS = 2.0;
 const fcc = (() => { const p = []; for(let i=-4;i<=4;i++) for(let j=-4;j<=4;j++) for(let k=-4;k<=4;k++) if(((i+j+k)&1)===0) p.push([i,j,k, i*i+j*j+k*k]);
   p.sort((a,b) => a[3]-b[3]); const s = 1/Math.SQRT2; return p.map(q => [q[0]*s, q[1]*s, q[2]*s]); })();
@@ -11255,20 +11268,24 @@ function lonePairDirs(dirs, lp){
   if(dirs.length===0) return [];
   const bis = nrm([-(dirs.reduce((s,d)=>s+d[0],0)), -(dirs.reduce((s,d)=>s+d[1],0)), -(dirs.reduce((s,d)=>s+d[2],0))]);
   if(lp===1) return [bis];
-  const axis = dirs.length>=2 ? nrm(crs(dirs[0],dirs[1])) : perp(dirs[0]);
-  return [rotAx(bis,axis,0.9553), rotAx(bis,axis,-0.9553)];
+  if(lp===2){ const axis = dirs.length>=2 ? nrm(crs(dirs[0],dirs[1])) : perp(dirs[0]); return [rotAx(bis,axis,0.9553), rotAx(bis,axis,-0.9553)]; }
+  const a = dirs[0], p = perp(a), q = crs(a,p), out=[];
+  for(let i=0;i<3;i++){ const ang=i*2.0944; out.push(nrm([a[0]*(-1/3)+0.9428*(Math.cos(ang)*p[0]+Math.sin(ang)*q[0]), a[1]*(-1/3)+0.9428*(Math.cos(ang)*p[1]+Math.sin(ang)*q[1]), a[2]*(-1/3)+0.9428*(Math.cos(ang)*p[2]+Math.sin(ang)*q[2])])); }
+  return out;
 }
-const rigidOrbSet = m => {
+/* Geneesi's rigidOrbSet: cores (s spheres, p/d lobes), sigma horns and back knobs per bond, a pi cloud on
+   double bonds, lone pairs by VSEPR. m = {na,x,y,z,el,nb,b1,b2,bo}, coordinates already centred. noOrb = a bare ion. */
+const rigidOrbSet = (m, noOrb) => {
   const core = { m:[], col:[], cen:[], oid:[] }, bond = { m:[], tap:[], col:[], cen:[], oid:[], prof:[] };
   const tmp = new Float32Array(16), N = m.na, at = [], els = [];
-  let cx=0, cy=0, cz=0; for(let k=0;k<N;k++){ cx+=m.x[k]; cy+=m.y[k]; cz+=m.z[k]; } cx/=N; cy/=N; cz/=N;
-  for(let k=0;k<N;k++){ at.push([m.x[k]-cx, m.y[k]-cy, m.z[k]-cz]); els.push(m.el[k]); }
+  for(let k=0;k<N;k++){ at.push([m.x[k], m.y[k], m.z[k]]); els.push(m.el[k]); }
+  if(noOrb) return { core, bond, at, els };
   const pushCore = (c,x,y,z,oid) => { for(let j=0;j<16;j++) core.m.push(tmp[j]); core.col.push(c[0],c[1],c[2]); core.cen.push(x,y,z); core.oid.push(oid); };
   const put = (sx,sy,sz, ex,ey,ez, wid, c, x,y,z, oid, tap, prof) => { cylTo(sx,sy,sz, ex,ey,ez, tmp, 0, wid);
     for(let j=0;j<16;j++) bond.m.push(tmp[j]);
     bond.tap.push(tap === undefined ? 1.0 : tap); bond.col.push(c[0],c[1],c[2]); bond.cen.push(x,y,z); bond.oid.push(oid); bond.prof.push(prof ? 1.0 : 0.0); };
   const bd = at.map(() => []);
-  for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b];
+  for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b]; if(i<0||j<0||i>=N||j>=N) continue;
     const d = nrm([at[j][0]-at[i][0], at[j][1]-at[i][1], at[j][2]-at[i][2]]); bd[i].push(d); bd[j].push([-d[0],-d[1],-d[2]]); }
   for(let k=0;k<N;k++){ const e=els[k], cfg=econf(e), maxNe=cfg.reduce((mx,sh)=>Math.max(mx,sh[0]),0), q=at[k], c=info(e).c, bonded=bd[k].length>0;
     for(const sh of cfg){ const n2=sh[0], ty=sh[1], R=n2*SHELL_STEP, oid=n2*100+ty*10;
@@ -11277,7 +11294,7 @@ const rigidOrbSet = m => {
       else for(const d of OTMPL[ty]){ cylTo(q[0],q[1],q[2], q[0]+d[0]*R,q[1]+d[1]*R,q[2]+d[2]*R, tmp,0,R*0.34); pushCore(c,q[0],q[1],q[2],oid); } } }
   const pn = bd.map(dirs => { for(let a=0;a<dirs.length;a++) for(let b=a+1;b<dirs.length;b++){ const cr=crs(dirs[a],dirs[b]), l=Math.hypot(cr[0],cr[1],cr[2]); if(l>0.3) return [cr[0]/l,cr[1]/l,cr[2]/l]; } return null; });
   const f=0.62, kL=0.24, kW=LOBE_W*0.5, pw=LOBE_W*0.42, pR=0.62; let hyb=0;
-  for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b], bo=m.bo ? m.bo[b] : 1;
+  for(let b=0;b<m.nb;b++){ const i=m.b1[b], j=m.b2[b]; if(i<0||j<0||i>=N||j>=N) continue; const bo=m.bo ? m.bo[b] : 1;
     const p1=at[i], p2=at[j], bx=p2[0]-p1[0], by=p2[1]-p1[1], bz=p2[2]-p1[2], BL=Math.hypot(bx,by,bz)||1e-6, u=[bx/BL,by/BL,bz/BL];
     const c1=info(els[i]).c, c2=info(els[j]).c, h1=EL_LIST[els[i]]==='H', h2=EL_LIST[els[j]]==='H';
     const sw = bo >= 2 ? LOBE_W*1.35 : LOBE_W, sprof = bo >= 2;
@@ -11294,34 +11311,85 @@ const rigidOrbSet = m => {
     for(const d of lonePairDirs(bd[k], lpn)) put(q[0],q[1],q[2], q[0]+d[0]*0.75,q[1]+d[1]*0.75,q[2]+d[2]*0.75, LOBE_W, c, q[0],q[1],q[2], 2000); }
   return { core, bond, at, els };
 };
-/* species - REAL bond lengths (the viewer's free water is 0.96 Å at 104.5° too), centroid at the origin, in the z=0 plane */
+
+/* ── models: {na,x,y,z,el,nb,b1,b2,bo}, centred on the centroid ────────────────────────────────── */
+const centre = m => { let cx=0, cy=0, cz=0; for(let k=0;k<m.na;k++){ cx+=m.x[k]; cy+=m.y[k]; cz+=m.z[k]; } cx/=m.na; cy/=m.na; cz/=m.na; for(let k=0;k<m.na;k++){ m.x[k]-=cx; m.y[k]-=cy; m.z[k]-=cz; } return m; };
 const mkModel = (atoms, bonds) => { const na = atoms.length; const m = { na, x:new Float32Array(na), y:new Float32Array(na), z:new Float32Array(na), el:new Uint16Array(na), nb:bonds.length, b1:new Int32Array(bonds.length), b2:new Int32Array(bonds.length), bo:new Uint8Array(bonds.length) };
-  atoms.forEach((a,k) => { m.x[k]=a[1]; m.y[k]=a[2]; m.z[k]=a[3]||0; m.el[k]=EL_CODE[a[0]]; }); bonds.forEach((b,k) => { m.b1[k]=b[0]; m.b2[k]=b[1]; m.bo[k]=b[2]||1; }); return m; };
-const dHH = 0.74, dOO = 1.21, dOH = 0.96, ang = 104.5*Math.PI/180;
-const MODELS = {
-  H:   mkModel([['H',0,0]], []),
-  O:   mkModel([['O',0,0]], []),
-  H2:  mkModel([['H',-dHH/2,0],['H',dHH/2,0]], [[0,1,1]]),
-  O2:  mkModel([['O',-dOO/2,0],['O',dOO/2,0]], [[0,1,2]]),
-  OH:  mkModel([['O',0,0],['H',dOH,0]], [[0,1,1]]),
-  H2O: mkModel([['O',0,0],['H',dOH*Math.cos(ang/2),dOH*Math.sin(ang/2)],['H',dOH*Math.cos(ang/2),-dOH*Math.sin(ang/2)]], [[0,1,1],[0,2,1]]),
+  atoms.forEach((a,k) => { m.x[k]=a.x; m.y[k]=a.y; m.z[k]=a.z||0; m.el[k]=codeOf(a.sym); }); bonds.forEach((b,k) => { m.b1[k]=b[0]; m.b2[k]=b[1]; m.bo[k]=b[2]||1; }); return centre(m); };
+const A = (sym,x,y,z) => ({ sym, x, y, z: z||0 });
+const ang = 104.5*Math.PI/180, dOH = 0.96;
+const tetra = (cs, ce, L, cx,cy,cz) => { const n=1.7320508, t=[[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]], a=[A(cs,cx,cy,cz)], b=[]; t.forEach((d,k) => { a.push(A(ce, cx+L*d[0]/n, cy+L*d[1]/n, cz+L*d[2]/n)); b.push([0,k+1,1]); }); return { a, b }; };
+const PO4 = tetra('P','O',1.52, 0,0,0);
+const BASE_MODELS = {   // real bond lengths (the viewer's free water is 0.96 Å / 104.5° too)
+  H2:  mkModel([A('H',-0.37,0),A('H',0.37,0)], [[0,1,1]]),
+  O2:  mkModel([A('O',-0.605,0),A('O',0.605,0)], [[0,1,2]]),
+  OH:  mkModel([A('O',0,0),A('H',dOH,0)], [[0,1,1]]),
+  H2O: mkModel([A('O',0,0),A('H',dOH*Math.cos(ang/2),dOH*Math.sin(ang/2)),A('H',dOH*Math.cos(ang/2),-dOH*Math.sin(ang/2))], [[0,1,1],[0,2,1]]),
+  CO2: mkModel([A('C',0,0),A('O',1.16,0),A('O',-1.16,0)], [[0,1,2],[0,2,2]]),
+  Pi:  mkModel(PO4.a, PO4.b),
 };
-const NAME_FI = { H:'vety', O:'happi', H2:'vetymolekyyli H₂', O2:'happimolekyyli O₂', OH:'hydroksyyli OH', H2O:'vesi H₂O' };
+/* the particle list: atoms of the scene's spawn table, the scene's small molecules, and every protein model */
+const ATOMS = ['H','C','N','O','P','S','CL','NA','K','CA','MG','FE','MN','ZN','CU','CO'];
+const ATOM_FI = { H:'vety', C:'hiili', N:'typpi', O:'happi', P:'fosfori', S:'rikki', CL:'kloori', NA:'natrium', K:'kalium', CA:'kalsium', MG:'magnesium', FE:'rauta', MN:'mangaani', ZN:'sinkki', CU:'kupari', CO:'koboltti' };
+const SMALL = [ ['H2O','vesi','H₂O'], ['p','vetyioni','H⁺'], ['CO2','hiilidioksidi','CO₂'], ['O2','happi','O₂'], ['Pi','fosfaatti','PO₄³⁻'], ['ATP','ATP','nadph.mol2'], ['ADP','ADP','nadph.mol2'], ['NADP','NADP⁺','nadph.mol2'], ['CHL','klorofylli','chlorophyll.mol2'], ['PQ','plastokinoni','quinone.mol2'] ];
+const PROTEINS = [ ['PSII','fotosysteemi II','PSII.mol2'], ['B6F','sytokromi b6f','cytochrome_b6f.mol2'], ['PSI','fotosysteemi I','photosystem_I.mol2'], ['NDH','NDH-1','NDH-1.mol2'], ['ATPS','ATP-syntaasi','ATP_synthase.mol2'],
+  ['PC','plastosyaniini','plastocyanin.mol2'], ['VDE','violaksantiinide-epoksidaasi','Violaxanthin_de-epoxidase.mol2'], ['FD','ferredoksiini','ferredoxin.mol2'], ['FNR','FNR','FNR.mol2'], ['RUB','RuBisCO','RuBisCO.mol2'],
+  ['PGR5','PGR5','PGR5.mol2'], ['PGRL1','PGRL1','PGRL1.mol2'], ['STN7','STN7','STN7.mol2'], ['PPH1','PPH1','PPH1.mol2'], ['ZEP','zeaksantiiniepoksidaasi','Zeaxanthin_epoxidase.mol2'] ];
+const NAME_FI = { H2:'vetymolekyyli', O2:'happimolekyyli', OH:'hydroksyyli', H2O:'vesi', CO2:'hiilidioksidi', Pi:'fosfaatti', p:'vetyioni', ATP:'ATP', ADP:'ADP', NADP:'NADP⁺', CHL:'klorofylli', PQ:'plastokinoni' };
+for(const sym of ATOMS) NAME_FI[sym] = ATOM_FI[sym]; for(const P of PROTEINS) NAME_FI[P[0]] = P[1];
 const PC = [1.0, 0.5, 0.5], NC = [0.62, 0.62, 0.62];
+/* a species = drawn parts of one model. small ones are rebuilt into the dynamic meshes every frame,
+   proteins (isProt) get their own static instance sets moved by a per-model matrix (MODELMOVE) */
 const SPECIES = {};
-for(const key in MODELS){ const m = MODELS[key], orb = rigidOrbSet(m);
-  const atoms = orb.at.map((q,k) => { const e = orb.els[k], I = info(e); const A = I.n, Z = I.z, nuc = [];
-    for(let i=0;i<A;i++){ const proton = Math.floor((i+1)*Z/A) > Math.floor(i*Z/A); nuc.push({ o:[fcc[i][0]*SPACING, fcc[i][1]*SPACING, fcc[i][2]*SPACING], col: proton ? PC : NC, p: proton ? 1 : 0 }); }
-    return { q, r: I.vr*FILL_SCALE, col: I.c, nuc }; });
+const mkSpecies = (key, m, opts) => { opts = opts || {}; const orb = rigidOrbSet(m, opts.noOrb);
+  const atoms = orb.at.map((q,k) => { const e = orb.els[k], I = info(e); const Az = I.n, Z = I.z, nuc = [];
+    for(let i=0;i<Az;i++){ const proton = Math.floor((i+1)*Z/Az) > Math.floor(i*Z/Az); nuc.push({ o:[fcc[i][0]*SPACING, fcc[i][1]*SPACING, fcc[i][2]*SPACING], col: proton ? PC : NC, p: proton ? 1 : 0 }); }
+    return { q, r: (opts.bare ? 0.35 : I.vr)*FILL_SCALE, col: opts.bare ? [1.0,0.62,0.62] : I.c, nuc, e }; });
   const radius = atoms.reduce((mx,a) => Math.max(mx, Math.hypot(a.q[0],a.q[1],a.q[2]) + a.r), 0);
-  SPECIES[key] = { key, model: m, core: orb.core, bond: orb.bond, atoms, radius, mass: m.na, coreN: orb.core.m.length/16, bondN: orb.bond.m.length/16 }; }
+  const sp = { key, model: m, core: orb.core, bond: orb.bond, atoms, radius, mass: m.na, coreN: orb.core.m.length/16, bondN: orb.bond.m.length/16, isProt: !!opts.isProt, nucN: atoms.reduce((n,a) => n + a.nuc.length, 0) };
+  SPECIES[key] = sp; return sp; };
+for(const k in BASE_MODELS) mkSpecies(k, BASE_MODELS[k]);
+for(const sym of ATOMS) mkSpecies(sym, mkModel([A(sym,0,0)], []));
+mkSpecies('p', mkModel([A('H',0,0)], []), { noOrb: true, bare: true });   // a bare proton: no electron, just the nucleus in a small pink shell
+/* mol2-based species, loaded on first drag. A multi-molecule file is concatenated into one model. */
+const fileCache = {};
+const loadFile = async fn => { if(fileCache[fn]) return fileCache[fn]; const res = await fetch('./' + fn); if(!res.ok) throw new Error(fn + ' ' + res.status);
+  const recs = parseMol2(await res.text()); let na = 0, nb = 0; for(const r of recs){ na += r.na; nb += r.nb; }
+  const m = { na, x:new Float32Array(na), y:new Float32Array(na), z:new Float32Array(na), el:new Uint16Array(na), nb, b1:new Int32Array(nb), b2:new Int32Array(nb), bo:new Uint8Array(nb) };
+  let oa = 0, ob = 0; for(const r of recs){ m.x.set(r.x.subarray(0, r.na), oa); m.y.set(r.y.subarray(0, r.na), oa); m.z.set(r.z.subarray(0, r.na), oa); m.el.set(r.el.subarray(0, r.na), oa);
+    for(let b=0;b<r.nb;b++){ m.b1[ob+b] = r.b1[b] + oa; m.b2[ob+b] = r.b2[b] + oa; m.bo[ob+b] = r.bo ? r.bo[b] : 1; } oa += r.na; ob += r.nb; }
+  fileCache[fn] = { m: centre(m), recs }; return fileCache[fn]; };
+const atpFrom = (nm, withGamma) => {   // the viewer's adpFromNadp: NADP atoms 1-27, 49-56, 73-75 are the ADP part, plus a gamma phosphate on O5D
+  if(nm.na !== 75) return null;
+  const keep = []; for(let i=1;i<=27;i++) keep.push(i-1); for(let i=49;i<=56;i++) keep.push(i-1); for(const i of [73,74,75]) keep.push(i-1);
+  const map = new Map(keep.map((k,j) => [k,j])); const at = keep.map(k => A(EL_LIST[nm.el[k]], nm.x[k], nm.y[k], nm.z[k]));
+  const bonds = []; for(let b=0;b<nm.nb;b++){ const i=nm.b1[b], j=nm.b2[b]; if(map.has(i) && map.has(j)) bonds.push([map.get(i), map.get(j), nm.bo ? nm.bo[b] : 1]); }
+  if(withGamma){ const P = at[map.get(23)], O = at[map.get(26)], iO = map.get(26);
+    let ux=O.x-P.x, uy=O.y-P.y, uz=O.z-P.z; const ul=Math.hypot(ux,uy,uz)||1; ux/=ul; uy/=ul; uz/=ul;
+    const g = A('P', O.x+ux*1.61, O.y+uy*1.61, O.z+uz*1.61), iG = at.length; at.push(g); bonds.push([iO, iG, 1]);
+    const hx = Math.abs(uy) < 0.9 ? 0 : 1, hy = Math.abs(uy) < 0.9 ? 1 : 0;
+    let vx=-uz*hy, vy=uz*hx, vz=ux*hy-uy*hx; const vl=Math.hypot(vx,vy,vz)||1; vx/=vl; vy/=vl; vz/=vl;
+    const wx=uy*vz-uz*vy, wy=uz*vx-ux*vz, wz=ux*vy-uy*vx;
+    for(let k=0;k<3;k++){ const th=k*2.0943951, c=Math.cos(th)*0.9428, s2=Math.sin(th)*0.9428; const dx=ux/3+c*vx+s2*wx, dy=uy/3+c*vy+s2*wy, dz=uz/3+c*vz+s2*wz;
+      at.push(A('O', g.x+dx*1.5, g.y+dy*1.5, g.z+dz*1.5)); bonds.push([iG, at.length-1, 1]); } }
+  return mkModel(at, bonds); };
+const ensureSpecies = async key => { if(SPECIES[key]) return SPECIES[key];
+  const P = PROTEINS.find(x => x[0] === key); if(P){ const f = await loadFile(P[2]); return mkSpecies(key, f.m, { isProt: true }); }
+  const S = SMALL.find(x => x[0] === key); if(!S) return null; const f = await loadFile(S[2]);
+  if(key === 'NADP') return mkSpecies(key, f.m);
+  if(key === 'CHL' || key === 'PQ') return mkSpecies(key, f.m);
+  const nm = f.recs.find(r => r.na === 75) || f.recs[0]; const atp = atpFrom(nm, true); if(!atp) return null;
+  if(key === 'ATP') return mkSpecies('ATP', atp);
+  const keepN = atp.na - 4, at = [], bonds = []; for(let k=0;k<keepN;k++) at.push(A(EL_LIST[atp.el[k]], atp.x[k], atp.y[k], atp.z[k]));   // ADP = ATP minus the terminal phosphate (owner's rule)
+  for(let b=0;b<atp.nb;b++) if(atp.b1[b] < keepN && atp.b2[b] < keepN) bonds.push([atp.b1[b], atp.b2[b], atp.bo[b]]);
+  return mkSpecies('ADP', mkModel(at, bonds)); };
 const RULES = {};
 const rule = (a, b, prods) => { RULES[a+'+'+b] = prods; RULES[b+'+'+a] = prods; };
 rule('H','H',['H2']); rule('O','O',['O2']); rule('H','O',['OH']);
 rule('OH','H',['H2O']); rule('H2','O',['H2O']); rule('H2','OH',['H2O','H']); rule('H2','O2',['H2O','O']);
 rule('O2','H',['OH','O']); rule('OH','OH',['H2O','O']);
 
-/* scene */
+/* ── scene: the arena is 720 x 400 Å on the plane z = 0, RuBisCO spans about a sixth of it ──── */
 const canvas = document.getElementById('c');
 const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: false, antialias: true });
 const scene = new BABYLON.Scene(engine);
@@ -11329,43 +11397,54 @@ const PAPER = new BABYLON.Color3(0.949, 0.902, 0.788);
 scene.clearColor = new BABYLON.Color4(PAPER.r, PAPER.g, PAPER.b, 1);
 scene.fogColor = PAPER; scene.fogStart = 1e8; scene.fogEnd = 1e9;
 scene.skipPointerMovePicking = true;
-const HALF_H = 9;
-const cam = new BABYLON.FreeCamera('cam', new BABYLON.Vector3(0, 0, -HALF_H / Math.tan(0.4)), scene);
-cam.fov = 0.8; cam.setTarget(BABYLON.Vector3.Zero()); cam.minZ = 0.5; cam.maxZ = 500;
-const halfW = () => HALF_H * engine.getRenderWidth() / engine.getRenderHeight();
-let uT = 0, uTb = 0, uTe = 0, simT = 0, gSpeed = 1.0; const BOIL = 0.20;   // the speed slider scales the SIMULATION (motion, spin, rock), not the boil or electron clocks - as in the viewer
+const HW = 420, HH = 236, DETAIL_R = 90;   // half extents of the arena (840 x 472 Å - RuBisCO's 140 Å is a sixth of the width), and how close the camera must be for a protein's nuclei and orbitals to draw
+const CAM_R0 = HH / Math.tan(0.4) * 1.08;
+const cam = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, Math.PI/2, CAM_R0, new BABYLON.Vector3(0, 0, 0), scene);
+cam.fov = 0.8; cam.minZ = 0.3; cam.maxZ = 9000; cam.lowerRadiusLimit = 2.5; cam.upperRadiusLimit = 5000; cam.lowerBetaLimit = 0.25; cam.upperBetaLimit = Math.PI - 0.25;
+cam.inputs.removeByType('ArcRotateCameraMouseWheelInput'); cam.inputs.removeByType('ArcRotateCameraKeyboardMoveInput');
+cam.inputs.attached.pointers.buttons = [1, 2];   // middle and right drag look around (left is the plane pan below)
+cam.panningSensibility = 0; cam.attachControl(canvas, true); cam.inertia = 0.82;
+{ const arena = BABYLON.MeshBuilder.CreateLines('arena', { points: [new BABYLON.Vector3(-HW,-HH,0), new BABYLON.Vector3(HW,-HH,0), new BABYLON.Vector3(HW,HH,0), new BABYLON.Vector3(-HW,HH,0), new BABYLON.Vector3(-HW,-HH,0)] }, scene);
+  arena.color = new BABYLON.Color3(0.29, 0.2, 0.125); arena.alpha = 0.35; arena.isPickable = false; }
+let uT = 0, uTb = 0, uTe = 0, simT = 0, gSpeed = 1.0, gPaused = false; const BOIL = 0.20;
 
-/* materials - the viewer's recipes for a free-standing atom, plus NOSWAY (moving molecules do not sway) */
+/* ── materials: the viewer's recipes. dynamic small molecules: NOSWAY + SEEDATTR (no sway, fixed keys) -
+   proteins: MODELMOVE (local coordinates, one matrix per model), swaying like in the viewer ──────── */
 const realAlpha = mat => { mat.alpha = 0.999; mat.alphaMode = BABYLON.Constants.ALPHA_COMBINE; mat.forceDepthWrite = true; return mat; };
 const FAR = new BABYLON.Vector3(1e6, 1e6, 1e6), SAGE = new BABYLON.Color3(0.64,0.72,0.51);
+const MAXMODEL = 80; const gModelXform = new Float32Array(MAXMODEL*16), gModelCol = new Float32Array(48*3); for(let i=0;i<MAXMODEL;i++){ gModelXform[i*16]=1; gModelXform[i*16+5]=1; gModelXform[i*16+10]=1; gModelXform[i*16+15]=1; }
 const IMP_U = ['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','uTb','boil','boilHzAdj','depthBias','selCenter','coneCos','selModel','selCol'];
-const shellMat = new BABYLON.ShaderMaterial('shell', scene, 'imp', { attributes:['position','instanceColor','world0','world1','world2','world3','instR'], uniforms: IMP_U, defines:['#define IMPRAD','#define NOSWAY'] });
-shellMat.setFloat('radius',1.0); shellMat.setFloat('isShell',1); shellMat.setFloat('shellMin',0.22); shellMat.setFloat('revealFade',0.95);
-shellMat.setFloat('bubbleR',1e9); shellMat.setFloat('protonOutline',0); shellMat.setFloat('depthBias',0); shellMat.setFloat('boil',BOIL); shellMat.setFloat('boilHzAdj',0);
-shellMat.setFloat('coneCos',-1.0); shellMat.setVector3('selCenter', FAR); shellMat.setFloat('selModel',-1); shellMat.setColor3('selCol', SAGE); shellMat.backFaceCulling=false; realAlpha(shellMat);
-const nucMat = new BABYLON.ShaderMaterial('nuc', scene, 'imp', { attributes:['position','instanceColor','world0','world1','world2','world3'], uniforms: IMP_U, defines:['#define NOSWAY'] });
-nucMat.setFloat('radius',NUCLEON_R); nucMat.setFloat('isShell',0); nucMat.setFloat('shellMin',0); nucMat.setFloat('revealFade',0); nucMat.setFloat('bubbleR',1e9); nucMat.setFloat('protonOutline',0);
-nucMat.setFloat('depthBias',NUC_BIAS); nucMat.setFloat('boil',BOIL); nucMat.setFloat('boilHzAdj',0); nucMat.setFloat('coneCos',-1.0); nucMat.setVector3('selCenter', FAR); nucMat.setFloat('selModel',-1); nucMat.setColor3('selCol', SAGE);
-nucMat.backFaceCulling=false; realAlpha(nucMat); nucMat.disableDepthWrite = true;
-const orbMatOf = (nm, shader, attrs, extra, defs) => { const m = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes: attrs.concat(['seed']),
-    uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','uTe','nElec','selCenter','focusId','coneCos','drawElec','selModel','selCol','focusAmt','focusMode','focusCenterV','focusR','focusDark'].concat(extra||[]),
-    defines:['#define SEEDATTR'].concat(defs||[]) });
-  m.setFloat('bubbleR',1e9); m.setFloat('nElec',2); m.setFloat('coneCos',-1.0); m.setFloat('drawElec',1); m.setVector3('selCenter', FAR); m.setFloat('focusId',-1);
-  m.setFloat('selModel',-1); m.setColor3('selCol', SAGE); m.setFloat('focusAmt',0); m.setFloat('focusMode',0); m.setVector3('focusCenterV', FAR); m.setFloat('focusR',0); m.setFloat('focusDark',0);
+const MM_U = ['modelXform','modelCol','colorMode','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark'];
+const REVEAL = 70;   // glass + orbitals within this camera distance, an opaque ball beyond (the viewer's convention, so a protein seen from afar is a solid body)
+const impMat = (nm, shell, defs, movable) => { const m = new BABYLON.ShaderMaterial(nm, scene, 'imp', { attributes:['position','instanceColor','world0','world1','world2','world3'].concat(shell ? ['instR'] : []).concat(movable ? ['modelId'] : []), uniforms: IMP_U.concat(movable ? MM_U : []), defines: defs });
+  m.setFloat('radius', shell ? 1.0 : NUCLEON_R); m.setFloat('isShell', shell ? 1 : 0); m.setFloat('shellMin', shell ? 0.22 : 0); m.setFloat('revealFade', shell ? 0.95 : 0);
+  m.setFloat('bubbleR', shell ? REVEAL : 1e9); m.setFloat('protonOutline', 0); m.setFloat('depthBias', shell ? 0 : NUC_BIAS); m.setFloat('boil', BOIL); m.setFloat('boilHzAdj', 0);
+  m.setFloat('coneCos', -1.0); m.setVector3('selCenter', FAR); m.setFloat('selModel', -1); m.setColor3('selCol', SAGE); m.backFaceCulling = false; realAlpha(m); if(!shell) m.disableDepthWrite = true;
+  if(movable){ m.setFloat('colorMode', 0); m.setFloat('focusAmt', 0); m.setFloat('focusMode', 0); m.setVector3('focusCenterV', FAR); m.setFloat('focusR', 0); m.setFloat('focusGroup', -1); m.setFloat('focusDark', 0); }
+  return m; };
+const orbMat = (nm, shader, attrs, extra, defs, movable) => { const m = new BABYLON.ShaderMaterial(nm, scene, shader, { attributes: attrs.concat(movable ? ['modelId'] : ['seed']),
+    uniforms:['view','projection','bubbleR','fogColor','fogStart','fogEnd','uT','uTe','nElec','selCenter','focusId','coneCos','drawElec','selModel','selCol','focusAmt','focusMode','focusCenterV','focusR','focusDark'].concat(extra||[]).concat(movable ? ['modelXform','modelCol','colorMode','focusSet','focusGroup'] : []),
+    defines:(movable ? ['#define MODELMOVE'] : ['#define SEEDATTR']).concat(defs||[]) });
+  m.setFloat('bubbleR', REVEAL); m.setFloat('nElec', 2); m.setFloat('coneCos', -1.0); m.setFloat('drawElec', 1); m.setVector3('selCenter', FAR); m.setFloat('focusId', -1);
+  m.setFloat('selModel', -1); m.setColor3('selCol', SAGE); m.setFloat('focusAmt', 0); m.setFloat('focusMode', 0); m.setVector3('focusCenterV', FAR); m.setFloat('focusR', 0); m.setFloat('focusDark', 0); if(movable){ m.setFloat('colorMode', 0); m.setFloat('focusGroup', -1); }
   m.backFaceCulling = true; return realAlpha(m); };
-const coreMat = orbMatOf('orbCore','orb',['position','normal','ocol','ocen','oid','world0','world1','world2','world3']);
-const bondMat = orbMatOf('orbBond','bond',['position','normal','taper','prof','ocen','bcol','oid','world0','world1','world2','world3'],['opacity'],['#define HORNPROF']);
-bondMat.setFloat('nElec',1); bondMat.setFloat('opacity',1);
-for(const m of [shellMat, nucMat, coreMat, bondMat]) m.onBindObservable.add(() => { const e = m.getEffect(); if(!e) return;
-  e.setFloat('uT', uT); e.setFloat('uTb', uTb); e.setFloat('uTe', uTe); e.setColor3('fogColor', scene.fogColor); e.setFloat('fogStart', scene.fogStart); e.setFloat('fogEnd', scene.fogEnd); });
+const CORE_A = ['position','normal','ocol','ocen','oid','world0','world1','world2','world3'], BOND_A = ['position','normal','taper','prof','ocen','bcol','oid','world0','world1','world2','world3'];
+const dynShell = impMat('dynShell', true, ['#define IMPRAD','#define NOSWAY']), dynNuc = impMat('dynNuc', false, ['#define NOSWAY']);
+const dynCore = orbMat('dynCore', 'orb', CORE_A), dynBond = orbMat('dynBond', 'bond', BOND_A, ['opacity'], ['#define HORNPROF']); dynBond.setFloat('nElec', 1); dynBond.setFloat('opacity', 1);
+const protShell = impMat('protShell', true, ['#define IMPRAD','#define MODELMOVE'], true), protNuc = impMat('protNuc', false, ['#define MODELMOVE','#define NUCLEON'], true);
+const protCore = orbMat('protCore', 'orb', CORE_A, null, null, true), protBond = orbMat('protBond', 'bond', BOND_A, ['opacity'], ['#define HORNPROF'], true); protBond.setFloat('nElec', 1); protBond.setFloat('opacity', 1);
+const ALL_MATS = [dynShell, dynNuc, dynCore, dynBond, protShell, protNuc, protCore, protBond];
+for(const m of ALL_MATS) m.onBindObservable.add(() => { const e = m.getEffect(); if(!e) return;
+  e.setFloat('uT', uT); e.setFloat('uTb', uTb); e.setFloat('uTe', uTe); e.setColor3('fogColor', scene.fogColor); e.setFloat('fogStart', scene.fogStart); e.setFloat('fogEnd', scene.fogEnd);
+  if(m === protShell || m === protNuc || m === protCore || m === protBond){ e.setMatrices('modelXform', gModelXform); e.setArray3('modelCol', gModelCol); e.setFloat('colorMode', 0); } });
 
-/* the four instanced meshes (orbitals in group 0, shells and nuclei over them in group 1) */
-const MAXMOL = 80, MAXATOM = MAXMOL*3, MAXNUC = MAXMOL*3*16, MAXLOBE = MAXMOL*40;
+/* ── the dynamic meshes for the small molecules (rebuilt every frame) ───────────────────────────── */
+const MAXMOL = 200, MAXATOM = MAXMOL*12, MAXNUC = MAXATOM*16, MAXLOBE = MAXMOL*120;
 const mkMesh = (mesh, mat, grp) => { mesh.material = mat; mesh.isPickable = false; mesh.alwaysSelectAsActiveMesh = true; mesh.renderingGroupId = grp; mesh.doNotSyncBoundingInfo = true; return mesh; };
-const shellMesh = mkMesh(BABYLON.MeshBuilder.CreatePlane('shells', {size:2}, scene), shellMat, 1);
-const nucMesh   = mkMesh(BABYLON.MeshBuilder.CreatePlane('nuclei', {size:2}, scene), nucMat, 1);
-const coreMesh  = mkMesh(BABYLON.MeshBuilder.CreateSphere('cores', {segments:6, diameter:1}, scene), coreMat, 0);
-const bondMesh  = mkMesh(BABYLON.MeshBuilder.CreateSphere('lobes', {segments:5, diameter:1}, scene), bondMat, 0);
+const shellMesh = mkMesh(BABYLON.MeshBuilder.CreatePlane('shells', {size:2}, scene), dynShell, 1);
+const nucMesh   = mkMesh(BABYLON.MeshBuilder.CreatePlane('nuclei', {size:2}, scene), dynNuc, 1);
+const coreMesh  = mkMesh(BABYLON.MeshBuilder.CreateSphere('cores', {segments:6, diameter:1}, scene), dynCore, 0);
+const bondMesh  = mkMesh(BABYLON.MeshBuilder.CreateSphere('lobes', {segments:5, diameter:1}, scene), dynBond, 0);
 const B = {
   shM: new Float32Array(MAXATOM*16), shC: new Float32Array(MAXATOM*4), shR: new Float32Array(MAXATOM),
   nuM: new Float32Array(MAXNUC*16),  nuC: new Float32Array(MAXNUC*4),
@@ -11377,63 +11456,77 @@ coreMesh.thinInstanceSetBuffer('matrix', B.coM, 16, false); coreMesh.thinInstanc
 bondMesh.thinInstanceSetBuffer('matrix', B.boM, 16, false); bondMesh.thinInstanceSetBuffer('bcol', B.boCol, 3, false); bondMesh.thinInstanceSetBuffer('ocen', B.boCen, 3, false); bondMesh.thinInstanceSetBuffer('oid', B.boOid, 1, false); bondMesh.thinInstanceSetBuffer('seed', B.boSeed, 1, false); bondMesh.thinInstanceSetBuffer('taper', B.boTap, 1, false); bondMesh.thinInstanceSetBuffer('prof', B.boProf, 1, false);
 for(const m of [shellMesh, nucMesh, coreMesh, bondMesh]) m.thinInstanceCount = 0;
 
-/* the molecules */
+/* ── a protein instance: four static meshes in LOCAL coordinates, slot = its modelXform index ──── */
+const slots = new Array(MAXMODEL).fill(null);
+const protBuild = (sp, slot) => { const n = sp.atoms.length; const M = new Float32Array(n*16), C = new Float32Array(n*4), R = new Float32Array(n), ID = new Float32Array(n).fill(slot);
+  const NM = new Float32Array(sp.nucN*16), NCc = new Float32Array(sp.nucN*4), NID = new Float32Array(sp.nucN).fill(slot); let nn = 0;
+  sp.atoms.forEach((a, k) => { const o = k*16; M[o]=1; M[o+5]=1; M[o+10]=1; M[o+15]=1; M[o+12]=a.q[0]; M[o+13]=a.q[1]; M[o+14]=a.q[2]; C[k*4]=a.col[0]; C[k*4+1]=a.col[1]; C[k*4+2]=a.col[2]; C[k*4+3]=0; R[k]=a.r;
+    for(const nu of a.nuc){ const p = nn*16; NM[p]=1; NM[p+5]=1; NM[p+10]=1; NM[p+15]=1; NM[p+12]=a.q[0]+nu.o[0]; NM[p+13]=a.q[1]+nu.o[1]; NM[p+14]=a.q[2]+nu.o[2]; NM[p+3]=a.q[0]; NM[p+7]=a.q[1]; NM[p+11]=a.q[2];
+      NCc[nn*4]=nu.col[0]; NCc[nn*4+1]=nu.col[1]; NCc[nn*4+2]=nu.col[2]; NCc[nn*4+3]=nu.p; nn++; } });
+  const tag = sp.key + '_' + slot;
+  const sh = mkMesh(BABYLON.MeshBuilder.CreatePlane('psh_' + tag, {size:2}, scene), protShell, 1); sh.thinInstanceSetBuffer('matrix', M, 16, true); sh.thinInstanceSetBuffer('instanceColor', C, 4, true); sh.thinInstanceSetBuffer('instR', R, 1, true); sh.thinInstanceSetBuffer('modelId', ID, 1, true);
+  const nu = mkMesh(BABYLON.MeshBuilder.CreatePlane('pnu_' + tag, {size:2}, scene), protNuc, 1); nu.thinInstanceSetBuffer('matrix', NM, 16, true); nu.thinInstanceSetBuffer('instanceColor', NCc, 4, true); nu.thinInstanceSetBuffer('modelId', NID, 1, true);
+  const co = mkMesh(BABYLON.MeshBuilder.CreateSphere('pco_' + tag, {segments:6, diameter:1}, scene), protCore, 0); co.thinInstanceSetBuffer('matrix', new Float32Array(sp.core.m), 16, true); co.thinInstanceSetBuffer('ocol', new Float32Array(sp.core.col), 3, true); co.thinInstanceSetBuffer('ocen', new Float32Array(sp.core.cen), 3, true); co.thinInstanceSetBuffer('oid', new Float32Array(sp.core.oid), 1, true); co.thinInstanceSetBuffer('modelId', new Float32Array(sp.coreN).fill(slot), 1, true);
+  const bo = mkMesh(BABYLON.MeshBuilder.CreateSphere('pbo_' + tag, {segments:5, diameter:1}, scene), protBond, 0); bo.thinInstanceSetBuffer('matrix', new Float32Array(sp.bond.m), 16, true); bo.thinInstanceSetBuffer('bcol', new Float32Array(sp.bond.col), 3, true); bo.thinInstanceSetBuffer('ocen', new Float32Array(sp.bond.cen), 3, true); bo.thinInstanceSetBuffer('oid', new Float32Array(sp.bond.oid), 1, true); bo.thinInstanceSetBuffer('taper', new Float32Array(sp.bond.tap), 1, true); bo.thinInstanceSetBuffer('prof', new Float32Array(sp.bond.prof), 1, true); bo.thinInstanceSetBuffer('modelId', new Float32Array(sp.bondN).fill(slot), 1, true);
+  sh.thinInstanceCount = n; nu.thinInstanceCount = sp.nucN; co.thinInstanceCount = sp.coreN; bo.thinInstanceCount = sp.bondN;
+  return { sh, nu, co, bo }; };
+
+/* ── the molecules ─────────────────────────────────────────────────────────────────────────────── */
 const mols = []; let nextId = 1, rxId = 0;
 const rnd = (a, b) => a + Math.random()*(b - a);
 const spawn = (key, x, y, vx, vy, grp) => { const sp = SPECIES[key]; if(!sp || mols.length >= MAXMOL) return null;
-  if(vx === undefined){ const a = Math.random()*6.283, s = rnd(2.5, 4.5); vx = Math.cos(a)*s; vy = Math.sin(a)*s; }
-  const m = { id: nextId++, sp, x, y, vx, vy, ang: Math.random()*6.283, angV: rnd(0.25, 0.6) * (Math.random() < 0.5 ? -1 : 1),
-    rockAx: Math.random()*6.283, rockPh: Math.random()*6.283, rockAmp: rnd(0.35, 0.55), born: simT, grp: grp || 0 };   // grp = the reaction that made it (0 = dropped by hand): siblings get a moment before they may react with EACH OTHER again
+  if(vx === undefined){ const a = Math.random()*6.283, s = sp.isProt ? rnd(1.5, 3) : rnd(2.5, 4.5); vx = Math.cos(a)*s; vy = Math.sin(a)*s; }
+  const m = { id: nextId++, sp, x, y, vx, vy, ang: Math.random()*6.283, angV: (sp.isProt ? rnd(0.03, 0.08) : rnd(0.25, 0.6)) * (Math.random() < 0.5 ? -1 : 1),
+    rockAx: Math.random()*6.283, rockPh: Math.random()*6.283, rockAmp: sp.isProt ? 0.06 : rnd(0.35, 0.55), born: simT, grp: grp || 0 };
+  if(sp.isProt){ let slot = slots.indexOf(null); if(slot < 0){ return null; } slots[slot] = m; m.slot = slot; m.meshes = protBuild(sp, slot); }
   mols.push(m); fmt(); return m; };
+const remove = m => { const i = mols.indexOf(m); if(i >= 0) mols.splice(i, 1); if(m.meshes){ for(const k in m.meshes) m.meshes[k].dispose(); slots[m.slot] = null; } };
 const hash = (a, b) => { const v = Math.sin(a*12.9898 + b*78.233) * 43758.5453; return v - Math.floor(v); };
-const fmt = () => { let nw = 0; const cnt = {}; for(const m of mols){ if(m.sp.key === 'H2O') nw++; cnt[m.sp.key] = (cnt[m.sp.key]||0) + 1; }
-  document.getElementById('vesi-n').textContent = nw;
-  document.getElementById('muut').textContent = Object.keys(cnt).filter(k => k !== 'H2O').sort().map(k => NAME_FI[k].split(' ')[0] + ' ' + cnt[k]).join(' · '); };
+const fmt = () => {};   // (the counter box was removed - the hook stays so a tally can come back cheaply)
 
-/* physics: billiard bounce on the plane, then the reaction table */
+/* ── physics: billiard bounce on the plane, then the reaction table ────────────────────────────── */
 const step = dt => {
-  const W = halfW(), H = HALF_H;
-  for(const m of mols){ m.x += m.vx*dt; m.y += m.vy*dt; m.ang += m.angV*dt; const r = m.sp.radius;
-    if(m.x < -W + r){ m.x = -W + r; m.vx = Math.abs(m.vx); m.angV = -m.angV; } else if(m.x > W - r){ m.x = W - r; m.vx = -Math.abs(m.vx); m.angV = -m.angV; }
-    if(m.y < -H + r){ m.y = -H + r; m.vy = Math.abs(m.vy); m.angV = -m.angV; } else if(m.y > H - r){ m.y = H - r; m.vy = -Math.abs(m.vy); m.angV = -m.angV; } }
+  for(const m of mols){ if(m.held){ m.ang += m.angV*dt; continue; } m.x += m.vx*dt; m.y += m.vy*dt; m.ang += m.angV*dt; const r = Math.min(m.sp.radius, HH - 1);
+    if(m.x < -HW + r){ m.x = -HW + r; m.vx = Math.abs(m.vx); m.angV = -m.angV; } else if(m.x > HW - r){ m.x = HW - r; m.vx = -Math.abs(m.vx); m.angV = -m.angV; }
+    if(m.y < -HH + r){ m.y = -HH + r; m.vy = Math.abs(m.vy); m.angV = -m.angV; } else if(m.y > HH - r){ m.y = HH - r; m.vy = -Math.abs(m.vy); m.angV = -m.angV; } }
   const dead = new Set(), born = [];
-  for(let i=0;i<mols.length;i++){ const a = mols[i]; if(dead.has(a)) continue;
-    for(let j=i+1;j<mols.length;j++){ const b = mols[j]; if(dead.has(b)) continue;
+  for(let i=0;i<mols.length;i++){ const a = mols[i]; if(dead.has(a) || a.held) continue;   // a molecule still in the hand neither collides nor reacts
+    for(let j=i+1;j<mols.length;j++){ const b = mols[j]; if(dead.has(b) || b.held) continue;
       const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), R = a.sp.radius + b.sp.radius; if(d >= R || d < 1e-6) continue;
       const nx = dx/d, ny = dy/d;
-      const siblings = a.grp && a.grp === b.grp && simT - a.born < 0.4;   // products of the SAME reaction, still flying apart - not again with each other yet
+      const siblings = a.grp && a.grp === b.grp && simT - a.born < 0.4;
       const prods = siblings ? null : RULES[a.sp.key + '+' + b.sp.key];
       if(prods){ dead.add(a); dead.add(b); const g = ++rxId;
         const M = a.sp.mass + b.sp.mass, vx = (a.vx*a.sp.mass + b.vx*b.sp.mass)/M, vy = (a.vy*a.sp.mass + b.vy*b.sp.mass)/M, cx = (a.x + b.x)/2, cy = (a.y + b.y)/2;
         prods.forEach((k, q) => { const sp = SPECIES[k]; if(q === 0) born.push([k, cx, cy, vx, vy, g]);
           else { const s = Math.hypot(vx, vy) + 1.5, px = -ny, py = nx, side = q % 2 ? 1 : -1; born.push([k, cx + px*side*(sp.radius + SPECIES[prods[0]].radius + 0.2), cy + py*side*(sp.radius + SPECIES[prods[0]].radius + 0.2), px*side*s, py*side*s, g]); } });
-        break; }   // a is consumed - it must not react with the next partner in the same frame
+        break; }
       const ma = a.sp.mass, mb = b.sp.mass, rv = (b.vx - a.vx)*nx + (b.vy - a.vy)*ny; if(rv < 0){ const jn = -2*rv/(1/ma + 1/mb); a.vx -= jn*nx/ma; a.vy -= jn*ny/ma; b.vx += jn*nx/mb; b.vy += jn*ny/mb; a.angV = -a.angV; b.angV = -b.angV; }
-      const ov = (R - d)*0.5 + 0.01; a.x -= nx*ov; a.y -= ny*ov; b.x += nx*ov; b.y += ny*ov; } }
-  if(dead.size){ for(let i=mols.length-1;i>=0;i--) if(dead.has(mols[i])) mols.splice(i, 1); for(const b of born) spawn(...b); fmt(); }
+      const ov = (R - d) + 0.01, wa = mb/(ma+mb), wb = ma/(ma+mb); a.x -= nx*ov*wa; a.y -= ny*ov*wa; b.x += nx*ov*wb; b.y += ny*ov*wb; } }
+  if(dead.size){ for(const m of [...dead]) remove(m); for(const b of born) spawn(...b); fmt(); }
 };
 
-/* drawing: every frame, every molecule's parts go into the four instance buffers */
+/* ── drawing ───────────────────────────────────────────────────────────────────────────────────── */
 const R9 = new Float64Array(9);
-const rotOf = (m, t) => {   // z-spin composed with a gentle rock about an in-plane axis, so the 3-D shape reads
-  const cz = Math.cos(m.ang), sz = Math.sin(m.ang), th = m.rockAmp*Math.sin(t*0.8 + m.rockPh), c = Math.cos(th), s = Math.sin(th), k = [Math.cos(m.rockAx), Math.sin(m.rockAx), 0], tt = 1 - c;
+const rotOf = (m, t) => { const cz = Math.cos(m.ang), sz = Math.sin(m.ang), th = m.rockAmp*Math.sin(t*0.8 + m.rockPh), c = Math.cos(th), s = Math.sin(th), k = [Math.cos(m.rockAx), Math.sin(m.rockAx), 0], tt = 1 - c;
   const Rk = [tt*k[0]*k[0]+c, tt*k[0]*k[1], s*k[1],  tt*k[0]*k[1], tt*k[1]*k[1]+c, -s*k[0],  -s*k[1], s*k[0], c];
   const Rz = [cz,-sz,0, sz,cz,0, 0,0,1];
   for(let r=0;r<3;r++) for(let cc=0;cc<3;cc++) R9[r*3+cc] = Rk[r*3]*Rz[cc] + Rk[r*3+1]*Rz[3+cc] + Rk[r*3+2]*Rz[6+cc]; };
 const xf = (v, out) => { out[0] = R9[0]*v[0] + R9[1]*v[1] + R9[2]*v[2]; out[1] = R9[3]*v[0] + R9[4]*v[1] + R9[5]*v[2]; out[2] = R9[6]*v[0] + R9[7]*v[1] + R9[8]*v[2]; return out; };
 const _v = [0,0,0], _w = [0,0,0];
 const draw = () => {
-  let na = 0, nn = 0, nc = 0, nb = 0;
+  let na = 0, nn = 0, nc = 0, nb = 0; const cp = cam.position;
   for(const m of mols){ rotOf(m, simT); const sp = m.sp, px = m.x, py = m.y;
+    if(sp.isProt){   // one matrix per model (column-major: R in the 3x3, the translation in 12..14), detail only near the camera
+      const o = m.slot*16; gModelXform[o]=R9[0]; gModelXform[o+1]=R9[3]; gModelXform[o+2]=R9[6]; gModelXform[o+3]=0; gModelXform[o+4]=R9[1]; gModelXform[o+5]=R9[4]; gModelXform[o+6]=R9[7]; gModelXform[o+7]=0;
+      gModelXform[o+8]=R9[2]; gModelXform[o+9]=R9[5]; gModelXform[o+10]=R9[8]; gModelXform[o+11]=0; gModelXform[o+12]=px; gModelXform[o+13]=py; gModelXform[o+14]=0; gModelXform[o+15]=1;
+      const near = Math.hypot(cp.x - px, cp.y - py, cp.z) - sp.radius < DETAIL_R; m.meshes.nu.setEnabled(near); m.meshes.co.setEnabled(near); m.meshes.bo.setEnabled(near); continue; }
+    if(na + sp.atoms.length > MAXATOM || nc + sp.coreN > MAXLOBE || nb + sp.bondN > MAXLOBE) continue;
     sp.atoms.forEach((a, ai) => { xf(a.q, _v); const ax = px + _v[0], ay = py + _v[1], az = _v[2];
-      /* The unused w slots carry a FIXED per-atom key (never the live centre): the imp shader hashes its
-         boil offset and its silhouette-wobble phase from that point, so the boil steps at 7 Hz like a
-         protein atom's instead of re-rolling every frame while the molecule moves. Shell and nucleons
-         share the key, so they jitter together. */
-      const kx = m.id*3.7 + 1.3, ky = ai*2.9 + 0.7, kz = 0.5;
+      const kx = m.id*3.7 + 1.3, ky = ai*2.9 + 0.7, kz = 0.5;   // a FIXED per-atom key in the w slots: the boil hashes from it, not from the live centre
       let o = na*16; B.shM.fill(0, o, o+16); B.shM[o]=1; B.shM[o+5]=1; B.shM[o+10]=1; B.shM[o+15]=1; B.shM[o+12]=ax; B.shM[o+13]=ay; B.shM[o+14]=az; B.shM[o+3]=kx; B.shM[o+7]=ky; B.shM[o+11]=kz;
       B.shC[na*4]=a.col[0]; B.shC[na*4+1]=a.col[1]; B.shC[na*4+2]=a.col[2]; B.shC[na*4+3]=0; B.shR[na]=a.r; na++;
-      for(const n of a.nuc){ xf(n.o, _w); o = nn*16; B.nuM.fill(0, o, o+16); B.nuM[o]=1; B.nuM[o+5]=1; B.nuM[o+10]=1; B.nuM[o+15]=1;
+      if(nn + a.nuc.length <= MAXNUC) for(const n of a.nuc){ xf(n.o, _w); o = nn*16; B.nuM.fill(0, o, o+16); B.nuM[o]=1; B.nuM[o+5]=1; B.nuM[o+10]=1; B.nuM[o+15]=1;
         B.nuM[o+12]=ax+_w[0]; B.nuM[o+13]=ay+_w[1]; B.nuM[o+14]=az+_w[2]; B.nuM[o+3]=kx; B.nuM[o+7]=ky; B.nuM[o+11]=kz;
         B.nuC[nn*4]=n.col[0]; B.nuC[nn*4+1]=n.col[1]; B.nuC[nn*4+2]=n.col[2]; B.nuC[nn*4+3]=n.p; nn++; } });
     const putLobe = (src, q, M, COL, CEN, OID, SEED, idx, extra) => { const s0 = q*16, d0 = idx*16;
@@ -11444,8 +11537,8 @@ const draw = () => {
       const ex=src.cen[q*3], ey=src.cen[q*3+1], ez=src.cen[q*3+2];
       CEN[idx*3]=R9[0]*ex+R9[1]*ey+R9[2]*ez+px; CEN[idx*3+1]=R9[3]*ex+R9[4]*ey+R9[5]*ez+py; CEN[idx*3+2]=R9[6]*ex+R9[7]*ey+R9[8]*ez;
       COL[idx*3]=src.col[q*3]; COL[idx*3+1]=src.col[q*3+1]; COL[idx*3+2]=src.col[q*3+2]; OID[idx]=src.oid[q]; SEED[idx]=hash(m.id, q); if(extra) extra(idx, q); };
-    for(let q=0;q<sp.coreN && nc<MAXLOBE;q++, nc++) putLobe(sp.core, q, B.coM, B.coCol, B.coCen, B.coOid, B.coSeed, nc);
-    for(let q=0;q<sp.bondN && nb<MAXLOBE;q++, nb++) putLobe(sp.bond, q, B.boM, B.boCol, B.boCen, B.boOid, B.boSeed, nb, (i, k) => { B.boTap[i] = sp.bond.tap[k]; B.boProf[i] = sp.bond.prof[k]; }); }
+    for(let q=0;q<sp.coreN;q++, nc++) putLobe(sp.core, q, B.coM, B.coCol, B.coCen, B.coOid, B.coSeed, nc);
+    for(let q=0;q<sp.bondN;q++, nb++) putLobe(sp.bond, q, B.boM, B.boCol, B.boCen, B.boOid, B.boSeed, nb, (i, k) => { B.boTap[i] = sp.bond.tap[k]; B.boProf[i] = sp.bond.prof[k]; }); }
   shellMesh.thinInstanceCount = na; nucMesh.thinInstanceCount = nn; coreMesh.thinInstanceCount = nc; bondMesh.thinInstanceCount = nb;
   if(na){ shellMesh.thinInstanceBufferUpdated('matrix'); shellMesh.thinInstanceBufferUpdated('instanceColor'); shellMesh.thinInstanceBufferUpdated('instR'); }
   if(nn){ nucMesh.thinInstanceBufferUpdated('matrix'); nucMesh.thinInstanceBufferUpdated('instanceColor'); }
@@ -11453,28 +11546,91 @@ const draw = () => {
   if(nb){ for(const k of ['matrix','bcol','ocen','oid','seed','taper','prof']) bondMesh.thinInstanceBufferUpdated(k); }
   shellMesh.setEnabled(na > 0); nucMesh.setEnabled(nn > 0); coreMesh.setEnabled(nc > 0); bondMesh.setEnabled(nb > 0);
 };
-scene.onBeforeRenderObservable.add(() => { const dt = Math.min(engine.getDeltaTime(), 50) * 0.001; uT += dt; uTb += dt; uTe += dt; const ds = dt*gSpeed; simT += ds; step(ds); draw(); });
+
+/* ── camera controls: the viewer's scheme, with the movement kept on the plane ─────────────────────
+   WASD pans the target across the plane, arrows turn (alpha / beta), Q / E zoom, N / M roll, the wheel
+   zooms toward the cursor with the same 400 ms detent ramp and smoothing, middle or right drag looks
+   around, left drag pans, a gamepad maps as in the viewer (left stick pan, right stick look, L1 / R1 zoom,
+   L2 / R2 roll, every connected pad merged), I resets, space pauses the simulation. Held keys ramp from 5 %
+   to full over 3.5 s like the viewer's. */
+const keys = {}, RAMP_S = 3.5, RAMP_MIN = 0.05; const ramp = { pan: 0, rot: 0, zoom: 0, roll: 0 };
+window.addEventListener('keydown', e => { if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if(k === ' '){ gPaused = !gPaused; e.preventDefault(); return; } if(k === 'i'){ resetView(); return; } if(k === 'w'||k==='a'||k==='s'||k==='d'||k==='q'||k==='e'||k==='n'||k==='m'||/^Arrow/.test(k)){ keys[k] = true; e.preventDefault(); } });
+window.addEventListener('keyup', e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys[k] = false; });
+const resetView = () => { cam.alpha = -Math.PI/2; cam.beta = Math.PI/2; cam.radius = CAM_R0; cam.target.set(0, 0, 0); cam.upVector.set(0, 1, 0); cam.inertialAlphaOffset = cam.inertialBetaOffset = cam.inertialRadiusOffset = 0; zoomVel = 0; };
+const padPrev = {};
+const pollPad = () => { const pads = navigator.getGamepads ? [...(navigator.getGamepads() || [])].filter(g => g && g.connected) : [];
+  const ax = [0,0,0,0], bv = [0,0,0,0,0,0,0,0]; for(const g of pads){ const Ax = g.axes || [], Bt = g.buttons || []; for(let i=0;i<4;i++){ const v = Ax[i] || 0; if(Math.abs(v) > Math.abs(ax[i])) ax[i] = v; } for(let i=4;i<8;i++){ const q = Bt[i]; const v = q ? Math.max(q.value || 0, q.pressed ? 1 : 0) : 0; if(v > bv[i]) bv[i] = v; } }
+  const DZ = 0.18, set = (k, on) => { if(!!padPrev[k] === on) return; padPrev[k] = on; keys[k] = on; };
+  set('a', ax[0] < -DZ); set('d', ax[0] > DZ); set('w', ax[1] < -DZ); set('s', ax[1] > DZ); set('ArrowLeft', ax[2] < -DZ); set('ArrowRight', ax[2] > DZ); set('ArrowUp', ax[3] < -DZ); set('ArrowDown', ax[3] > DZ);
+  set('q', bv[4] > 0.15); set('e', bv[5] > 0.15); set('m', bv[6] > 0.15); set('n', bv[7] > 0.15); };
+const rampStep = (on, key, dt) => { ramp[key] = on ? Math.min(1, ramp[key] + (1-RAMP_MIN)*dt/RAMP_S) : 0; return on ? RAMP_MIN + (1-RAMP_MIN)*ramp[key] : 0; };
+const _fw = new BABYLON.Vector3(), _rt = new BABYLON.Vector3(), _up = new BABYLON.Vector3();
+const moveCamera = dt => { pollPad();
+  const pan = rampStep(keys.w||keys.a||keys.s||keys.d, 'pan', dt), rot = rampStep(keys.ArrowLeft||keys.ArrowRight||keys.ArrowUp||keys.ArrowDown, 'rot', dt), zm = rampStep(keys.q||keys.e, 'zoom', dt), rl = rampStep(keys.n||keys.m, 'roll', dt);
+  if(pan > 0){ cam.getDirectionToRef(BABYLON.Axis.X, _rt); cam.getDirectionToRef(BABYLON.Axis.Y, _up); _rt.z = 0; _up.z = 0; if(_rt.length() < 1e-3) _rt.set(1,0,0); if(_up.length() < 1e-3) _up.set(0,1,0); _rt.normalize(); _up.normalize();
+    const v = 0.9*cam.radius*dt*pan, dx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), dy = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
+    cam.target.x += (_rt.x*dx + _up.x*dy)*v; cam.target.y += (_rt.y*dx + _up.y*dy)*v; cam.target.z = 0; }
+  if(rot > 0){ cam.alpha += ((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0))*1.2*dt*rot; cam.beta += ((keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0))*0.8*dt*rot; }
+  if(zm > 0){ cam.radius *= Math.exp(((keys.e ? 1 : 0) - (keys.q ? 1 : 0))*1.2*dt*zm); }
+  if(rl > 0){ cam.getDirectionToRef(BABYLON.Axis.Z, _fw); const a = ((keys.m ? 1 : 0) - (keys.n ? 1 : 0))*0.9*dt*rl; const q = BABYLON.Quaternion.RotationAxis(_fw, a); cam.upVector.rotateByQuaternionToRef(q, cam.upVector); }
+  if(Math.abs(zoomVel) > 1e-4){ const d = zoomVel*zoomEase; zoomVel -= d; zoomTo(d); }
+  cam.target.x = Math.max(-HW - 100, Math.min(HW + 100, cam.target.x)); cam.target.y = Math.max(-HH - 100, Math.min(HH + 100, cam.target.y)); cam.target.z = 0;
+  cam.radius = Math.max(cam.lowerRadiusLimit, Math.min(cam.upperRadiusLimit, cam.radius)); };
+/* wheel: a fraction of the radius per detent, ramping 0.1 -> 1.0 over a run of detents and decaying after
+   400 ms of quiet - the viewer's rule - and pulled toward the point under the cursor */
+let zoomVel = 0, zoomEase = 0.16, wheelStep = 0, lastWheel = 0, zoomAt = null;
+const toPlane = (cx, cy) => { const ray = scene.createPickingRay(cx, cy, BABYLON.Matrix.Identity(), cam); if(Math.abs(ray.direction.z) < 1e-6) return null; const t = -ray.origin.z / ray.direction.z; return t > 0 ? [ray.origin.x + ray.direction.x*t, ray.origin.y + ray.direction.y*t] : null; };
+const zoomTo = f => { const r0 = cam.radius, r1 = Math.max(cam.lowerRadiusLimit, Math.min(cam.upperRadiusLimit, r0*(1 + f))); if(zoomAt && r1 < r0){ const k = 1 - r1/r0; cam.target.x += (zoomAt[0] - cam.target.x)*k; cam.target.y += (zoomAt[1] - cam.target.y)*k; } cam.radius = r1; };
+canvas.addEventListener('wheel', e => { e.preventDefault(); const now = performance.now(); wheelStep = (now - lastWheel < 400) ? Math.min(10, wheelStep + 1) : 1; lastWheel = now;
+  const slow = (e.buttons & 4) === 4; zoomEase = slow ? 0.05 : 0.16; const rc = canvas.getBoundingClientRect(); zoomAt = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height));
+  zoomVel += Math.sign(e.deltaY) * 0.16 * (wheelStep/10) * (slow ? 0.15 : 1); zoomVel = Math.max(-0.6, Math.min(0.6, zoomVel)); }, { passive: false });
+/* left drag pans the plane */
+let panDrag = null;
+canvas.addEventListener('pointerdown', e => { if(e.button !== 0) return; const rc = canvas.getBoundingClientRect(), p = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); if(p) panDrag = { id: e.pointerId, p }; });
+canvas.addEventListener('pointermove', e => { if(!panDrag || e.pointerId !== panDrag.id) return; const rc = canvas.getBoundingClientRect(), p = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); if(!p) return; cam.target.x -= p[0] - panDrag.p[0]; cam.target.y -= p[1] - panDrag.p[1]; });
+const endPan = e => { if(panDrag && e.pointerId === panDrag.id) panDrag = null; }; window.addEventListener('pointerup', endPan); window.addEventListener('pointercancel', endPan);
+
+scene.onBeforeRenderObservable.add(() => { const dt = Math.min(engine.getDeltaTime(), 50) * 0.001; uT += dt; uTb += dt; uTe += dt; moveCamera(dt); const ds = gPaused ? 0 : dt*gSpeed; simT += ds; if(ds > 0) step(ds); draw(); });
 engine.runRenderLoop(() => scene.render());
 window.addEventListener('resize', () => engine.resize());
 
-/* the speed slider - the same control as the viewer's, scaling the simulation only */
+/* the speed slider - the viewer's control, scaling the simulation only */
 { const sEl = document.getElementById('editorspeedsld'), sVal = document.getElementById('editorspeedval');
-  const apply = () => { gSpeed = (+sEl.value)/10; sVal.textContent = gSpeed.toFixed(1)+'×'; }; sEl.addEventListener('input', apply); apply(); }
+  const apply = () => { gSpeed = (+sEl.value)/10; sVal.textContent = gPaused ? 'seis' : gSpeed.toFixed(1)+'×'; }; sEl.addEventListener('input', () => { gPaused = false; apply(); }); apply();
+  setInterval(() => { sVal.textContent = gPaused ? 'seis' : gSpeed.toFixed(1)+'×'; }, 250); }
 
-/* drag from the list onto the plane */
-const ghost = document.getElementById('haamu'); ghost.style.display = 'none';
-const toPlane = (cx, cy) => { const ray = scene.createPickingRay(cx, cy, BABYLON.Matrix.Identity(), cam); const t = -ray.origin.z / ray.direction.z; return [ray.origin.x + ray.direction.x*t, ray.origin.y + ray.direction.y*t]; };
+/* ── the list: atoms, small molecules, proteins - drag any of them onto the plane ───────────────── */
+const host = document.getElementById('lista-items');
+const rgb = c => 'rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')';
+const item = (key, name, sub, col, big) => { const d = document.createElement('div'); d.className = 'atomi' + (big ? ' iso' : ''); d.dataset.sp = key;
+  d.innerHTML = '<span class="pallo" style="background:' + col + '"></span><span><b>' + name + '</b><small>' + sub + '</small></span><span class="tila"></span>'; host.appendChild(d); return d; };
+const group = t => { const d = document.createElement('div'); d.className = 'ryhma'; d.textContent = t; host.appendChild(d); };
+group('Atomit'); for(const sym of ATOMS) item(sym, ATOM_FI[sym], sym.length === 1 ? sym : sym[0] + sym.slice(1).toLowerCase(), rgb(ELEM[sym].c));
+group('Molekyylit'); for(const S of SMALL) item(S[0], S[1], S[2].endsWith('.mol2') ? S[1] === 'ATP' || S[1] === 'ADP' ? S[1] : S[2].replace('.mol2','') : S[2], S[0] === 'p' ? '#f0a0a0' : '#c9b58a');
+group('Proteiinit'); for(const P of PROTEINS) item(P[0], P[1], P[2].replace('.mol2',''), '#a3b881', true);
+/* Dragging: the REAL molecule is spawned the moment the list item is grabbed and follows the pointer on
+   the plane in full (held: no motion, no collisions), released where the pointer goes up, taken back if
+   that is over the list. A protein appears as soon as its file has loaded, still in the hand. */
+document.getElementById('haamu').style.display = 'none';
+const clampXY = (sp, p) => { const r = Math.min(sp.radius, HH - 1); return [Math.max(-HW + r, Math.min(HW - r, p[0])), Math.max(-HH + r, Math.min(HH - r, p[1]))]; };
+const planeOf = e => { const rc = canvas.getBoundingClientRect(); return toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); };
 let drag = null;
-for(const el of document.querySelectorAll('.atomi')) el.addEventListener('pointerdown', e => { e.preventDefault(); drag = { key: el.dataset.sp, id: e.pointerId };
-  ghost.style.background = el.querySelector('.pallo').style.background; ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; ghost.style.display = 'block'; });
-window.addEventListener('pointermove', e => { if(!drag || e.pointerId !== drag.id) return; ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; });
-const endDrag = e => { if(!drag || e.pointerId !== drag.id) return; ghost.style.display = 'none';
+host.addEventListener('pointerdown', async e => { const el = e.target.closest('.atomi'); if(!el) return; e.preventDefault();
+  const d = { key: el.dataset.sp, id: e.pointerId, el, last: planeOf(e), m: null, done: false }; drag = d; const tila = el.querySelector('.tila');
+  try { tila.textContent = SPECIES[d.key] ? '' : 'ladataan…'; const sp = await ensureSpecies(d.key); tila.textContent = '';
+    if(!sp || d.done || drag !== d) return;
+    const p = clampXY(sp, d.last || [0, 0]); const m = spawn(d.key, p[0], p[1], 0, 0); if(!m){ tila.textContent = 'täynnä'; return; }
+    m.held = true; d.m = m; }
+  catch(err){ console.error(err); tila.textContent = 'virhe'; } });
+window.addEventListener('pointermove', e => { if(!drag || e.pointerId !== drag.id) return; const p = planeOf(e); if(!p) return; drag.last = p; if(drag.m){ const q = clampXY(drag.m.sp, p); drag.m.x = q[0]; drag.m.y = q[1]; } });
+const endDrag = e => { if(!drag || e.pointerId !== drag.id) return; const d = drag; drag = null; d.done = true;
   const lb = document.getElementById('lista').getBoundingClientRect(), inList = e.clientX >= lb.left && e.clientX <= lb.right && e.clientY >= lb.top && e.clientY <= lb.bottom;
-  if(!inList && e.type === 'pointerup'){ const rc = canvas.getBoundingClientRect(), p = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height));
-    const W = halfW(), r = SPECIES[drag.key].radius; spawn(drag.key, Math.max(-W + r, Math.min(W - r, p[0])), Math.max(-HALF_H + r, Math.min(HALF_H - r, p[1]))); }
-  drag = null; };
+  if(!d.m) return;
+  if(inList || e.type !== 'pointerup'){ remove(d.m); return; }
+  const a = Math.random()*6.283, s = d.m.sp.isProt ? rnd(1.5, 3) : rnd(2.5, 4.5); d.m.vx = Math.cos(a)*s; d.m.vy = Math.sin(a)*s; d.m.born = simT; d.m.held = false; };
 window.addEventListener('pointerup', endDrag); window.addEventListener('pointercancel', endDrag);
-window.gVesi = { spawn, mols, SPECIES, RULES, step, scene, cam, toPlane };
+window.gVesi = { spawn, remove, mols, SPECIES, RULES, step, scene, cam, toPlane, ensureSpecies, keys, HW, HH, get drag(){ return drag; } };
 }
 
 /* ── Start screen: the chemistry editor or the premade scene (?tila=editori / ?tila=kalvosto skips it) ── */

@@ -177,14 +177,26 @@ setting whatever happens. If it still lags after this commit, the quality slider
 ## Start screen and the chemistry editor (mode 'editori')
 
 index.html opens on a start screen (`#start`): 'Kemiaeditori' or 'Yhteyttamiskalvosto'. `?tila=editori` /
-`?tila=kalvosto` skips it. The viewer is `run()` as before, called by `startViewer()`. The editor is `runEditor()`
-in the same script (the old vesi/ page folded in - it shares the shaders live, no copies): its own DOM (`.vesi`
-cards - the list, the water counter, the hint, a 'nopeus' slider that scales the SIMULATION only) and CSS, and
-`html.editori` hides every other body child. Drag H / O onto the plane z = 0, billiard bounce, a RULES table
-(H+H -> H2, O+O -> O2, H+O -> OH, OH+H -> H2O, H2+O -> H2O, H2+OH -> H2O+H, H2+O2 -> H2O+O, O2+H -> OH+O,
-OH+OH -> H2O+O), products of one reaction get 0.4 s grace against EACH OTHER only. Real bond lengths (O-H 0.96,
-104.5 deg, like the viewer's free water). Drawing: the viewer's shell (IMPRAD + NOSWAY), nucleon cluster (NUC_BIAS 2),
-rigidOrbSet lobes with SEEDATTR seeds, four thin-instance meshes rebuilt per frame. `window.gVesi` for tests.
+`?tila=kalvosto` skips it. The viewer is `run()`, called by `startViewer()`. The editor is `runEditor()` in the
+same script (shares the shaders and the globals ELEM / EL_LIST / codeOf / info / parseMol2). `html.editori` hides
+every other body child, the editor's own DOM has class `.vesi` (the list `#lista`, a 'nopeus' slider).
+- The list (`#lista-items`): the scene's 16 spawn elements, the small molecules (H2O, H+, CO2, O2, Pi, ATP, ADP,
+  NADP+, chlorophyll, plastoquinone - ATP/ADP derived from nadph.mol2 exactly like the viewer's adpFromNadp, the
+  rest from their mol2 files) and the 15 protein models (their mol2 files, loaded on first grab, cached).
+- Dragging spawns the REAL molecule on pointerdown (`held`: no motion, no collisions) and it follows the pointer
+  on the plane z = 0, released on pointerup with a velocity, taken back if dropped on the list.
+- Arena 840 x 472 A (HW 420, HH 236) - RuBisCO (140 A) is a sixth of the width. Billiard bounce, masses = atom
+  counts, RULES for the small species (H+H -> H2, O+O -> O2, H+O -> OH, OH+H -> H2O, H2+O -> H2O, H2+OH -> H2O+H,
+  H2+O2 -> H2O+O, O2+H -> OH+O, OH+OH -> H2O+O), siblings of one reaction get 0.4 s grace against each other.
+- Drawing: small molecules are rebuilt every frame into four dynamic thin-instance meshes (NOSWAY + SEEDATTR,
+  fixed per-atom boil keys in the matrix w slots). A protein gets four STATIC meshes in local coordinates moved by
+  `gModelXform[slot]` (MODELMOVE, 80 slots), its nuclei and orbitals enabled only within DETAIL_R (90) of the
+  camera - from afar it is an opaque space-filling body (REVEAL 70 = the glass radius). Element colours only, no
+  cofactor tints in the editor.
+- Camera: ArcRotate looking along +Z at the plane, the viewer's scheme - WASD pans the target on the plane,
+  arrows turn, Q/E zoom, N/M roll, wheel zooms toward the cursor (detent ramp + smoothing), middle/right drag
+  look, LEFT drag pans, merged gamepads, I resets, space pauses the simulation. Held keys ramp 5 % -> 100 % in 3.5 s.
+  `window.gVesi` exposes spawn / remove / mols / SPECIES / ensureSpecies / cam for tests.
 
 Moving molecules and the boil (both modes): the imp shader hashes the stepped boil offset and the silhouette
 wobble phase from `hb`, exposed to the fragment as `vHb`. For a static atom that is its centre. A free molecule
