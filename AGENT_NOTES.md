@@ -177,6 +177,9 @@ setting whatever happens. If it still lags after this commit, the quality slider
 
 index.html opens on a start screen (`#start`): 'Kemiaeditori' or 'Yhteyttamiskalvosto'. `?tila=editori` /
 `?tila=kalvosto` skips it. The viewer is `run()`, called by `startViewer()` (which sets `html.kalvosto`).
+The editor keeps the viewer's loading overlay (`#overlay`, exempt from the editori hide rule): `startEditor` sets the
+label and shows 'Käynnistä keskeneräisenä' at once, `loadProgress()` in runEditor drives label and bar by the list
+pictures done (thumbDone) out of TOTAL_ITEMS and lifts the screen at the last one (or after 90 s regardless).
 `#back-btn` (Solukko's round 46 px button, top-left) exists in both modes, revealed by pointer movement and
 faded 2.2 s after the pointer rests, and reloads without the query = the start screen. The editor list sits
 below it (top 74) and the viewer's pill row is padded 74 px left. List items: a hovered long name glides

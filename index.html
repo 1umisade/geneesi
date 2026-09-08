@@ -272,7 +272,7 @@ html.editori #back-btn,html.kalvosto #back-btn{display:flex}
 #back-btn.show{opacity:1;pointer-events:auto}
 #back-btn:hover{background:var(--sage);color:var(--sageink)}
 .vesi{display:none}
-html.editori body > :not(#c):not(.vesi):not(#back-btn){display:none !important}
+html.editori body > :not(#c):not(.vesi):not(#back-btn):not(#overlay){display:none !important}
 html.editori .vesi{display:block}
 html.editori #lista{display:flex}
 .vesi.card{position:fixed;z-index:10;background:var(--paper);border:2.5px solid var(--brown);border-radius:14px;box-shadow:0 3px 0 var(--brown);padding:10px 12px;user-select:none;font:13px/1.3 "Courier New",monospace;color:var(--ink)}
@@ -11925,7 +11925,13 @@ const drawProteinDots = (cv2, m, col) => { const ctx = cv2.getContext('2d'), W =
   const px=k=>ox+(m.x[k]-miX)*sc, py=k=>H-(oy+(m.y[k]-miY)*sc);
   ctx.fillStyle='rgba(18,14,9,0.92)'; for(const k of idx){ ctx.beginPath(); ctx.arc(px(k), py(k), r+2.2, 0, 6.2832); ctx.fill(); }
   for(const k of idx){ const sh=0.5+0.5*((m.z[k]-miZ)/dz); ctx.fillStyle='rgb('+Math.round(col[0]*255*sh)+','+Math.round(col[1]*255*sh)+','+Math.round(col[2]*255*sh)+')'; ctx.beginPath(); ctx.arc(px(k), py(k), r, 0, 6.2832); ctx.fill(); } };
-const setThumb = (key, url) => { for(const el of host.querySelectorAll('.atomi[data-sp="' + key + '"] .pallo')){ el.src = url; el.style.backgroundColor = 'var(--paper2)'; } };
+/* the loading screen follows the pictures: every list item with its picture is one step, all of them = done */
+const TOTAL_ITEMS = ATOMS.length + SMALL.length + PROTEINS.length; let loadDone = false;
+const loadProgress = () => { if(loadDone) return; const pics = Object.keys(thumbDone).filter(k => thumbDone[k]).length;
+  setLbl('Ladataan hiukkasia… ' + pics + ' / ' + TOTAL_ITEMS); setBar(0.03 + 0.97*pics/TOTAL_ITEMS);
+  if(pics >= TOTAL_ITEMS){ loadDone = true; setBar(1); setLbl('Valmis'); setTimeout(() => { const ov = document.getElementById('overlay'); if(ov) ov.classList.add('gone'); }, 350); } };
+setTimeout(() => { if(!loadDone){ loadDone = true; const ov = document.getElementById('overlay'); if(ov) ov.classList.add('gone'); } }, 90000);   // never a screen that stays: 90 s and it lifts regardless
+const setThumb = (key, url) => { for(const el of host.querySelectorAll('.atomi[data-sp="' + key + '"] .pallo')){ el.src = url; el.style.backgroundColor = 'var(--paper2)'; } loadProgress(); };
 /* The card's orbital picture for an atom or a molecule: the same 'orb' / 'bond' shaders, lobes and nucleus
    only (no vdW shell), transparent background, the card's camera (alpha -pi/2.5, beta pi/2.7, fov 0.7,
    radius 3 x the orbital cloud) - renderPreviews in the viewer does exactly this for the info card. */
@@ -11968,7 +11974,12 @@ const startViewer = () => { document.documentElement.classList.add('kalvosto'); 
   window.addEventListener('pointermove', poke, { passive: true }); window.addEventListener('pointerdown', poke, { passive: true });
   bb.addEventListener('mouseenter', () => { clearTimeout(hideT); bb.classList.add('show'); }); bb.addEventListener('mouseleave', poke);
   bb.addEventListener('click', () => { location.href = location.pathname; }); }
-const startEditor = () => { const ov = document.getElementById('overlay'); if(ov) ov.remove(); document.documentElement.classList.add('editori'); runEditor(); };
+const startEditor = () => { document.documentElement.classList.add('editori');
+  /* the editor gets the same loading screen: Mona, the bar driven by the particle pictures below, and the
+     'Käynnistä keskeneräisenä' button from the first moment - a click drops the screen while loading goes on */
+  setLbl('Ladataan hiukkasia…'); setBar(0.03);
+  const eb = document.getElementById('load-enter'); if(eb){ eb.hidden = false; eb.addEventListener('click', () => { document.getElementById('overlay').classList.add('gone'); }, { once: true }); }
+  runEditor(); };
 { const st = document.getElementById('start'), tila = new URLSearchParams(location.search).get('tila');
   const go = t => { if(st) st.remove(); if(t === 'editori') startEditor(); else startViewer(); };
   if(tila === 'editori' || tila === 'kalvosto') go(tila);
