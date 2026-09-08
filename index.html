@@ -291,7 +291,7 @@ html.editori #lista{display:flex}
 #vinkki{left:50%;bottom:16px;transform:translateX(-50%);font-size:12px;opacity:.85;white-space:nowrap}
 #editorspeed{right:16px;bottom:16px;text-align:center;font:11px ui-monospace,monospace;color:var(--brown);padding-bottom:19px}
 #editorspeed #editorspeedval{font-weight:bold}
-#editortools{right:200px;bottom:16px;padding:9px 10px}
+#editortools{right:200px;bottom:16px;padding:9px 10px;display:flex;gap:8px;white-space:nowrap}
 #editortools .tool{font:bold 12px/1 "Courier New",monospace;padding:8px 12px;border:2.5px solid var(--brown);border-radius:999px;background:var(--paper2);color:var(--ink);cursor:pointer;box-shadow:0 2px 0 var(--brown)}
 #editortools .tool.on{background:var(--sage);color:var(--sageink)}
 html.editori.eraser #c{cursor:crosshair}
@@ -315,7 +315,7 @@ html.editori.eraser #c{cursor:crosshair}
   <div id="lista-items"></div>
 </div>
 <div id="editorspeed" class="vesi card"><div style="margin-bottom:4px; letter-spacing:.5px;">nopeus <span id="editorspeedval">1.0×</span></div><input id="editorspeedsld" type="range" min="0" max="30" value="10" style="width:130px; cursor:pointer;"></div>
-<div id="editortools" class="vesi card"><button id="eraser-btn" class="tool" title="Pyyhekumi: klikkaa hiukkasta tai vedä niiden yli poistaaksesi ne">🧽 pyyhekumi</button></div>
+<div id="editortools" class="vesi card"><button id="resetview-btn" class="tool" title="Palauta kamera aloitusnäkymään (myös I)">⌂ palauta näkymä</button> <button id="eraser-btn" class="tool" title="Pyyhekumi: klikkaa hiukkasta tai vedä niiden yli poistaaksesi ne">🧽 pyyhekumi</button></div>
 <div id="haamu" class="vesi"></div>
 <div id="overlay">
   <div class="loading-inner">
@@ -11647,6 +11647,7 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 scene.onBeforeRenderObservable.add(() => { if(drag && drag.m && drag.right && uT - lastStamp >= 0.5){ lastStamp = uT; spawn(drag.m.sp.key, drag.m.x, drag.m.y); } });
 /* The eraser tool (button next to the speed slider): while it is on, a left click removes the molecule
    under the cursor and a left drag sweeps everything it passes over. Left-drag panning is off meanwhile. */
+document.getElementById('resetview-btn').addEventListener('click', resetView);   // the same reset the I key does
 let eraser = false, erasing = null; const erBtn = document.getElementById('eraser-btn');
 erBtn.addEventListener('click', () => { eraser = !eraser; erBtn.classList.toggle('on', eraser); document.documentElement.classList.toggle('eraser', eraser); erasing = null; });
 const molAt = p => { let best = null, bd = 1e9; for(const m of mols){ if(m.held) continue; const d = Math.hypot(m.x - p[0], m.y - p[1]); if(d < Math.max(m.sp.radius, 2.5) && d < bd){ bd = d; best = m; } } return best; };
