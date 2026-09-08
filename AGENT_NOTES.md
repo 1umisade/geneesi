@@ -176,7 +176,11 @@ setting whatever happens. If it still lags after this commit, the quality slider
 ## Start screen and the chemistry editor (mode 'editori')
 
 index.html opens on a start screen (`#start`): 'Kemiaeditori' or 'Yhteyttamiskalvosto'. `?tila=editori` /
-`?tila=kalvosto` skips it. The viewer is `run()`, called by `startViewer()`. The editor is `runEditor()` in the
+`?tila=kalvosto` skips it. The viewer is `run()`, called by `startViewer()` (which sets `html.kalvosto`).
+`#back-btn` (Solukko's round 46 px button, top-left) exists in both modes, revealed by pointer movement and
+faded 2.2 s after the pointer rests, and reloads without the query = the start screen. The editor list sits
+below it (top 74) and the viewer's pill row is padded 74 px left. List items: a hovered long name glides
+sideways (`.nimi-in.liuku`, `--dx` measured on mouseenter) and the picture box is a pinned 36 px square. The editor is `runEditor()` in the
 same script (shares the shaders and the globals ELEM / EL_LIST / codeOf / info / parseMol2). `html.editori` hides
 every other body child, the editor's own DOM has class `.vesi` (the list `#lista`, a 'nopeus' slider).
 - The list (`#lista-items`): the scene's 16 spawn elements, the small molecules (H2O, H+, CO2, O2, Pi, ATP, ADP,

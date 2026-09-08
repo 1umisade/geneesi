@@ -266,13 +266,25 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 .start-opt:hover{background:var(--sage);color:var(--sageink)}
 .start-opt:active{transform:translateY(2px);box-shadow:0 1px 0 var(--brown)}
 /* ── Chemistry editor (mode 'editori'): its own DOM, hidden until chosen - and the viewer's chrome hidden while it runs ── */
+/* ── Back button (Solukko's: a round button top-left) - only once a mode is chosen, revealed by mouse movement, fades when the mouse rests ── */
+#back-btn{position:fixed;left:16px;top:16px;z-index:60;width:46px;height:46px;border-radius:50%;background:var(--paper);color:var(--brown);border:2.5px solid var(--brown);box-shadow:0 3px 0 var(--brown);font:bold 22px/1 "Courier New",monospace;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0 0 2px;opacity:0;transition:opacity .35s;pointer-events:none}
+html.editori #back-btn,html.kalvosto #back-btn{display:flex}
+#back-btn.show{opacity:1;pointer-events:auto}
+#back-btn:hover{background:var(--sage);color:var(--sageink)}
 .vesi{display:none}
-html.editori body > :not(#c):not(.vesi){display:none !important}
+html.editori body > :not(#c):not(.vesi):not(#back-btn){display:none !important}
 html.editori .vesi{display:block}
 html.editori #lista{display:flex}
 .vesi.card{position:fixed;z-index:10;background:var(--paper);border:2.5px solid var(--brown);border-radius:14px;box-shadow:0 3px 0 var(--brown);padding:10px 12px;user-select:none;font:13px/1.3 "Courier New",monospace;color:var(--ink)}
-#lista{left:16px;top:16px;flex-direction:column;gap:6px;width:200px;max-height:calc(100vh - 32px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box}
-#lista .atomi > span:nth-child(2){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lista{left:16px;top:74px;flex-direction:column;gap:6px;width:200px;max-height:calc(100vh - 90px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box}
+#lista .atomi .nimi{min-width:0;flex:1 1 auto;overflow:hidden}
+#lista .atomi .nimi-in{display:block;width:100%}
+#lista .atomi .nimi-in b,#lista .atomi .nimi-in small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* hover: a long name glides sideways to show all of it, like a shop's rotating sign, and back */
+#lista .atomi .nimi-in.liuku{width:max-content}
+#lista .atomi .nimi-in.liuku b,#lista .atomi .nimi-in.liuku small{overflow:visible;text-overflow:clip}
+#lista .atomi:hover .nimi-in.liuku{animation:liuku 5.5s ease-in-out infinite}
+@keyframes liuku{0%,18%{transform:translateX(0)} 55%,78%{transform:translateX(var(--dx))} 100%{transform:translateX(0)}}
 #lista .ryhma{font-size:11px;opacity:.7;letter-spacing:.5px;margin-top:8px;text-transform:uppercase}
 #lista .atomi{padding:5px 9px;gap:8px}
 #lista .atomi.iso .pallo{border-radius:6px}
@@ -281,7 +293,7 @@ html.editori #lista{display:flex}
 #lista .ohje{font-size:11px;opacity:.75;line-height:1.35}
 .atomi{display:flex;align-items:center;gap:10px;padding:7px 10px;border:2.5px solid var(--brown);border-radius:999px;background:var(--paper2);cursor:grab;touch-action:none}
 .atomi:active{cursor:grabbing}
-.atomi .pallo{width:36px;height:36px;border-radius:50%;border:2px solid var(--brown);box-sizing:border-box;flex:none;background-size:cover;background-position:center}
+.atomi .pallo{display:block;width:36px;height:36px;min-width:36px;max-width:36px;min-height:36px;max-height:36px;aspect-ratio:1/1;flex:0 0 36px;align-self:center;border-radius:50%;border:2px solid var(--brown);box-sizing:border-box;background-size:cover;background-position:center}   /* pinned square - it stretched with the row on some viewports */
 #valinta{right:16px;top:16px;max-width:260px;font-size:12px;line-height:1.35}
 #valinta b{font-size:14px}
 .atomi b{font-size:13px}
@@ -301,6 +313,7 @@ html.editori.eraser #c{cursor:crosshair}
 </head>
 <body>
 <canvas id="c"></canvas>
+<button id="back-btn" title="Takaisin aloitussivulle">←</button>
 <div id="start">
   <div class="start-card">
     <div class="start-title">Geneesi</div>
@@ -346,7 +359,7 @@ html.editori.eraser #c{cursor:crosshair}
 <button id="vr-btn" title="Siirry VR-tilaan" style="display:none"><span id="vr-icon">🥽</span><span id="vr-label">VR</span></button>
 <div id="zoomval">1.0×</div>
 <div id="camcoords"></div>
-<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; padding:0 12px; box-sizing:border-box; pointer-events:none;"></div>
+<div id="toplist" style="position:fixed; left:0; right:0; top:12px; z-index:11; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; padding:0 12px 0 74px; box-sizing:border-box; pointer-events:none;"></div>
 <div id="padbox" style="position:fixed; left:12px; bottom:12px; width:560px; max-width:60vw; z-index:10; pointer-events:none; user-select:none; line-height:0;">
   <img id="padimg" src="controls.png" alt="" style="display:block; width:100%;">
   <img class="padhl" data-k="left"  src="left.png"  alt="" style="position:absolute; left:0; top:0; width:100%; display:none;">
@@ -11681,7 +11694,11 @@ window.addEventListener('resize', () => engine.resize());
 const host = document.getElementById('lista-items');
 const rgb = c => 'rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')';
 const item = (key, name, sub, col, big) => { const d = document.createElement('div'); d.className = 'atomi' + (big ? ' iso' : ''); d.dataset.sp = key;
-  d.innerHTML = '<span class="pallo" style="background:' + col + '"></span><span><b>' + name + '</b><small>' + sub + '</small></span><span class="tila"></span>'; host.appendChild(d); return d; };
+  d.innerHTML = '<span class="pallo" style="background:' + col + '"></span><span class="nimi"><span class="nimi-in"><b>' + name + '</b><small>' + sub + '</small></span></span><span class="tila"></span>';
+  d.addEventListener('mouseenter', () => { const nimi = d.querySelector('.nimi'), inn = d.querySelector('.nimi-in'); inn.classList.add('liuku'); const dx = inn.scrollWidth - nimi.clientWidth;
+    if(dx > 2) inn.style.setProperty('--dx', (-(dx + 6)) + 'px'); else inn.classList.remove('liuku'); });   // measured at hover time, so it follows the current width
+  d.addEventListener('mouseleave', () => { d.querySelector('.nimi-in').classList.remove('liuku'); });
+  host.appendChild(d); return d; };
 const group = t => { const d = document.createElement('div'); d.className = 'ryhma'; d.textContent = t; host.appendChild(d); };
 group('Atomit'); for(const sym of ATOMS) item(sym, ATOM_FI[sym], sym.length === 1 ? sym : sym[0] + sym.slice(1).toLowerCase(), rgb(ELEM[sym].c));
 group('Molekyylit'); for(const S of SMALL) item(S[0], S[1], S[2].endsWith('.mol2') ? S[1] === 'ATP' || S[1] === 'ADP' ? S[1] : S[2].replace('.mol2','') : S[2], S[0] === 'p' ? '#f0a0a0' : '#c9b58a');
@@ -11804,7 +11821,14 @@ window.gVesi = { spawn, remove, mols, SPECIES, RULES, step, scene, cam, toPlane,
 }
 
 /* ── Start screen: the chemistry editor or the premade scene (?tila=editori / ?tila=kalvosto skips it) ── */
-const startViewer = () => run().catch(err => { console.error(err); setLbl('Virhe: ' + err.message); });
+const startViewer = () => { document.documentElement.classList.add('kalvosto'); return run().catch(err => { console.error(err); setLbl('Virhe: ' + err.message); }); };
+/* the back button: to the start page (the query is dropped, so the choice is asked again), revealed by
+   mouse movement and gone again 2.2 s after the mouse rests - it never sits on the scene */
+{ const bb = document.getElementById('back-btn'); let hideT = null;
+  const poke = () => { bb.classList.add('show'); clearTimeout(hideT); hideT = setTimeout(() => bb.classList.remove('show'), 2200); };
+  window.addEventListener('pointermove', poke, { passive: true }); window.addEventListener('pointerdown', poke, { passive: true });
+  bb.addEventListener('mouseenter', () => { clearTimeout(hideT); bb.classList.add('show'); }); bb.addEventListener('mouseleave', poke);
+  bb.addEventListener('click', () => { location.href = location.pathname; }); }
 const startEditor = () => { const ov = document.getElementById('overlay'); if(ov) ov.remove(); document.documentElement.classList.add('editori'); runEditor(); };
 { const st = document.getElementById('start'), tila = new URLSearchParams(location.search).get('tila');
   const go = t => { if(st) st.remove(); if(t === 'editori') startEditor(); else startViewer(); };
