@@ -11798,6 +11798,7 @@ const renderThumb = async key => { const sp = SPECIES[key]; if(!sp) return;
   thumbDone[key] = true;
   const m = spawn(key, 50000, 0, 0, 0); if(!m) return; m.held = true; m.thumb = true; m.ang = 0; m.rockAmp = 0; m.angV = 0;
   thumbCam.target.set(50000, 0, 0); thumbCam.alpha = -Math.PI/2.5; thumbCam.beta = Math.PI/2.7; thumbCam.fov = 0.7; thumbCam.radius = Math.max(0.6, sp.orbR*(sp.model.na > 1 ? 2.6 : 3.0)); thumbCam.upVector.set(0, 1, 0);   // the card's 3 x the cloud for an atom, a little tighter for a molecule (its bounding sphere is mostly empty)
+  thumbCam.freezeProjectionMatrix(BABYLON.Matrix.PerspectiveFovLH(thumbCam.fov, 1.0, thumbCam.minZ, thumbCam.maxZ));   // a SQUARE projection - left to itself the camera took the screen's aspect, and on a wide screen every thumbnail came out squeezed into a narrow ellipse
   const was = mols.slice(); mols.length = 0; mols.push(m); draw(); mols.length = 0; mols.push(...was);   // build this frame's instance buffers for the thumbnail molecule alone
   thumbRT.renderList = [coreMesh, bondMesh, nucMesh]; const saveCam = scene.activeCamera; scene.activeCamera = thumbCam; thumbRT.render(); scene.activeCamera = saveCam;
   try { const px = await thumbRT.readPixels(); const img = thumbCanvas.getContext('2d').createImageData(THUMB, THUMB); const src = new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);

@@ -215,7 +215,7 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
   in z and tumble about their own axis (`ax3`) instead of the z-spin + rock. Back to 2D flattens z.
 - List thumbnails = the info cards' pictures: atoms and molecules are rendered into `thumbRT` (128 px, transparent)
   with the card's recipe - lobes + nucleus only, no shell, alpha -pi/2.5, beta pi/2.7, fov 0.7, radius 3 x the
-  orbital cloud (`sp.orbR`), one per frame from a queue that starts after 30 frames (the first frames still
+  orbital cloud (`sp.orbR`), a SQUARE projection frozen on the camera (else it takes the screen aspect and a wide screen squeezes every picture), one per frame from a queue that starts after 30 frames (the first frames still
   compile and drew partial atoms), a blank result is retried. A protein gets the card's dot image
   (`drawProteinDots`, the viewer's drawProteinImage in a pastel of its own). File-based species join the queue
   when they load. A background preload (1.5 s after start, small files first, proteins smallest to largest)
