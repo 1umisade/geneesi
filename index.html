@@ -291,6 +291,10 @@ html.editori #lista{display:flex}
 #vinkki{left:50%;bottom:16px;transform:translateX(-50%);font-size:12px;opacity:.85;white-space:nowrap}
 #editorspeed{right:16px;bottom:16px;text-align:center;font:11px ui-monospace,monospace;color:var(--brown);padding-bottom:19px}
 #editorspeed #editorspeedval{font-weight:bold}
+#editortools{right:200px;bottom:16px;padding:9px 10px}
+#editortools .tool{font:bold 12px/1 "Courier New",monospace;padding:8px 12px;border:2.5px solid var(--brown);border-radius:999px;background:var(--paper2);color:var(--ink);cursor:pointer;box-shadow:0 2px 0 var(--brown)}
+#editortools .tool.on{background:var(--sage);color:var(--sageink)}
+html.editori.eraser #c{cursor:crosshair}
 </style>
 </head>
 <body>
@@ -311,6 +315,7 @@ html.editori #lista{display:flex}
   <div id="lista-items"></div>
 </div>
 <div id="editorspeed" class="vesi card"><div style="margin-bottom:4px; letter-spacing:.5px;">nopeus <span id="editorspeedval">1.0×</span></div><input id="editorspeedsld" type="range" min="0" max="30" value="10" style="width:130px; cursor:pointer;"></div>
+<div id="editortools" class="vesi card"><button id="eraser-btn" class="tool" title="Pyyhekumi: klikkaa hiukkasta tai vedä niiden yli poistaaksesi ne">🧽 pyyhekumi</button></div>
 <div id="haamu" class="vesi"></div>
 <div id="overlay">
   <div class="loading-inner">
@@ -11587,7 +11592,7 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); const now = performa
   zoomVel += Math.sign(e.deltaY) * 0.16 * (wheelStep/10) * (slow ? 0.15 : 1); zoomVel = Math.max(-0.6, Math.min(0.6, zoomVel)); }, { passive: false });
 /* left drag pans the plane */
 let panDrag = null;
-canvas.addEventListener('pointerdown', e => { if(e.button !== 0) return; const rc = canvas.getBoundingClientRect(), p = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); if(p) panDrag = { id: e.pointerId, p }; });
+canvas.addEventListener('pointerdown', e => { if(e.button !== 0 || eraser) return; const rc = canvas.getBoundingClientRect(), p = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); if(p) panDrag = { id: e.pointerId, p }; });
 canvas.addEventListener('pointermove', e => { if(!panDrag || e.pointerId !== panDrag.id) return; const rc = canvas.getBoundingClientRect(), p = toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); if(!p) return; cam.target.x -= p[0] - panDrag.p[0]; cam.target.y -= p[1] - panDrag.p[1]; });
 const endPan = e => { if(panDrag && e.pointerId === panDrag.id) panDrag = null; }; window.addEventListener('pointerup', endPan); window.addEventListener('pointercancel', endPan);
 
@@ -11617,7 +11622,8 @@ const clampXY = (sp, p) => { const r = Math.min(sp.radius, HH - 1); return [Math
 const planeOf = e => { const rc = canvas.getBoundingClientRect(); return toPlane((e.clientX - rc.left) * (canvas.width / rc.width), (e.clientY - rc.top) * (canvas.height / rc.height)); };
 let drag = null;
 host.addEventListener('pointerdown', async e => { const el = e.target.closest('.atomi'); if(!el) return; e.preventDefault();
-  const d = { key: el.dataset.sp, id: e.pointerId, el, last: planeOf(e), m: null, done: false }; drag = d; const tila = el.querySelector('.tila');
+  const d = { key: el.dataset.sp, id: e.pointerId, el, last: planeOf(e), m: null, done: false, right: false }; drag = d; const tila = el.querySelector('.tila');
+  cam.inputs.attached.pointers.buttons = [1];   // while a particle is in the hand the right button stamps copies (below), not the camera
   try { tila.textContent = SPECIES[d.key] ? '' : 'ladataan…'; const sp = await ensureSpecies(d.key); tila.textContent = '';
     if(!sp || d.done || drag !== d) return;
     const p = clampXY(sp, d.last || [0, 0]); const m = spawn(d.key, p[0], p[1], 0, 0); if(!m){ tila.textContent = 'täynnä'; return; }
@@ -11626,13 +11632,29 @@ host.addEventListener('pointerdown', async e => { const el = e.target.closest('.
     let tb = document.getElementById('virhe-toast'); if(!tb){ tb = document.createElement('div'); tb.id = 'virhe-toast'; tb.className = 'vesi card'; tb.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);max-width:70vw;font-size:12px;display:block;z-index:12;white-space:pre-wrap'; document.body.appendChild(tb); }
     tb.textContent = 'Lataus epäonnistui (' + d.key + '): ' + String(err && (err.stack || err)).slice(0, 400); } });
 window.addEventListener('pointermove', e => { if(!drag || e.pointerId !== drag.id) return; const p = planeOf(e); if(!p) return; drag.last = p; if(drag.m){ const q = clampXY(drag.m.sp, p); drag.m.x = q[0]; drag.m.y = q[1]; } });
-const endDrag = e => { if(!drag || e.pointerId !== drag.id) return; const d = drag; drag = null; d.done = true;
+const endDrag = e => { if(!drag || e.pointerId !== drag.id) return; const d = drag; drag = null; d.done = true; cam.inputs.attached.pointers.buttons = [1, 2];
   const lb = document.getElementById('lista').getBoundingClientRect(), inList = e.clientX >= lb.left && e.clientX <= lb.right && e.clientY >= lb.top && e.clientY <= lb.bottom;
   if(!d.m) return;
   if(inList || e.type !== 'pointerup'){ remove(d.m); return; }
   const a = Math.random()*6.283, s = d.m.sp.isProt ? rnd(1.5, 3) : rnd(2.5, 4.5); d.m.vx = Math.cos(a)*s; d.m.vy = Math.sin(a)*s; d.m.born = simT; d.m.held = false; };
 window.addEventListener('pointerup', endDrag); window.addEventListener('pointercancel', endDrag);
-window.gVesi = { spawn, remove, mols, SPECIES, RULES, step, scene, cam, toPlane, ensureSpecies, keys, HW, HH, get drag(){ return drag; } };
+/* Right button while dragging: the held particle is stamped at the cursor twice a second (copies are
+   released with a random velocity, the original stays in the hand). */
+let lastStamp = -1e9;
+window.addEventListener('pointerdown', e => { if(drag && e.button === 2){ drag.right = true; lastStamp = -1e9; e.preventDefault(); } }, true);
+window.addEventListener('pointerup', e => { if(drag && e.button === 2) drag.right = false; }, true);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+scene.onBeforeRenderObservable.add(() => { if(drag && drag.m && drag.right && uT - lastStamp >= 0.5){ lastStamp = uT; spawn(drag.m.sp.key, drag.m.x, drag.m.y); } });
+/* The eraser tool (button next to the speed slider): while it is on, a left click removes the molecule
+   under the cursor and a left drag sweeps everything it passes over. Left-drag panning is off meanwhile. */
+let eraser = false, erasing = null; const erBtn = document.getElementById('eraser-btn');
+erBtn.addEventListener('click', () => { eraser = !eraser; erBtn.classList.toggle('on', eraser); document.documentElement.classList.toggle('eraser', eraser); erasing = null; });
+const molAt = p => { let best = null, bd = 1e9; for(const m of mols){ if(m.held) continue; const d = Math.hypot(m.x - p[0], m.y - p[1]); if(d < Math.max(m.sp.radius, 2.5) && d < bd){ bd = d; best = m; } } return best; };
+const eraseAt = e => { const p = planeOf(e); if(!p) return; const m = molAt(p); if(m) remove(m); };
+canvas.addEventListener('pointerdown', e => { if(!eraser || e.button !== 0) return; e.preventDefault(); erasing = { id: e.pointerId }; eraseAt(e); });
+canvas.addEventListener('pointermove', e => { if(erasing && e.pointerId === erasing.id) eraseAt(e); });
+window.addEventListener('pointerup', e => { if(erasing && e.pointerId === erasing.id) erasing = null; }); window.addEventListener('pointercancel', () => { erasing = null; });
+window.gVesi = { spawn, remove, mols, SPECIES, RULES, step, scene, cam, toPlane, ensureSpecies, keys, HW, HH, get drag(){ return drag; }, get eraser(){ return eraser; } };
 }
 
 /* ── Start screen: the chemistry editor or the premade scene (?tila=editori / ?tila=kalvosto skips it) ── */

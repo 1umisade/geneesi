@@ -184,6 +184,9 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
   rest from their mol2 files) and the 15 protein models (their mol2 files, loaded on first grab, cached).
 - Dragging spawns the REAL molecule on pointerdown (`held`: no motion, no collisions) and it follows the pointer
   on the plane z = 0, released on pointerup with a velocity, taken back if dropped on the list.
+  Right button held during a drag stamps copies of the held particle at the cursor every 0.5 s (the camera's
+  right-drag look is suspended for the drag). The 'pyyhekumi' tool (`#eraser-btn`, next to the speed slider)
+  removes the molecule under a left click and everything a left drag sweeps over (left-drag pan is off then).
 - Arena 840 x 472 A (HW 420, HH 236) - RuBisCO (140 A) is a sixth of the width. Billiard bounce, masses = atom
   counts, RULES for the small species (H+H -> H2, O+O -> O2, H+O -> OH, OH+H -> H2O, H2+O -> H2O, H2+OH -> H2O+H,
   H2+O2 -> H2O+O, O2+H -> OH+O, OH+OH -> H2O+O), siblings of one reaction get 0.4 s grace against each other.
