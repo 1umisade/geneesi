@@ -119,9 +119,11 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   pools (`wOrbMat`, define SEEDATTR) carry a static per-slot `seed` thin-instance buffer instead.
 - Lighting: key light with a depth darkening by distance past the orbit pivot (`gDepthK`,
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
-- Camera: ArcRotate. The wheel has an ABSOLUTE maximum step `gZoomMax` (60 units per notch), a
-  deterministic 10..100 percent ramp over the first ten notches of a gesture (400 ms chain
-  window), pivots at what is under the cursor, and bleeds inertially. Never make the step a
+- Camera: ArcRotate. The wheel has an ABSOLUTE full step `gZoomMax` (63 units per notch) and a
+  deterministic GEOMETRIC ramp: the first notch of a gesture is 10 percent of it, each notch multiplies
+  by about 2.33 and the seventh lands on the ceiling of 16x the full step (2026-09-09, the owner wanted
+  much faster acceleration with the first notch unchanged and the maximum at seven notches - 400 ms
+  chain window, a pause resets). It pivots at what is under the cursor and bleeds inertially. Never make the step a
   fraction of a distance - the owner rejected that twice.
 - Selection follows atoms on moving models (`followModelAtom`); you cannot select a protein
   you are inside. Dev switches: selections on/off, photons on/off.
