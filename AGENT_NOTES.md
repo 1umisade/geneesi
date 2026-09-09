@@ -22,7 +22,11 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
 
 ## Working loop that has proven reliable
 
-1. Edit `index.html` with a Python script (exact-string replace with a uniqueness assert, write
+1. WORK ON A COPY (owner, 2026-09-09): copy `index.html` to `index_work.html` at the start of a batch, edit, check and
+   preview THE COPY (`http://localhost:8777/index_work.html?tila=...`), and only when the batch is verified replace
+   `index.html` with it, delete the copy, commit and push. The owner previews the folder live, so a half-applied
+   `index.html` shows on their screen at once. `index_work.html` is gitignored.
+2. Edit the file with a Python script (exact-string replace with a uniqueness assert, write
    back with `newline=''` so CRLF is preserved). Short edits via a Bash heredoc, long ones as a
    script in the scratchpad. Use Windows paths inside Python.
 2. Syntax check: extract every inline `<script>` block (no `src=`) to `chk.js` and run
