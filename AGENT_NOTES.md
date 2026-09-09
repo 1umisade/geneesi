@@ -243,3 +243,37 @@ wobble phase from `hb`, exposed to the fragment as `vHb`. For a static atom that
 in the viewer (WATERBOX) uses `wOrig`, the editor packs a fixed per-atom key into the matrix w slots - hashing the
 LIVE centre re-rolled the offset every frame, a 60 Hz tremble against the lobes. Moving molecules get no thermal
 sway at all (WATERBOX / NOSWAY in imp, SEEDATTR in orb and bond) - its phase is position-based and jittered at speed.
+
+## Cell mode (tila=solu) - the whole plant cell (2026-09-09)
+
+Third start-screen option 'Solu' (`?tila=solu`, `startViewer(true)` adds `html.solu`, `const SOLU` in run()). The
+thylakoid scene is kept EXACTLY as it is and becomes the flat facet of the plasma membrane (a plant cell pressed
+against its neighbour is flat there): every planar assumption in the file - MEMBRANE_Y, the particle box, the
+protein footprints, the shuttles, the bouncers - is untouched. Around it, in `buildMembrane` under CELL MODE:
+- Three closed membranes from the SAME lipid templates: the plasma membrane (CELL_R 8000, centre CEN straight
+  above the sheet at cellYc = sqrt(R^2 - facetR^2), its bottom cap dropped onto the sheet's plane and skipped
+  inside the sheet's rectangle), and the nuclear envelope (NE_R_OUT 2800, NE_R_IN 2500) with pores cut through
+  both (NE_PORE_R 280, a jittered coarse lattice of NE_PORE_PITCH 0.5 rad, three cells in four carry one -
+  `poreAt`, mirrored line for line in the `cellshell` shader with the same lowbias32 hash). Compressed scale on
+  purpose (a 1.6 um cell): the owner chose it for the first step, real scale is two numbers away.
+- Nothing is stored per lipid (a sphere this size carries ~40 M): an equi-angular CUBE lattice per sphere
+  (FACE table, `dirOf`), blocks of BL x BL cells generated on demand by the sheet's own hashes (tileType /
+  tileVar / tileJit with a per-face salt) and cached in a Map (`getBlock`, evicted after 600 frames unseen).
+  Each frame `gatherCell` walks only the blocks in an angular window around the camera's foot on each face,
+  with the sheet's three tiers: full lipids to memR, a strided prefix over the blend band, the shell past it.
+  It runs INSIDE the sheet's gather (hook before the stream upload) into the same sphTpl / orbTpl streams
+  (caps + CELL_EXTRA) and the same orbital candidate arrays (oRot / oTpl / oHasRot carry a frame).
+- Every cell lipid is a ROTATED template (frame columns T, N, B - N the outward normal). The LIPTPL / LIPBAKE /
+  LIPTILE shader paths now rotate the atom offset, memSway and ocen by mat3(W) (identity on the sheet), the
+  nucleon pool gets a `tileRot` mat3 uniform (mesh.metadata.rot, `cellNearTiles` feeds it).
+- The far tier is a `cellshell` mesh pair per membrane (outer and inner face, CreateSphere with the vertices
+  rewritten via setVerticesData - updateVerticesData SILENTLY skips the GPU upload on a non-updatable buffer,
+  which cost an hour), the slab shader's grain and hole plus a soft wrap by the angle to the camera.
+- The background quad used to sit at NDC 0.99995, i.e. about 6000 units out with the 0.15 near plane: anything
+  further was hidden behind it. It is at 0.9999995 now. `gWorldReach` includes the cell so the far clip
+  reaches its far side, `upperRadiusLimit` 40000 in cell mode, three extra pills (solu, solukalvo,
+  tumakotelo) fly there via `window.__cellGoto`. `window.__cell` exposes CEN, radii, the cache and `poreAt`.
+- Not done yet: the closed membranes' lipids are not pickable (gPickLipid walks the sheet's lattice only), the
+  pores are plain holes (the two membranes are not joined at the rim), the free molecules stay in the sheet's
+  box (the cytosol between the box and the nucleus is empty), no cell wall, no chloroplasts, and the
+  lattices of two cube faces (and the facet annulus against the sheet) meet with a visible seam up close.
