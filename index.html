@@ -4072,7 +4072,7 @@ void main(void){
     if(wasdKeys.d) strafe+=1; if(wasdKeys.a) strafe-=1;    // A / D → strafe left / right
     if(wasdKeys.w) vert+=1; if(wasdKeys.s) vert-=1;        // W / S → straight up / down the WORLD vertical
     if(!fwd && !strafe && !vert){ _moveRamp = RAMP_MIN; return; }
-    _moveRamp = Math.min(1, _moveRamp + rampStep());
+    _moveRamp = Math.min(1, _moveRamp + rampStep()*0.5);   // the flight (pan) ramps HALF as fast as the turn: 7 s to full speed (owner, 2026-09-09 - 'panning acceleration 2x slower')
     orbitLocked = false; gCamFollow = false;
     const t=cam.getTarget(), p=cam.position;
     const F=cam.getDirection(BABYLON.Axis.Z), R=cam.getDirection(BABYLON.Axis.X);   // camera's OWN forward + right (screen-relative → stay consistent even when flipped upside-down)
