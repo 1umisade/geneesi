@@ -128,6 +128,9 @@ html.nopills #toplist, html.nopills #scorebox, html.nopills #timerbox{display:no
   font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
   color:var(--ink);background:var(--paper);border:3px solid var(--brown);border-radius:999px;cursor:pointer;padding:8px 14px;box-shadow:0 3px 0 var(--brown)}
 #pills-btn.on{background:var(--sage);color:var(--sageink)}
+#zoomin-btn{position:absolute;left:16px;top:300px;z-index:12;touch-action:manipulation;
+  font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
+  color:var(--ink);background:var(--paper);border:3px solid var(--brown);border-radius:999px;cursor:pointer;padding:8px 14px;box-shadow:0 3px 0 var(--brown)}
 #membrane-btn{position:absolute;left:16px;top:300px;z-index:12;touch-action:manipulation;
   font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
   color:var(--ink);background:var(--paper);border:3px solid var(--brown);border-radius:999px;cursor:pointer;
@@ -736,6 +739,7 @@ attribute float instR;   // per-instance radius multiplier (vdW LOD spheres — 
    times the lipids for the same memory. */
 attribute vec3 atomOff;
 attribute vec4 tint;     // cell mode: the organelle's hue and how much of it (0 = the lipid's own colour)
+attribute float shade;   // cell mode: 1 on the sheet, darker on enclosed membranes and around the nuclear pores
 #endif
 uniform mat4 view;
 uniform mat4 projection;
@@ -1030,7 +1034,7 @@ void main(void){
   vUV = position.xy * qexp;
   vColor = instanceColor.rgb;
 #ifdef LIPTPL
-  vColor = mix(vColor, tint.rgb * (0.5 + 0.6 * dot(vColor, vec3(0.3, 0.59, 0.11))), tint.a);   // the organelle's hue, keeping the lipid's own light and dark
+  vColor = mix(vColor, tint.rgb * (0.5 + 0.6 * dot(vColor, vec3(0.3, 0.59, 0.11))), tint.a) * shade;   // the organelle's hue, keeping the lipid's own light and dark, and the depth cue
 #endif
   vFlag = instanceColor.a;
   vMid = -1.0;
@@ -3049,7 +3053,7 @@ async function run(){
     const add = (name, C, R, s, o) => { const M = Object.assign({ id: MEMS.length, name, C, R, s: s || [1,1,1], pores:false, facet:false, clip:false }, o || {}); MEMS.push(M); if(M.clip) ORG.push(M); return M; };
     add('solukalvo', CEN, R, null);   // a full sphere now (the facet code stays, inert)
     const NEC = V(600, -3300, -1400);
-    const NE = add('tumakotelo', NEC, 2800, null, { pores:true, clip:true }); add('tumakotelo-sisä', NEC, 2500, null, { pores:true });
+    const NE = add('tumakotelo', NEC, 2800, null, { pores:true, clip:true }); add('tumakotelo-sisä', NEC, 2500, null, { pores:true, inner:true });
     const VAC = add('vakuoli', V(900, 3600, 800), 3700, null, { clip:true, hazeOk:true });   // hazeOk: the vacuole is water, so the far haze drifts inside it too (the dense medium stops at its membrane)
     /* a chloroplast: a lens (long axis along ax), its inner envelope, four thylakoid discs stacked inside */
     const CHL = [], DISCS = []; let LAYOUT_THY = null;
@@ -3094,6 +3098,9 @@ async function run(){
     const TINT = { 'tumakotelo':[0.80,0.55,1.00], 'vakuoli':[0.45,0.70,1.00], 'viherhiukkanen':[0.45,0.95,0.45], 'tylakoidi':[0.35,0.85,0.40],
                    'mitokondrio':[1.00,0.45,0.40], 'krista':[1.00,0.40,0.35], 'golgin laite':[1.00,0.55,0.85], 'solulimakalvosto':[0.55,0.55,1.00], 'vesikkeli':[1.00,0.72,0.30] };
     for(const M of MEMS){ const key = Object.keys(TINT).find(k => M.name.startsWith(k)); M.tint = (key && !M.notint) ? TINT[key] : null; }   // notint: the host's thylakoid discs stay the sheet's own yellow
+    /* depth cue (owner, 2026-09-09: a pore was invisible without it): enclosed membranes are drawn darker, so what shows
+       through a hole is darker than the surface around it - and the pores themselves get a rim and a shadow (poreShade) */
+    for(const M of MEMS) M.baseShade = M.inner ? 0.70 : (/-sisä$|^krista/.test(M.name) ? 0.82 : 1.0);
     /* the membrane surface: parameter d (a unit direction) -> the point and the outward normal */
     const surf = (M, d, o) => { const s = M.s, nx = d[0]/s[0], ny = d[1]/s[1], nz = d[2]/s[2], nl = Math.hypot(nx,ny,nz) || 1;
       o.n[0] = nx/nl; o.n[1] = ny/nl; o.n[2] = nz/nl;
@@ -3449,6 +3456,9 @@ uniform float poreCos;
 uniform float poreDP;
 uniform float poreNP;
 uniform float poreLim;
+uniform float poreAng;
+uniform float poreInner;
+uniform float baseShade;
 uniform float clipOn;
 uniform vec3 clipC;
 uniform vec3 clipInvS;
@@ -3471,14 +3481,14 @@ float grain(vec2 q){
   float disc = 1.0 - smoothstep(0.50, 0.60, best);
   return mix(0.48, 1.0, disc) * (0.82 + 0.36 * bid); }
 /* the pore lattice: coarse equi-angular cells on each cube face, a jittered pore in three of four cells */
-bool inPore(vec3 d){
+float poreRatio(vec3 d){
   vec3 ad = abs(d); int f; vec3 A; vec3 U; vec3 V;
   if(ad.x >= ad.y && ad.x >= ad.z){ if(d.x > 0.0){ f = 0; A = vec3(1.0, 0.0, 0.0); U = vec3(0.0, 0.0, 1.0); } else { f = 1; A = vec3(-1.0, 0.0, 0.0); U = vec3(0.0, 0.0, -1.0); } V = vec3(0.0, 1.0, 0.0); }
   else if(ad.z >= ad.y){ if(d.z > 0.0){ f = 2; A = vec3(0.0, 0.0, 1.0); U = vec3(-1.0, 0.0, 0.0); } else { f = 3; A = vec3(0.0, 0.0, -1.0); U = vec3(1.0, 0.0, 0.0); } V = vec3(0.0, 1.0, 0.0); }
   else { if(d.y > 0.0){ f = 4; A = vec3(0.0, 1.0, 0.0); U = vec3(1.0, 0.0, 0.0); V = vec3(0.0, 0.0, 1.0); } else { f = 5; A = vec3(0.0, -1.0, 0.0); U = vec3(1.0, 0.0, 0.0); V = vec3(0.0, 0.0, -1.0); } }
   float a = dot(d, A);
   float au = atan(dot(d, U), a), av = atan(dot(d, V), a);
-  int NP = int(poreNP + 0.5);
+  int NP = int(poreNP + 0.5); float best = 9.0;
   int ci = int(floor((au + 0.7853982) / poreDP)), cj = int(floor((av + 0.7853982) / poreDP));
   for(int di = -1; di <= 1; di++) for(int dj = -1; dj <= 1; dj++){
     int qi = ci + di, qj = cj + dj;
@@ -3489,8 +3499,12 @@ bool inPore(vec3 d){
     float pu = -0.7853982 + (float(qi) + 0.5 + (h1 - 0.5) * 0.6) * poreDP, pv = -0.7853982 + (float(qj) + 0.5 + (h2 - 0.5) * 0.6) * poreDP;
     if(abs(pu) > poreLim || abs(pv) > poreLim) continue;
     vec3 pd = normalize(A + U * tan(pu) + V * tan(pv));
-    if(dot(d, pd) > poreCos) return true; }
-  return false; }
+    float r = acos(clamp(dot(d, pd), -1.0, 1.0)) / poreAng;
+    if(r < best) best = r; }
+  return best; }
+/* the pore's depth cue, the CPU's poreShade line for line: the outer membrane darkens toward the rim, the inner one
+   carries the shadow of the hole above it */
+float poreShade(float r){ return poreInner > 0.5 ? 1.0 - 0.55 * (1.0 - smoothstep(1.0, 2.4, r)) : 1.0 - 0.45 * (1.0 - smoothstep(1.0, 1.8, r)); }
 void main(void){
   float dCam = distance(vWP, camPos);
   if(holeR > 0.0 && dCam < holeR) discard;
@@ -3498,7 +3512,8 @@ void main(void){
   if(onFacet && abs(vWP.x - footCen.x) < footHalf.x && abs(vWP.z - footCen.y) < footHalf.y) discard;
   if(clipOn > 0.5 && length((vWP - clipC) * clipInvS) > clipR - 6.0) discard;   // the thylakoid cap ends at the inner envelope
   vec3 d = normalize(vWP - cen);
-  if(poreOn > 0.5 && inPore(d)) discard;
+  float shadeP = baseShade;
+  if(poreOn > 0.5){ float pr = poreRatio(d); if(pr < 1.0) discard; shadeP *= poreShade(pr); }
   /* across the blend band the face toward the camera is cut away, so the thinned lipids drawn there are never buried */
   if(holeR > 0.0 && halfH > 0.0){ float band = clamp((dCam - holeR) / max(blendW, 1.0), 0.0, 1.0);
     if(camSide * vSurf * halfH > mix(-halfH + 0.05, halfH + 0.05, band)) discard; }
@@ -3520,7 +3535,7 @@ void main(void){
   vec3 nrm = onFacet ? vec3(0.0, -1.0, 0.0) : normalize(w3 * invS2);
   float lit = 0.62 + 0.38 * abs(dot(nrm, normalize(camPos - vWP)));
   float dt = clamp((dCam - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
-  gl_FragColor = vec4(slabCol * (1.0 - slabDark) * tone * lit * mix(1.0, depthLo, dt * depthK), 1.0);
+  gl_FragColor = vec4(slabCol * (1.0 - slabDark) * tone * lit * shadeP * mix(1.0, depthLo, dt * depthK), 1.0);
 }`;
   const bgMat = new BABYLON.ShaderMaterial('bgMat', scene, 'bg', { attributes:['position'], uniforms:['cBg','focusAmt','focusDark'] });
   bgMat.backFaceCulling = false;
@@ -3557,8 +3572,14 @@ void main(void){
      drag and its inertia have ended, put back at the old distance along the NEW view direction, so the radius
      that the zoom, the shading plane and the readouts use is only 20 for the duration of the turn. The shading
      plane keeps the old distance even then (gFocalD). The thylakoid mode keeps its orbit. */
-  const LOOK_R = 20; let gLookPivot = null, gFHold = false;   // gFHold: F is held - the pivot sits on the selection and the look-around stays out of the way
+  const LOOK_R = 20; let gLookPivot = null, gFHold = false, gFHoldR = 0;   // gFHold: F is held - the pivot sits on the selection and the look-around stays out of the way, gFHoldR = the selection's radius (the zoom stops there)
   const gFocalD = () => gLookPivot ? gLookPivot.r : cam.radius;
+  /* THE DEPTH CUE (owner, 2026-09-09: 'everything needs a depth cue'). On the sheet the darkening is measured from the
+     orbit pivot over 120 units. Inside the cell it is measured from the CAMERA (gShadeD 0) over thousands of units,
+     so a membrane 2000 units away is plainly darker than one at 300 and a pore reads as a hole - the per-frame
+     observer below sets the four depth globals for either case (in cell mode the dev sliders are overridden). */
+  let gInsideCell = false;
+  const gShadeD = () => (SOLU_CELL && gInsideCell) ? 0 : gFocalD();
   let panning = false, panDepth = 1, modelDrag = -1, modelDragDepth = 1, rotating = false;   // pan state · which molecule a left-drag is moving (+its depth) · middle-drag rotate
   let joyPan = false, joyOX = 0, joyOY = 0;   // BOTH-buttons directional pan · press-point (screen px) the joystick offset is measured from
   // Custom cursors (the grab PNG). setCursor writes the style ONLY when it actually changes — re-assigning a
@@ -3630,7 +3651,8 @@ void main(void){
     // (No arrival easing near a selection any more: it made the same notch a twentieth of itself near
     //  the selected thing, which read as the wheel being randomly slow. A notch is a notch.)
     const hi = cam.upperRadiusLimit ?? 1e9, minR = Math.max(0.3, fitRadius * 0.0006);
-    const oldR = cam.radius, r = oldR + delta;
+    const oldR = cam.radius; let r = oldR + delta;
+    if(gFHold && gFHoldR > 0 && r < gFHoldR) r = gFHoldR;   // F held (cell mode): the zoom goes to the selection's middle but stops at its surface, never through it
     // Always dolly THROUGH (even after a double-click) → infinite zoom in and out the far side.
     if(r < minR){
       const fwd = cam.getForwardRay(1).direction;   // camera → target
@@ -3644,7 +3666,7 @@ void main(void){
       // cursor fixed by shifting the pivot the same fraction the distance changed - target = P + f*(target - P).
       // Zooming OUT is always from the centre: the pivot stays put and only the distance grows. Only zooming
       // IN pulls toward the cursor.
-      const zp = delta < 0 ? (gZoomP || sc) : null;
+      const zp = (delta < 0 && !gFHold) ? (gZoomP || sc) : null;   // F held: straight at the selection, not toward the cursor
       if(zp){ const f = newR / oldR;
         const pull = gZoomPull;
         const tx = zp.x + f*(cam.target.x-zp.x), ty = zp.y + f*(cam.target.y-zp.y), tz = zp.z + f*(cam.target.z-zp.z);
@@ -4314,6 +4336,24 @@ void main(void){
     if(Math.abs(gZoomVel) < 1e-4){ gZoomVel = 0; return; }
     const d = gZoomVel * gZoomEase; zoomBy(d); gZoomVel -= d;
   });
+  /* 'Kalvostoon' (owner, 2026-09-09): a slow flight from wherever the camera is into the thylakoid scene - the sheet's
+     old default view, now inside the host chloroplast - over FLY_S seconds, eased, target and position together.
+     Any control (a press, a wheel notch, a key) breaks it off. */
+  { const FLY_S = 14, TGT = new BABYLON.Vector3(82.7, 68.3, 197.6), POS = new BABYLON.Vector3(41, 30, 820);
+    let fly = null;
+    window.gFlyToSheet = () => { scene.stopAnimation(cam); gLookPivot = null; gZoomVel = 0;
+      fly = { t0: performance.now(), p0: cam.position.clone(), q0: cam.getTarget().clone() }; };
+    const stop = () => { fly = null; };
+    canvas.addEventListener('pointerdown', stop); canvas.addEventListener('wheel', stop, { passive:true }); window.addEventListener('keydown', stop);
+    scene.onBeforeRenderObservable.add(() => { if(!fly) return;
+      const u = Math.min(1, (performance.now() - fly.t0)/(FLY_S*1000)), k = u*u*(3 - 2*u);
+      cam.setTarget(BABYLON.Vector3.Lerp(fly.q0, TGT, k)); cam.setPosition(BABYLON.Vector3.Lerp(fly.p0, POS, k));
+      if(u >= 1) fly = null; }); }
+  if(SOLU_CELL) scene.onBeforeRenderObservable.add(() => {   // the depth cue's two regimes (see gShadeD)
+    const inside = BABYLON.Vector3.Distance(cam.position, SOLU_CELL.CEN) < SOLU_CELL.R;
+    gInsideCell = inside;
+    if(inside){ gDepthK = 0.75; gDepthLo = 0.30; gDepthStart = 40; gDepthSpread = 3500; }
+    else { gDepthK = 0.40; gDepthLo = 0.50; gDepthStart = 0; gDepthSpread = 120; } });
   scene.onBeforeRenderObservable.add(() => {   // the look-around pivot goes back out once the turn has ended (see LOOK_R)
     if(!gLookPivot || rotating || Math.abs(cam.inertialAlphaOffset) > 1e-4 || Math.abs(cam.inertialBetaOffset) > 1e-4) return;
     const r = gLookPivot.r; gLookPivot = null;
@@ -5106,9 +5146,9 @@ void main(void){
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → vdW goes 50% transparent where its atom reveals orbitals
     eff.setFloat('uT',gWaveT); eff.setMatrices('modelXform', gModelXform); eff.setArray3('modelCol', gModelCol); eff.setFloat('colorMode', gColorMode?1:0); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
     eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE); eff.setFloat('boil', gBoil);
-    eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
+    eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
   const vdwMatStatic = new BABYLON.ShaderMaterial('vdwLODs', scene, 'imp', {
-    attributes:['position','atomOff','instanceColor','instR','memAnc','tint','world0','world1','world2','world3'],
+    attributes:['position','atomOff','instanceColor','instR','memAnc','tint','shade','world0','world1','world2','world3'],
     uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','boil','depthBias','selCenter','coneCos','memCut','selModel','tileOff','memDrift','cofHideOn','cofTexel','cofAlpha','cofOutAlpha','cofOutCol','focalD','depthK','depthLo','startOff','spread','focusAmt','focusMode','focusCenterV','focusR','focusSet','focusGroup','focusDark','pLight','pLightN','pLightR','keyDir'],
     samplers:['cofDepth'],
     defines:['#define IMPRAD','#define MEMFADE','#define COFHIDE','#define DEPTHSHADE','#define LIPTPL','#define PLIGHT'] });   // LIPTPL: one instance per lipid, atoms baked per vertex   // MEMFADE = cross-cut fade, LIPWRAP = the sheet repeats around the camera
@@ -5120,7 +5160,7 @@ void main(void){
     eff.setFloat('memDrift', gMemDrift);
     eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('coneCos', gConeCos); eff.setFloat('bubbleR', gBubbleR);   // mode 1 → membrane vdW goes 50% transparent where revealed
     eff.setFloat('uT',gWaveT); eff.setFloat('boil', gBoil); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]); eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd);
-    eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
+    eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); bindCof(eff); bindPLight(eff); });
 
   /* FAR twins of the two vdW materials. Same shader, same instance buffers — but compiled with CHEAP, and
      crucially left OPAQUE (no realAlpha, depth write on, no gl_FragDepthEXT). The normal materials are
@@ -5148,18 +5188,18 @@ void main(void){
     eff.setFloat('uT',gWaveT); eff.setMatrices('modelXform', gModelXform); eff.setArray3('modelCol', gModelCol); eff.setFloat('colorMode', gColorMode?1:0);
     eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter);
     eff.setFloat('selModel', gSelModel); eff.setColor3('selCol', SAGE);
-    eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+    eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); bindPLight(eff); });
   const vdwStaticFarMat = mkFar('vdwLODsfar',
-    ['position','atomOff','instanceColor','instR','memAnc','tint','world0','world1','world2','world3'],
+    ['position','atomOff','instanceColor','instR','memAnc','tint','shade','world0','world1','world2','world3'],
     ['memCut','tileOff','memDrift','focalD','depthK','depthLo','startOff','spread','pLight','pLightN','pLightR','keyDir'],
     ['#define IMPRAD','#define MEMFADE','#define CHEAP','#define DEPTHSHADE','#define LIPTPL','#define PLIGHT']);
   vdwStaticFarMat.onBindObservable.add(mesh=>{ const eff=vdwStaticFarMat.getEffect(); if(!eff)return;
     eff.setVector3('tileOff', (mesh && mesh.metadata && mesh.metadata.off) || gTileZero);
     eff.setFloat('memDrift', gMemDrift); bindPLight(eff);
     eff.setFloat('uT',gWaveT); eff.setFloat3('memCut', gCut[0], gCut[1], gCut[2]);
-    eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+    eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
     eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
     eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',scene.fogStart); eff.setFloat('fogEnd',scene.fogEnd); });
 
@@ -5195,7 +5235,7 @@ void main(void){
       eff.setFloat('isShell', gShell); eff.setFloat('shellMin', gShellMin); eff.setFloat('revealFade', gRevealFade); eff.setFloat('bubbleR', gBubbleR); eff.setFloat('coneCos', gConeCos);   // mode 1 → cofactor spheres go glass so their orbitals (rendered by the cells beneath) show through
       eff.setColor3('fogColor',scene.fogColor); eff.setFloat('fogStart',1e8); eff.setFloat('fogEnd',1e9);   // no fog fade → cofactors stay bright wherever they are
       eff.setFloat('hlGroup', gHlGroup); eff.setFloat('hlBright', gHlBright);   // brighten the hovered / flashing cofactor group
-      eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); });
+      eff.setMatrix('macroXform', macroGizmoNode.getWorldMatrix()); eff.setVector3('macroCenter', psiiCenter); eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); bindFocus(eff); });
     etcOverlay = BABYLON.MeshBuilder.CreatePlane('etcOverlay',{size:2},scene);
     etcOverlay.material=etcMat; etcOverlay.isPickable=false; etcOverlay.alwaysSelectAsActiveMesh=true;
     etcOverlay.thinInstanceSetBuffer('matrix', new Float32Array(etcM),16,true);
@@ -6053,7 +6093,7 @@ void main(void){
       sm.setFloat('grainPitch', S*0.5);   // the grain's cell size: half the real lipid pitch - smaller, denser 'lipids'
       sm.setFloat('midY', bilayerCen.y); sm.setFloat('halfH', ySpan);
       sm.onBindObservable.add(()=>{ const eff=sm.getEffect(); if(!eff) return;
-        eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
+        eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo);
         eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
         // the hole matches the gather: blocks within memR (by centre) draw every lipid - one block radius
         // less, so the slab's edge sits under drawn lipids rather than leaving a gap before them
@@ -6436,11 +6476,11 @@ void main(void){
         for(const m of [near, far]){ m.isPickable=false; m.alwaysSelectAsActiveMesh=true; m.renderingGroupId=1; m.setEnabled(false); }
         near.material = vdwMatStatic; far.material = vdwStaticFarMat;
         const cap = Math.max(1, tplN[T]) + CELL_EXTRA;   // cell mode: the plasma membrane and the nuclear envelope write into the same streams
-        const nM=new Float32Array(cap*16), fM=new Float32Array(cap*16), nA=new Float32Array(cap), fA=new Float32Array(cap), nT=new Float32Array(cap*4), fT=new Float32Array(cap*4);
-        near.thinInstanceSetBuffer('matrix', nM, 16, false); near.thinInstanceSetBuffer('memAnc', nA, 1, false); near.thinInstanceSetBuffer('tint', nT, 4, false);
-        far.thinInstanceSetBuffer('matrix', fM, 16, false);  far.thinInstanceSetBuffer('memAnc', fA, 1, false);  far.thinInstanceSetBuffer('tint', fT, 4, false);
+        const nM=new Float32Array(cap*16), fM=new Float32Array(cap*16), nA=new Float32Array(cap), fA=new Float32Array(cap), nT=new Float32Array(cap*4), fT=new Float32Array(cap*4), nS=new Float32Array(cap).fill(1), fS=new Float32Array(cap).fill(1);
+        near.thinInstanceSetBuffer('matrix', nM, 16, false); near.thinInstanceSetBuffer('memAnc', nA, 1, false); near.thinInstanceSetBuffer('tint', nT, 4, false); near.thinInstanceSetBuffer('shade', nS, 1, false);
+        far.thinInstanceSetBuffer('matrix', fM, 16, false);  far.thinInstanceSetBuffer('memAnc', fA, 1, false);  far.thinInstanceSetBuffer('tint', fT, 4, false);  far.thinInstanceSetBuffer('shade', fS, 1, false);
         near.thinInstanceCount = 0; far.thinInstanceCount = 0;
-        sphTpl[T] = { near, far, nM, fM, nA, fA, nT, fT, nn:0, nf:0, cap };
+        sphTpl[T] = { near, far, nM, fM, nA, fA, nT, fT, nS, fS, nn:0, nf:0, cap };
       } }
 
     /* THE GATHER - spheres and orbitals in one pass over the blocks. Each block is wrapped onto the copy
@@ -6499,9 +6539,15 @@ void main(void){
         if(Math.abs(au) > PORE_LIM || Math.abs(av) > PORE_LIM) return null;
         return dirOf(f, au, av, out); };
       const _pd = [0,0,0];
-      const inPore = (f, au, av, dx,dy,dz, pc) => { const ci = Math.floor((au + Q4)/DP), cj = Math.floor((av + Q4)/DP);
+      /* the nearest pore, as angle over the pore's angular radius (1 = the rim): below 1 the lipid is in the hole */
+      const poreRatio = (f, au, av, dx,dy,dz, M) => { const ci = Math.floor((au + Q4)/DP), cj = Math.floor((av + Q4)/DP), pa = NE_PORE_R/M.R; let best = 9;
         for(let qi=ci-1; qi<=ci+1; qi++) for(let qj=cj-1; qj<=cj+1; qj++){ if(qi<0||qj<0||qi>=NP||qj>=NP) continue;
-          const p = poreAt(f, qi, qj, _pd); if(p && dx*p[0]+dy*p[1]+dz*p[2] > pc) return true; } return false; };
+          const p = poreAt(f, qi, qj, _pd); if(!p) continue; const r = Math.acos(Math.max(-1, Math.min(1, dx*p[0]+dy*p[1]+dz*p[2])))/pa; if(r < best) best = r; } return best; };
+      const inPore = (f, au, av, dx,dy,dz, pc, M) => poreRatio(f, au, av, dx,dy,dz, M) < 1;
+      const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a)/(b - a))); return t*t*(3 - 2*t); };
+      /* the shade of a lipid at pore ratio r - mirrored in the cellshell shader (poreShade): the outer membrane darkens
+         toward the rim, the inner one carries the shadow of the hole above it */
+      const poreShade = (M, r) => M.inner ? 1 - 0.55*(1 - sstep(1.0, 2.4, r)) : 1 - 0.45*(1 - sstep(1.0, 1.8, r));
       /* one block of a membrane: its lipids placed, framed and ordered (strided, so a prefix is an even sample) */
       const gcd = (a,b) => b ? gcd(b, a%b) : a;
       const lipReach = Math.max(xr, zr, ySpan) + 4;
@@ -6511,13 +6557,14 @@ void main(void){
       for(let hs=0; hs<gHulls.length; hs++){ const mi = gHulls[hs].mi; if(gMemBound[mi] && mols[mi] && !mols[mi].shuttle) footHulls.push(hs); }   // (the rotor slot has a hull but no molecule)
       const mkBlock = (M, f, bi, bj) => {
         const N = M.N, D = M.D, R = M.R, BLm = M.BL, i0 = bi*BLm, j0 = bj*BLm, CAP = 2*BLm*BLm, salt = ((M.id*6 + f) + 1)*4096, U = FACE[f][1], aj = 1/(R*Math.sqrt(M.Jmax));
-        const pos = new Float32Array(CAP*3), rot = new Float32Array(CAP*9), tpl = new Int32Array(CAP), cell = new Int8Array(CAP);
+        const pos = new Float32Array(CAP*3), rot = new Float32Array(CAP*9), tpl = new Int32Array(CAP), cell = new Int8Array(CAP), shd = new Float32Array(CAP);
         let n = 0, cx = 0, cy = 0, cz = 0;
         for(let leaf=0; leaf<2; leaf++) for(let i=i0; i<i0+BLm && i<N; i++) for(let j=j0; j<j0+BLm && j<N; j++){
           const jt = tileJit(i + salt, j, leaf);   // the sheet's jitter in units, turned into angle by the lattice's own pitch
           const au = -Q4 + (i + 0.5 + (j&1)*0.5)*D + jt[0]*aj, av = -Q4 + (j + 0.5)*D + jt[2]*aj;
           const d = dirOf(f, au, av, _dd);
-          if(M.pores && inPore(f, au, av, d[0], d[1], d[2], M.poreCos)) continue;
+          let shade = M.baseShade;
+          if(M.pores){ const pr = poreRatio(f, au, av, d[0], d[1], d[2], M); if(pr < 1) continue; shade *= poreShade(M, pr); }
           if(M.aniso && keepH(i + salt, j + leaf*7777) > Jat(M, d)/M.Jmax) continue;   // the even density over an ellipsoid
           SOLU_CELL.surf(M, d, _sf);
           let px = _sf.p[0], py = _sf.p[1], pz = _sf.p[2], nx = _sf.n[0], ny = _sf.n[1], nz = _sf.n[2];   // outward normal = the frame's Y
@@ -6540,17 +6587,17 @@ void main(void){
           pos[o]=px; pos[o+1]=py; pos[o+2]=pz;
           rot[r9]=tx; rot[r9+1]=ty; rot[r9+2]=tz; rot[r9+3]=nx; rot[r9+4]=ny; rot[r9+5]=nz; rot[r9+6]=bx; rot[r9+7]=by; rot[r9+8]=bz;
           tpl[n] = tplIdx(tileType(i + salt, j, leaf), leaf, tileVar(i + salt, j, leaf));
-          cell[n] = (i-i0)*BLm + (j-j0) + leaf*BLm*BLm;
+          cell[n] = (i-i0)*BLm + (j-j0) + leaf*BLm*BLm; shd[n] = shade;
           cx += px; cy += py; cz += pz; n++; }
         if(!n) return { n:0, last:0 };
         cx /= n; cy /= n; cz /= n; let r = 0;
         for(let q=0;q<n;q++){ const o=q*3, dx=pos[o]-cx, dy=pos[o+1]-cy, dz=pos[o+2]-cz, d2=dx*dx+dy*dy+dz*dz; if(d2 > r) r = d2; }
         r = Math.sqrt(r) + lipReach;
         if(n > 1){ let stride = 5; while(stride > 1 && gcd(stride, n) !== 1) stride--;
-          const p2 = new Float32Array(n*3), r2 = new Float32Array(n*9), t2 = new Int32Array(n), c2 = new Int8Array(n);
-          for(let q=0, k=0; q<n; q++, k=(k+stride)%n){ for(let a=0;a<3;a++) p2[q*3+a]=pos[k*3+a]; for(let a=0;a<9;a++) r2[q*9+a]=rot[k*9+a]; t2[q]=tpl[k]; c2[q]=cell[k]; }
-          return { n, pos:p2, rot:r2, tpl:t2, cell:c2, cx, cy, cz, r, last:0 }; }
-        return { n, pos:pos.subarray(0,3), rot:rot.subarray(0,9), tpl:tpl.subarray(0,1), cell:cell.subarray(0,1), cx, cy, cz, r, last:0 };
+          const p2 = new Float32Array(n*3), r2 = new Float32Array(n*9), t2 = new Int32Array(n), c2 = new Int8Array(n), s2 = new Float32Array(n);
+          for(let q=0, k=0; q<n; q++, k=(k+stride)%n){ for(let a=0;a<3;a++) p2[q*3+a]=pos[k*3+a]; for(let a=0;a<9;a++) r2[q*9+a]=rot[k*9+a]; t2[q]=tpl[k]; c2[q]=cell[k]; s2[q]=shd[k]; }
+          return { n, pos:p2, rot:r2, tpl:t2, cell:c2, shd:s2, cx, cy, cz, r, last:0 }; }
+        return { n, pos:pos.subarray(0,3), rot:rot.subarray(0,9), tpl:tpl.subarray(0,1), cell:cell.subarray(0,1), shd:shd.subarray(0,1), cx, cy, cz, r, last:0 };
       };
       const cache = new Map(); let frameNo = 0;
       const getBlock = (M, f, bi, bj) => { const key = M.base + (f*M.nb + bi)*M.nb + bj; let e = cache.get(key);
@@ -6606,7 +6653,8 @@ void main(void){
       const _e0 = [0,0,0];
       for(const M of MEMS){
         const mat = new BABYLON.ShaderMaterial('cellShellMat'+M.id, scene, 'cellshell', {
-          attributes:['position','surf'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch','slabDark','halfH','blendW','cen','invS','invS2','camSide','facetOn','facetY','facetR','footCen','footHalf','poreOn','poreCos','poreDP','poreNP','poreLim','clipOn','clipC','clipInvS','clipR'] });
+          attributes:['position','surf'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch','slabDark','halfH','blendW','cen','invS','invS2','camSide','facetOn','facetY','facetR','footCen','footHalf','poreOn','poreCos','poreDP','poreNP','poreLim','poreAng','poreInner','baseShade','clipOn','clipC','clipInvS','clipR'] });
+        mat.setFloat('poreAng', NE_PORE_R/M.R); mat.setFloat('poreInner', M.inner ? 1 : 0); mat.setFloat('baseShade', M.baseShade);
         mat.setFloat('clipOn', M.clipTo ? 1 : 0);
         if(M.clipTo){ const K = M.clipTo; mat.setVector3('clipC', K.C); mat.setVector3('clipInvS', new BABYLON.Vector3(1/K.s[0], 1/K.s[1], 1/K.s[2])); mat.setFloat('clipR', K.R); }
         mat.backFaceCulling = false;
@@ -6616,7 +6664,7 @@ void main(void){
         mat.setVector2('footCen', new BABYLON.Vector2(bilayerCen.x, bilayerCen.z)); mat.setVector2('footHalf', new BABYLON.Vector2(0, 0));   // the plasma membrane's plane part covers the sheet's rectangle too (the sheet's own slab box is off in cell mode)
         mat.setFloat('poreOn', M.pores ? 1 : 0); mat.setFloat('poreCos', M.poreCos); mat.setFloat('poreDP', DP); mat.setFloat('poreNP', NP); mat.setFloat('poreLim', PORE_LIM);
         mat.onBindObservable.add(()=>{ const eff=mat.getEffect(); if(!eff) return; const cp = cam.position;
-          eff.setFloat('focalD', gFocalD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
+          eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
           const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR + gMemCellR - gMemBlend) : 0;
           eff.setFloat('holeR', hole); eff.setVector3('camPos', cp); eff.setFloat('slabDark', gSlabDark); eff.setFloat('blendW', gMemBlend);
           let side;   // which face of this bilayer the camera is on: +1 outside, -1 inside
@@ -6670,8 +6718,8 @@ void main(void){
               const take = dEdge >= gMemBlend ? e.n : Math.round(e.n * Math.max(0, dEdge)/gMemBlend);
               const near = d2 < full2, P = e.pos, Rt = e.rot;
               for(let q=0;q<take;q++){ const E = sphTpl[e.tpl[q]]; if(!E) continue; const o=q*3, r9=q*9;
-                let Mx, k, A, Tn; if(near){ if(E.nn >= E.cap) continue; k = E.nn++; Mx = E.nM; A = E.nA; Tn = E.nT; } else { if(E.nf >= E.cap) continue; k = E.nf++; Mx = E.fM; A = E.fA; Tn = E.fT; }
-                const m = k*16, tn = M.tint; if(tn){ Tn[k*4]=tn[0]; Tn[k*4+1]=tn[1]; Tn[k*4+2]=tn[2]; Tn[k*4+3]=0.72; } else Tn[k*4+3]=0;
+                let Mx, k, A, Tn, Sn; if(near){ if(E.nn >= E.cap) continue; k = E.nn++; Mx = E.nM; A = E.nA; Tn = E.nT; Sn = E.nS; } else { if(E.nf >= E.cap) continue; k = E.nf++; Mx = E.fM; A = E.fA; Tn = E.fT; Sn = E.fS; }
+                const m = k*16, tn = M.tint; if(tn){ Tn[k*4]=tn[0]; Tn[k*4+1]=tn[1]; Tn[k*4+2]=tn[2]; Tn[k*4+3]=0.72; } else Tn[k*4+3]=0; Sn[k] = e.shd[q];
                 Mx[m]=Rt[r9]; Mx[m+1]=Rt[r9+1]; Mx[m+2]=Rt[r9+2]; Mx[m+3]=0; Mx[m+4]=Rt[r9+3]; Mx[m+5]=Rt[r9+4]; Mx[m+6]=Rt[r9+5]; Mx[m+7]=0;
                 Mx[m+8]=Rt[r9+6]; Mx[m+9]=Rt[r9+7]; Mx[m+10]=Rt[r9+8]; Mx[m+11]=0; Mx[m+12]=P[o]; Mx[m+13]=P[o+1]; Mx[m+14]=P[o+2]; Mx[m+15]=1;
                 A[k] = P[o+2]; }
@@ -6852,8 +6900,8 @@ void main(void){
           const lx = lipO[o]+ox, ly = lipO[o+1], lz = lipO[o+2]+oz;
           if(lipInProt(lipT[i], lx, lz)) continue;   // never under a protein's footprint
           // the off-diagonals are written too: in cell mode a slot may have held a ROTATED lipid the frame before
-          if(near){ if(E.nn >= E.cap) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+1]=M[m+2]=M[m+4]=M[m+6]=M[m+8]=M[m+9]=0; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nT[E.nn*4+3]=0; E.nn++; }
-          else    { if(E.nf >= E.cap) continue; const m=E.nf*16, M=E.fM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+1]=M[m+2]=M[m+4]=M[m+6]=M[m+8]=M[m+9]=0; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.fA[E.nf]=lz; E.fT[E.nf*4+3]=0; E.nf++; }
+          if(near){ if(E.nn >= E.cap) continue; const m=E.nn*16, M=E.nM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+1]=M[m+2]=M[m+4]=M[m+6]=M[m+8]=M[m+9]=0; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.nA[E.nn]=lz; E.nT[E.nn*4+3]=0; E.nS[E.nn]=1; E.nn++; }
+          else    { if(E.nf >= E.cap) continue; const m=E.nf*16, M=E.fM; M[m]=1; M[m+5]=1; M[m+10]=1; M[m+15]=1; M[m+1]=M[m+2]=M[m+4]=M[m+6]=M[m+8]=M[m+9]=0; M[m+12]=lx; M[m+13]=ly; M[m+14]=lz; E.fA[E.nf]=lz; E.fT[E.nf*4+3]=0; E.fS[E.nf]=1; E.nf++; }
         }
         // orbital candidates: every lipid of a block that reaches into the orbital radius (never thinned there - it is inside the full band)
         if(orbOn && d2 <= (oR+bR)*(oR+bR)) for(let q=0;q<cnt;q++){ const i = blkLip[st+q], o = i*3;
@@ -6868,8 +6916,8 @@ void main(void){
       if(gatherCell) nC = gatherCell(cp, L, fp, nC, orbOn, oR, oR2, full2, LOBE_MARGIN);   // cell mode: the closed membranes join the same streams
       // upload the sphere streams
       for(const E of sphTpl){ if(!E) continue;
-        if(E.nn){ E.near.thinInstancePartialBufferUpdate('matrix', E.nM.subarray(0,E.nn*16), 0); E.near.thinInstancePartialBufferUpdate('memAnc', E.nA.subarray(0,E.nn), 0); E.near.thinInstancePartialBufferUpdate('tint', E.nT.subarray(0,E.nn*4), 0); }
-        if(E.nf){ E.far.thinInstancePartialBufferUpdate('matrix', E.fM.subarray(0,E.nf*16), 0);  E.far.thinInstancePartialBufferUpdate('memAnc', E.fA.subarray(0,E.nf), 0);  E.far.thinInstancePartialBufferUpdate('tint', E.fT.subarray(0,E.nf*4), 0); }
+        if(E.nn){ E.near.thinInstancePartialBufferUpdate('matrix', E.nM.subarray(0,E.nn*16), 0); E.near.thinInstancePartialBufferUpdate('memAnc', E.nA.subarray(0,E.nn), 0); E.near.thinInstancePartialBufferUpdate('tint', E.nT.subarray(0,E.nn*4), 0); E.near.thinInstancePartialBufferUpdate('shade', E.nS.subarray(0,E.nn), 0); }
+        if(E.nf){ E.far.thinInstancePartialBufferUpdate('matrix', E.fM.subarray(0,E.nf*16), 0);  E.far.thinInstancePartialBufferUpdate('memAnc', E.fA.subarray(0,E.nf), 0);  E.far.thinInstancePartialBufferUpdate('tint', E.fT.subarray(0,E.nf*4), 0); E.far.thinInstancePartialBufferUpdate('shade', E.fS.subarray(0,E.nf), 0); }
         E.near.thinInstanceCount = E.nn; E.far.thinInstanceCount = E.nf;
         E.near.setEnabled(E.nn>0); E.far.setEnabled(E.nf>0); }
       if(!orbOn){ for(let T=0;T<NTPL;T++){ const E=orbTpl[T]; if(!E) continue; E.core.setEnabled(false); E.bond.setEnabled(false); } return; }
@@ -7215,10 +7263,10 @@ void main(void){
     const wMat=(rad, solid, glow, bias, outline, haze)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':'')+(bias?'b':'')+(haze?'h':''),scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
         uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','memY','memHalf','shellSkip','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias',
-                  'cellWrap','cellCam','cellCen','cellR','cellFacetY','cellMemT','cellClipAll','orgA','orgB','nOrg','thyA','thyB','thyInvS','cellFade'],
+                  'cellWrap','cellCam','cellCen','cellR','cellFacetY','cellMemT','cellClipAll','orgA','orgB','nOrg','thyA','thyB','thyInvS','cellFade','focalD','depthK','depthLo','startOff','spread'],
         samplers:['shellTex','molTex'],
         defines: (NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
-                      : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']).concat(SOLU_CELL ? ['#define CELLCLIP'] : []).concat(haze ? ['#define HAZE'] : []) });   // CELLCLIP: cell mode wraps the medium around the camera and keeps it to the cytosol - HAZE: the sparse far fill
+                      : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']).concat(SOLU_CELL ? ['#define CELLCLIP', '#define DEPTHSHADE'] : []).concat(haze ? ['#define HAZE'] : []) });   // DEPTHSHADE: in cell mode the free molecules and the haze darken with distance like everything else   // CELLCLIP: cell mode wraps the medium around the camera and keeps it to the cytosol - HAZE: the sparse far fill
       // isShell = 1 so the sphere turns to GLASS inside the reveal radius, exactly as the protein vdW does
       // — otherwise the orbitals built below are drawn correctly but sit hidden inside an opaque ball.
       m.setFloat('radius',rad);m.setFloat('isShell',1);m.setFloat('shellMin',0.18);m.setFloat('revealFade',0.95);
@@ -7231,6 +7279,7 @@ void main(void){
         if(!glow) bindPLight(eff);
         eff.setVector3('boxLo',bLo); eff.setVector3('boxHi',bHi); eff.setFloat('memY', MEMBRANE_Y); eff.setFloat('memHalf', SOLU ? 0 : gMemHalfT);   // cell mode: the thylakoid is a curved cap, not this plane - the cap's band is cut in CELLCLIP instead
         if(gCellBind) gCellBind(eff, !!haze);   // cell mode: the wrap period, the cytosol and the organelles
+        if(SOLU_CELL){ eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread); }
         eff.setFloat('molTexDim', MOLTEX_DIM); eff.setTexture('molTex', gMolTex);
         if(NSH){ eff.setTexture('shellTex', gShellTex); eff.setArray3('shellCen', gShellCen);
                  eff.setMatrix3x3('shellRot', gShellRot); eff.setFloatArray('shellR2', gShellR2); }
@@ -10866,12 +10915,15 @@ void main(void){
     const menu = document.createElement('div'); menu.id = 'settings-menu';
     menu.style.cssText = 'position:fixed;left:16px;top:112px;z-index:15;display:none;flex-direction:column;gap:8px;align-items:flex-start;';   // clears the gear AND the fullscreen button below it
     document.body.appendChild(gear); document.body.appendChild(menu);
+    if(SOLU){ const zb = document.createElement('button'); zb.id = 'zoomin-btn'; zb.textContent = '🔭 Kalvostoon'; zb.title = 'Lennä hitaasti yhteyttämiskalvostoon (mikä tahansa ohjaus keskeyttää)';
+      zb.addEventListener('click', () => { if(window.gFlyToSheet) window.gFlyToSheet(); });
+      document.body.appendChild(zb); }
     { const pb = document.createElement('button'); pb.id = 'pills-btn'; pb.textContent = '🏷️ Pillit'; pb.title = 'Näytä pillirivi, pisteet ja ajastin';   // off by default (html.nopills)
       document.documentElement.classList.add('nopills');
       pb.addEventListener('click', () => { const on = document.documentElement.classList.toggle('nopills'); pb.classList.toggle('on', !on); });
       document.body.appendChild(pb); }
     for(const id of ['darkmode-btn','gfx-btn','color-btn','etc-btn','dev-btn','lantern-btn','membrane-btn',
-                     'memcut-btn','memonly-btn','outline-btn','particles-btn','pills-btn','shade-btn','vr-btn']){   // vr-btn too — it stays hidden until a headset is found
+                     'memcut-btn','memonly-btn','outline-btn','particles-btn','pills-btn','zoomin-btn','shade-btn','vr-btn']){   // vr-btn too — it stays hidden until a headset is found
       const b = document.getElementById(id); if(!b) continue;
       b.style.position = 'static'; b.style.left = 'auto'; b.style.top = 'auto'; menu.appendChild(b);   // static → they stack in the menu
     }
@@ -11764,10 +11816,12 @@ void main(void){
   /* F held (cell mode): the rotation pivot goes to the selection - a complex, an atom or a cofactor - for as long as
      the key is down. The camera stays where it is, so a middle-drag then orbits the thing. On release the pivot is
      simply left there until the next turn re-pivots 20 units ahead. */
-  if(SOLU){ const selCentreOf = () => {
-      if(gSel.size){ const mi = [...gSel][0], md = mInfo[mi]; return new BABYLON.Vector3(md.cx + gModelOff[mi*3], md.cy + gModelOff[mi*3+1], md.cz + gModelOff[mi*3+2]); }
-      if(selAtom && selAtom.world) return selAtom.world.clone();
-      if(etcSel >= 0 && etcGroups[etcSel]){ const g = etcGroups[etcSel]; return new BABYLON.Vector3(g.cx, g.cy, g.cz); }
+  if(SOLU){ const selCentreOf = () => {   // the selection's centre - and its radius into gFHoldR, where the zoom stops
+      if(gSel.size){ const mi = [...gSel][0], md = mInfo[mi], hs = gHulls.findIndex(h => h.mi === mi);
+        gFHoldR = hs >= 0 ? gHulls[hs].maxR * 1.05 : 0.5 * Math.hypot(md.x1-md.x0, md.y1-md.y0, md.z1-md.z0);
+        return new BABYLON.Vector3(md.cx + gModelOff[mi*3], md.cy + gModelOff[mi*3+1], md.cz + gModelOff[mi*3+2]); }
+      if(selAtom && selAtom.world){ gFHoldR = 6; return selAtom.world.clone(); }
+      if(etcSel >= 0 && etcGroups[etcSel]){ const g = etcGroups[etcSel]; gFHoldR = g.r * 2.5; return new BABYLON.Vector3(g.cx, g.cy, g.cz); }
       return null; };
     window.addEventListener('keydown', e => { if(e.repeat || (e.key !== 'f' && e.key !== 'F') || (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
       const c = selCentreOf(); if(!c) return;

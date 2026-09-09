@@ -389,3 +389,20 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
   before half the box's thinnest side (`cellFade`, the impostor radius shrinks) so the box edge is never seen,
   the haze is 250000 spheres of radius 6. The protons still fold at the flat plane in their CPU integration -
   right at the pole, a phantom plane away from it.
+
+### Depth cues, pores, the flight button (2026-09-09, sixth step)
+
+- Pores: enclosed membranes carry `baseShade` (the nuclear envelope's inner one 0.70, other '-sisä' / cristae
+  0.82), the outer envelope darkens toward each pore rim and the inner one carries the shadow disc under a
+  hole (`poreRatio` / `poreShade`, JS in the block generator and GLSL in the cellshell shader line for line).
+  The near lipids get it through a per-instance `shade` thin-instance buffer next to `tint` (the sheet's
+  writer sets 1), the shells through the shader.
+- The scene-wide depth cue: inside the cell (`gInsideCell`, camera within R of CEN) the darkening is measured
+  from the CAMERA (`gShadeD()` returns 0) over 3500 units (K 0.75, floor 0.30, start 40) - the per-frame
+  observer next to the look-pivot restore sets the four depth globals for either regime, so in cell mode the
+  dev sliders for them are overridden. The free molecules and the haze take DEPTHSHADE in cell mode too.
+- 'Kalvostoon' (gear menu, cell mode): `window.gFlyToSheet` flies over 14 s from wherever the camera is to the
+  sheet's old default view inside the host chloroplast, eased, target and position together - any press,
+  wheel notch or key breaks it off.
+- F held: the wheel zooms straight at the selection (no cursor pull) and stops at `gFHoldR`, the selection's
+  radius (hull maxR, 6 for an atom, 2.5 x a cofactor group's radius) - never through it.
