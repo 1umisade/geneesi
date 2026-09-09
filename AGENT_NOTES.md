@@ -370,3 +370,22 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
   between. run() and the editor's `loadFile` take `preParsed(fn)` instead of fetching; anything not on the
   list still goes through the same functions on demand. Only one mode runs per page, so the viewer may keep
   mutating the parsed molecules as it always did.
+
+### The spherical thylakoid (2026-09-09, fifth step)
+
+- The host chloroplast's thylakoid is a SPHERICAL CAP (`SOLU_CELL.THY`: radius 2400, centre (760, -2400, 0) in
+  world, pole at (760, 0, 0) = the sheet's ATP synthase), clipped where it leaves the inner envelope (`clipTo`,
+  in the lattice and in the shell shader's clipOn), with holes under every membrane-bound complex (`foot`:
+  `footHulls` + `insideShell` on the lipid's origin and both leaflet tips, at block generation).
+- Every model of the sheet with a cfg (the first row, the shuttles, the showcase molecules - not the
+  organelle-placed dup row) is laid along the cap by the exponential map of its sheet (x, z) from the pole,
+  its sheet height along the normal, its frame the sphere's (Y outward = stroma). ATP synthase keeps the
+  identity transform, so its rotor and the proton channel's plane tests still hold at the pole. The RTS floor
+  flatten is skipped in cell mode. The flat sheet lattice, its nucleon pool and its picker are OFF in cell mode.
+- Memory: the four heavy complexes cannot be copied into the other chloroplasts (see DUP_ROWS) - those keep
+  only the dup-row soluble proteins floating between their discs.
+- The medium in cell mode: no flat fold (memHalf 0 in the shader, bncY skips it), nothing inside the cap's
+  bilayer within the host envelope (`inThyBand`, shader and CPU), the copies FADE out over the last 70 units
+  before half the box's thinnest side (`cellFade`, the impostor radius shrinks) so the box edge is never seen,
+  the haze is 250000 spheres of radius 6. The protons still fold at the flat plane in their CPU integration -
+  right at the pole, a phantom plane away from it.
