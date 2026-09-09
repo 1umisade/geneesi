@@ -365,3 +365,8 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
   (`gFHold` keeps the look-around out of the way meanwhile).
 - The pill row, the score card and the timer are hidden by `html.nopills` (set at startup) until the gear
   menu's 'Pillit' button switches them on - both modes.
+- Background preload (owner, 2026-09-09): `PRE_FILES` / `preText` / `preParsed` next to `yield_` fetch every
+  model file the moment the page opens - on the start screen too - and parse them one by one with a yield
+  between. run() and the editor's `loadFile` take `preParsed(fn)` instead of fetching; anything not on the
+  list still goes through the same functions on demand. Only one mode runs per page, so the viewer may keep
+  mutating the parsed molecules as it always did.

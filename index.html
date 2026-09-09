@@ -499,6 +499,18 @@ const setBar = v => {
 };
 setBar(0);   // start gliding the moment the page opens
 const yield_ = () => new Promise(r => setTimeout(r, 0));
+/* ── Background preload (owner, 2026-09-09): every model file is fetched the moment the page opens - on the
+   start screen too - and parsed one at a time with a breath between, so whichever mode is chosen finds its
+   models already here. The viewer and the editor both take the parsed molecules (only one mode runs per page,
+   so the viewer may mutate them). Anything not on the list still goes through the same functions on demand. */
+const PRE_FILES = ['PSII.mol2','photosystem_I.mol2','cytochrome_b6f.mol2','ATP_synthase.mol2','NDH-1.mol2',
+  'ferredoxin.mol2','FNR.mol2','RuBisCO.mol2','plastocyanin.mol2','PGR5.mol2',
+  'PGRL1.mol2','PPH1.mol2','STN7.mol2','Violaxanthin_de-epoxidase.mol2','Zeaxanthin_epoxidase.mol2','chlorophyll.mol2','quinone.mol2','nadph.mol2'];
+const gPreText = new Map(), gPreParsed = new Map();
+const preText = fn => { let p = gPreText.get(fn); if(!p){ p = fetch('./' + fn).then(r => r.ok ? r.text() : null).catch(() => null); gPreText.set(fn, p); } return p; };
+const preParsed = fn => { let p = gPreParsed.get(fn); if(!p){ p = preText(fn).then(t => t === null ? null : parseMol2(t)); gPreParsed.set(fn, p); } return p; };
+(async () => { for(const fn of PRE_FILES) preText(fn);                       // the downloads, all at once
+  for(const fn of PRE_FILES){ await preParsed(fn); await yield_(); } })();     // the parses, one by one
 
 /* ── Goodsell-style muted palette, coloured by molecular component ─────── */
 const CAT_COLORS = [
@@ -2901,10 +2913,8 @@ async function run(){
   for(let i=0;i<FILES.length;i++){ const fn=FILES[i];
     setLbl(`Haetaan ${fn}…`); setBar((i/FILES.length)*28);
     try{
-      const res = await fetch('./'+fn);
-      if(!res.ok){ console.warn('skip (HTTP '+res.status+')', fn); continue; }
-      const ab = await res.arrayBuffer();
-      const parsed = parseMol2(new TextDecoder().decode(new Uint8Array(ab)));
+      const parsed = await preParsed(fn);   // fetched and parsed in the background since the page opened
+      if(!parsed){ console.warn('skip (not found)', fn); continue; }
       for(const m of parsed){ if(m.na<=0) continue;
         const nm = (m.name||'').toLowerCase();
         const cfg = MODELS.find(e => !e._used && nm.includes(e.match));   // match by internal name/code
@@ -12194,8 +12204,7 @@ for(const sym of ATOMS) mkSpecies(sym, mkModel([A(sym,0,0)], []));
 mkSpecies('p', mkModel([A('H',0,0)], []), { noOrb: true, bare: true });   // a bare proton: no electron, just the nucleus in a small pink shell
 /* mol2-based species, loaded on first drag. A multi-molecule file is concatenated into one model. */
 const fileCache = {};
-const loadFile = async fn => { if(fileCache[fn]) return fileCache[fn]; const res = await fetch('./' + fn); if(!res.ok) throw new Error(fn + ' ' + res.status);
-  const recs = parseMol2(await res.text()); let na = 0, nb = 0; for(const r of recs){ na += r.na; nb += r.nb; }
+const loadFile = async fn => { if(fileCache[fn]) return fileCache[fn]; const recs = await preParsed(fn); if(!recs) throw new Error(fn + ' not found');   // the background preload's parse let na = 0, nb = 0; for(const r of recs){ na += r.na; nb += r.nb; }
   const m = { na, x:new Float32Array(na), y:new Float32Array(na), z:new Float32Array(na), el:new Uint16Array(na), nb, b1:new Int32Array(nb), b2:new Int32Array(nb), bo:new Uint8Array(nb) };
   let oa = 0, ob = 0; for(const r of recs){ m.x.set(r.x.subarray(0, r.na), oa); m.y.set(r.y.subarray(0, r.na), oa); m.z.set(r.z.subarray(0, r.na), oa); m.el.set(r.el.subarray(0, r.na), oa);
     for(let b=0;b<r.nb;b++){ m.b1[ob+b] = r.b1[b] + oa; m.b2[ob+b] = r.b2[b] + oa; m.bo[ob+b] = r.bo ? r.bo[b] : 1; } oa += r.na; ob += r.nb; }
