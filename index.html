@@ -122,6 +122,12 @@ body.dark-mode .loading-zzz span,body.dark-mode .loading-text{color:#c9b48f}
 #lantern-btn:active{transform:translateY(2px);box-shadow:0 2px 0 var(--brown)}
 #lantern-btn.on{background:var(--sage);color:var(--sageink);box-shadow:0 0 0 3px var(--sage2),0 4px 0 var(--brown)}
 #lantern-icon{font-size:15px;line-height:1}
+/* the pill row, the score card and the timer: off until the gear menu's 'Pillit' switches them on (owner, 2026-09-09) */
+html.nopills #toplist, html.nopills #scorebox, html.nopills #timerbox{display:none !important}
+#pills-btn{position:absolute;left:16px;top:300px;z-index:12;touch-action:manipulation;
+  font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
+  color:var(--ink);background:var(--paper);border:3px solid var(--brown);border-radius:999px;cursor:pointer;padding:8px 14px;box-shadow:0 3px 0 var(--brown)}
+#pills-btn.on{background:var(--sage);color:var(--sageink)}
 #membrane-btn{position:absolute;left:16px;top:300px;z-index:12;touch-action:manipulation;
   font-family:'Courier New',monospace;font-size:13px;font-weight:bold;letter-spacing:.5px;
   color:var(--ink);background:var(--paper);border:3px solid var(--brown);border-radius:999px;cursor:pointer;
@@ -3007,13 +3013,19 @@ async function run(){
      are the compressed cell's (radius 8000): the nucleus is pushed down toward the facet by the vacuole, as in
      a real plant cell. Positions were chosen by hand so no two organelles overlap (margins of 150 or more). */
   const SOLU_CELL = !SOLU ? null : (() => {
-    const R = 8000, facetR = Math.hypot(memHalfX + 40, memHalfZ + 40) + 60, Yc = Math.sqrt(R*R - facetR*facetR);
-    const CEN = new BABYLON.Vector3(memCenX, MEMBRANE_Y + Yc, memCenZ);
+    /* 2026-09-09 (owner): the thylakoid scene is the TOP THYLAKOID DISC of one chloroplast, not the plasma membrane's
+       facet any more - the sheet stays at y = 0 with its particle box and the cell is laid out around it: the host
+       chloroplast sits at HOST (relative to CEN) and CEN is placed so that HOST lands at the sheet's centre. The host
+       disc's top face at y = 0 carries the sheet (its own lattice is skipped inside the sheet's rectangle, `sheet`),
+       its lumen is 600 deep so the lumen-side proteins and the box fit, the two other discs stack below it. */
+    const R = 8000, facetR = Math.hypot(memHalfX + 40, memHalfZ + 40) + 60;
+    const HOST = [-4300, -1000, 1200], HOST_Y = -350;   // the host chloroplast's centre: relative to CEN, and in the world (the sheet's plane is y = 0)
+    const CEN = new BABYLON.Vector3(memCenX - HOST[0], HOST_Y - HOST[1], memCenZ - HOST[2]), Yc = CEN.y - MEMBRANE_Y;
     const V = (x,y,z) => new BABYLON.Vector3(CEN.x + x, CEN.y + y, CEN.z + z);
     const MEMS = [], ORG = [];   // MEMS: every lipid membrane in draw order - ORG: the outer membranes that keep the free molecules out
     const add = (name, C, R, s, o) => { const M = Object.assign({ id: MEMS.length, name, C, R, s: s || [1,1,1], pores:false, facet:false, clip:false }, o || {}); MEMS.push(M); if(M.clip) ORG.push(M); return M; };
-    add('solukalvo', CEN, R, null, { facet:true });
-    const NEC = V(0, -3300, -800);
+    add('solukalvo', CEN, R, null);   // a full sphere now (the facet code stays, inert)
+    const NEC = V(600, -3300, -1400);
     const NE = add('tumakotelo', NEC, 2800, null, { pores:true, clip:true }); add('tumakotelo-sisä', NEC, 2500, null, { pores:true });
     const VAC = add('vakuoli', V(900, 3600, 800), 3700, null, { clip:true, hazeOk:true });   // hazeOk: the vacuole is water, so the far haze drifts inside it too (the dense medium stops at its membrane)
     /* a chloroplast: a lens (long axis along ax), its inner envelope, four thylakoid discs stacked inside */
@@ -3023,7 +3035,14 @@ async function run(){
       const ds = ax === 'x' ? [1,0.05,0.556] : [0.556,0.05,1], row = [];
       for(const dy of [-450,-150,150,450]) row.push(add('tylakoidi', V(x, y+dy, z), 900, ds, { ax }));
       CHL.push(o); DISCS.push(row); return o; };
-    chloro(-5200, -1200, 1500, 'x'); chloro(5000, -1800, -1800, 'z'); chloro(-1500, -800, -5400, 'x');
+    /* the host chloroplast: a bigger lens whose top disc carries the sheet (see above) */
+    { const c = V(HOST[0], HOST[1], HOST[2]), s = [1, 0.6, 0.5];
+      const o = add('viherhiukkanen', c, 2800, s, { clip:true, ax:'x' }); add('viherhiukkanen-sisä', c, 2576, s, { ax:'x' });
+      const row = [ add('tylakoidi', V(HOST[0], HOST[1] + 50, HOST[2]), 2100, [1, 300/2100, 1000/2100], { ax:'x', sheet:true, notint:true }),   // top face at y = 0, lumen 600 deep - untinted, like the sheet it carries
+                    add('tylakoidi', V(HOST[0], HOST[1] - 450, HOST[2]), 2100, [1, 45/2100, 1000/2100], { ax:'x', notint:true }),
+                    add('tylakoidi', V(HOST[0], HOST[1] - 950, HOST[2]), 2100, [1, 45/2100, 1000/2100], { ax:'x', notint:true }) ];
+      CHL.push(o); DISCS.push(row); }
+    chloro(5000, -1800, -1800, 'z'); chloro(-1500, -800, -5400, 'x');
     /* a mitochondrion: outer and inner envelope, three flat cristae across the long axis */
     const MIT = [], MITIN = [];
     const mito = (x,y,z, ax) => { const c = V(x,y,z), s = ax === 'x' ? [1,0.525,0.525] : [0.525,0.525,1];
@@ -3034,11 +3053,11 @@ async function run(){
     mito(2600, -5200, 2200, 'x'); mito(-3000, -5200, -2800, 'z'); mito(5200, 1200, 3400, 'z'); mito(-4800, 2600, -3000, 'x');
     /* the Golgi stack: five flat cisternae, the middle one the widest */
     const GOL = [];
-    for(let k=0;k<5;k++) GOL.push(add('golgin laite', V(-2200, 700 + k*150, 3400), 700 - Math.abs(k-2)*60, [1,0.07,0.57], { clip:true }));
+    for(let k=0;k<5;k++) GOL.push(add('golgin laite', V(-1800, 900 + k*150, 3600), 700 - Math.abs(k-2)*60, [1,0.07,0.57], { clip:true }));
     /* endoplasmic reticulum: three flat sheets hugging the nucleus */
-    const ER = [ add('solulimakalvosto', V(0, -400, -800), 1300, [1,0.04,0.62], { clip:true }),
-                 add('solulimakalvosto', V(0, -3300, 2300), 1500, [1,0.04,0.53], { clip:true }),
-                 add('solulimakalvosto', V(0, -3300, -3900), 1500, [1,0.04,0.53], { clip:true }) ];
+    const ER = [ add('solulimakalvosto', V(600, -400, -1400), 1300, [1,0.04,0.62], { clip:true }),
+                 add('solulimakalvosto', V(600, -3300, 1700), 1500, [1,0.04,0.53], { clip:true }),
+                 add('solulimakalvosto', V(600, -3300, -4500), 1500, [1,0.04,0.53], { clip:true }) ];
     /* peroxisomes and vesicles */
     for(const [x,y,z,r] of [[2000,-6300,-2600,300],[-1200,-6600,1500,260],[4200,5000,-2400,320],[-3300,5200,2600,280],[-5600,-3800,-1200,340],[1000,200,-6600,300]]) add('vesikkeli', V(x,y,z), r, null, { clip:true });
     /* a rainbow by organelle (owner): the plasma membrane keeps the lipids' own yellow, everything else takes a hue -
@@ -3046,7 +3065,7 @@ async function run(){
        element colours) and on the far shells alike. Inner membranes and sacs share their organelle's hue. */
     const TINT = { 'tumakotelo':[0.80,0.55,1.00], 'vakuoli':[0.45,0.70,1.00], 'viherhiukkanen':[0.45,0.95,0.45], 'tylakoidi':[0.35,0.85,0.40],
                    'mitokondrio':[1.00,0.45,0.40], 'krista':[1.00,0.40,0.35], 'golgin laite':[1.00,0.55,0.85], 'solulimakalvosto':[0.55,0.55,1.00], 'vesikkeli':[1.00,0.72,0.30] };
-    for(const M of MEMS){ const key = Object.keys(TINT).find(k => M.name.startsWith(k)); M.tint = key ? TINT[key] : null; }
+    for(const M of MEMS){ const key = Object.keys(TINT).find(k => M.name.startsWith(k)); M.tint = (key && !M.notint) ? TINT[key] : null; }   // notint: the host's thylakoid discs stay the sheet's own yellow
     /* the membrane surface: parameter d (a unit direction) -> the point and the outward normal */
     const surf = (M, d, o) => { const s = M.s, nx = d[0]/s[0], ny = d[1]/s[1], nz = d[2]/s[2], nl = Math.hypot(nx,ny,nz) || 1;
       o.n[0] = nx/nl; o.n[1] = ny/nl; o.n[2] = nz/nl;
@@ -3057,7 +3076,7 @@ async function run(){
     const PLACE = [
       { label:'Cytochrome b6f', mem: MITIN[0], d:[0.1, 0.35, 0.93] }, { label:'ATP synthase', mem: MITIN[0], d:[0.3, -0.9, 0.3] },
       { label:'STN7', mem: DISCS[0][2], d:[0.3, 1, 0.1] }, { label:'PPH1', mem: DISCS[0][2], d:[-0.4, 1, -0.2] },
-      { label:'Violaxanthin de-epoxidase', at: along(CHL[0], 500, 0, -250) }, { label:'Zeaxanthin epoxidase', at: along(CHL[0], -600, 0, 150) },
+      { label:'Violaxanthin de-epoxidase', at: along(CHL[0], 500, -330, -250) }, { label:'Zeaxanthin epoxidase', at: along(CHL[0], -600, -330, 150) },   // in the gap under the host disc
       { label:'FNR', at: along(CHL[1], 600, 0, 200) }, { label:'Ferredoxin', at: along(CHL[1], -500, 0, -150) },
       { label:'PGR5', at: along(CHL[2], 400, 300, 100) }, { label:'PGRL1', at: along(CHL[2], -300, -300, -200) } ];
     return { R, facetR, Yc, CEN, MEMS, ORG, NE, VAC, CHL, MIT, GOL, ER, surf, PLACE };
@@ -3505,7 +3524,7 @@ void main(void){
      drag and its inertia have ended, put back at the old distance along the NEW view direction, so the radius
      that the zoom, the shading plane and the readouts use is only 20 for the duration of the turn. The shading
      plane keeps the old distance even then (gFocalD). The thylakoid mode keeps its orbit. */
-  const LOOK_R = 20; let gLookPivot = null;
+  const LOOK_R = 20; let gLookPivot = null, gFHold = false;   // gFHold: F is held - the pivot sits on the selection and the look-around stays out of the way
   const gFocalD = () => gLookPivot ? gLookPivot.r : cam.radius;
   let panning = false, panDepth = 1, modelDrag = -1, modelDragDepth = 1, rotating = false;   // pan state · which molecule a left-drag is moving (+its depth) · middle-drag rotate
   let joyPan = false, joyOX = 0, joyOY = 0;   // BOTH-buttons directional pan · press-point (screen px) the joystick offset is measured from
@@ -4117,7 +4136,7 @@ void main(void){
       if(e.button === 1){   // MIDDLE = rotate the camera. Driven manually (inertial offsets) so it works in
         rotating = true; dragging = true;                          // every browser, independent of Babylon's button filtering.
         cam.inertialAlphaOffset = cam.inertialBetaOffset = 0;
-        if(SOLU && !gLookPivot){ const f = cam.getForwardRay(1).direction; gLookPivot = { r: cam.radius }; scene.stopAnimation(cam);
+        if(SOLU && !gLookPivot && !gFHold){ const f = cam.getForwardRay(1).direction; gLookPivot = { r: cam.radius }; scene.stopAnimation(cam);
           cam.setTarget(cam.position.add(f.scale(LOOK_R))); }   // the look-around pivot, 20 units ahead (the position stays)
         setCursor(GRABBING_CUR);
         return;
@@ -6470,6 +6489,7 @@ void main(void){
           if(M.facet && py < bilayerCen.y){   // the bottom cap is the flat facet: dropped onto the sheet's plane - the sheet draws its own rectangle
             if(Math.abs(px - bilayerCen.x) < gMemFootX + S*0.5 && Math.abs(pz - bilayerCen.z) < gMemFootZ + S*0.5) continue;
             py = bilayerCen.y; nx = 0; ny = -1; nz = 0; }
+          if(M.sheet && ny > 0.5 && Math.abs(px - bilayerCen.x) < gMemFootX + S*0.5 && Math.abs(pz - bilayerCen.z) < gMemFootZ + S*0.5) continue;   // the host disc's top face inside the sheet's rectangle: the sheet draws it
           px += nx*jt[1]; py += ny*jt[1]; pz += nz*jt[1];
           const ud = U[0]*nx + U[1]*ny + U[2]*nz; let tx = U[0] - nx*ud, ty = U[1] - ny*ud, tz = U[2] - nz*ud; let tl = Math.hypot(tx,ty,tz);
           if(tl < 1e-3){ tx = FACE[f][2][0] - nx*(FACE[f][2][0]*nx + FACE[f][2][1]*ny + FACE[f][2][2]*nz); ty = FACE[f][2][1] - ny*(FACE[f][2][0]*nx + FACE[f][2][1]*ny + FACE[f][2][2]*nz); tz = FACE[f][2][2] - nz*(FACE[f][2][0]*nx + FACE[f][2][1]*ny + FACE[f][2][2]*nz); tl = Math.hypot(tx,ty,tz) || 1; }
@@ -6986,6 +7006,7 @@ void main(void){
   // pointer-down handler calls scene.stopAnimation(cam) first — the animation is killed the instant a
   // drag begins, leaving rotation free. Do NOT add a per-frame follow or drop that stopAnimation.
   const focusCameraOn = center => {
+    if(SOLU) return;   // cell mode (owner, 2026-09-09): a selection never moves the camera - holding F puts the pivot on it
     scene.stopAnimation(cam);
     if(gFocusRadiusObs){ scene.onBeforeRenderObservable.remove(gFocusRadiusObs); gFocusRadiusObs = null; }
     const R = cam.radius;   // preserve the zoom — setTarget (called by the target animation) recomputes radius from the fixed camera position, which would dolly in
@@ -7013,6 +7034,7 @@ void main(void){
   // the alpha/beta/radius anims (created after) win each frame over the target-setter's recompute → one smooth
   // swivel, no fight. Like every camera animation it is killed the instant a drag starts, so rotation stays safe.
   const focusAlongMembrane = center => {
+    if(SOLU) return;   // cell mode: see focusCameraOn
     scene.stopAnimation(cam);
     if(gFocusRadiusObs){ scene.onBeforeRenderObservable.remove(gFocusRadiusObs); gFocusRadiusObs = null; }
     if(Math.abs(cam.upVector.x) > 1e-4 || Math.abs(cam.upVector.y) > 1e-4){   // undo any WASD arcball roll, then rebuild angles in the Z-up frame so the level snap below is actually level
@@ -10774,8 +10796,12 @@ void main(void){
     const menu = document.createElement('div'); menu.id = 'settings-menu';
     menu.style.cssText = 'position:fixed;left:16px;top:112px;z-index:15;display:none;flex-direction:column;gap:8px;align-items:flex-start;';   // clears the gear AND the fullscreen button below it
     document.body.appendChild(gear); document.body.appendChild(menu);
+    { const pb = document.createElement('button'); pb.id = 'pills-btn'; pb.textContent = '🏷️ Pillit'; pb.title = 'Näytä pillirivi, pisteet ja ajastin';   // off by default (html.nopills)
+      document.documentElement.classList.add('nopills');
+      pb.addEventListener('click', () => { const on = document.documentElement.classList.toggle('nopills'); pb.classList.toggle('on', !on); });
+      document.body.appendChild(pb); }
     for(const id of ['darkmode-btn','gfx-btn','color-btn','etc-btn','dev-btn','lantern-btn','membrane-btn',
-                     'memcut-btn','memonly-btn','outline-btn','particles-btn','shade-btn','vr-btn']){   // vr-btn too — it stays hidden until a headset is found
+                     'memcut-btn','memonly-btn','outline-btn','particles-btn','pills-btn','shade-btn','vr-btn']){   // vr-btn too — it stays hidden until a headset is found
       const b = document.getElementById(id); if(!b) continue;
       b.style.position = 'static'; b.style.left = 'auto'; b.style.top = 'auto'; menu.appendChild(b);   // static → they stack in the menu
     }
@@ -11665,6 +11691,18 @@ void main(void){
     for(const ev of ['pointermove','pointerdown','pointerup','wheel','touchstart'])
       window.addEventListener(ev, wake, {passive:true});
     wake(); }
+  /* F held (cell mode): the rotation pivot goes to the selection - a complex, an atom or a cofactor - for as long as
+     the key is down. The camera stays where it is, so a middle-drag then orbits the thing. On release the pivot is
+     simply left there until the next turn re-pivots 20 units ahead. */
+  if(SOLU){ const selCentreOf = () => {
+      if(gSel.size){ const mi = [...gSel][0], md = mInfo[mi]; return new BABYLON.Vector3(md.cx + gModelOff[mi*3], md.cy + gModelOff[mi*3+1], md.cz + gModelOff[mi*3+2]); }
+      if(selAtom && selAtom.world) return selAtom.world.clone();
+      if(etcSel >= 0 && etcGroups[etcSel]){ const g = etcGroups[etcSel]; return new BABYLON.Vector3(g.cx, g.cy, g.cz); }
+      return null; };
+    window.addEventListener('keydown', e => { if(e.repeat || (e.key !== 'f' && e.key !== 'F') || (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
+      const c = selCentreOf(); if(!c) return;
+      gFHold = true; gLookPivot = null; scene.stopAnimation(cam); cam.setTarget(c); });
+    window.addEventListener('keyup', e => { if(e.key === 'f' || e.key === 'F') gFHold = false; }); }
   window.addEventListener('keydown', e => {
     if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;   // don't hijack typing in dev inputs
     const k = e.key;

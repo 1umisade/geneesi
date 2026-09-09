@@ -347,3 +347,21 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
 - 'Käynnistä keskeneräisenä' shows a small bottom-centre bar (`#miniload`, driven by setBar / paintLbl, hidden
   when the bar completes). `#editortools` is laid out only under html.editori - its unconditional display:flex
   beat `.vesi{display:none}` and the editor's tool row sat in the viewer's dock.
+
+### The sheet inside a chloroplast, F as the pivot, the pill row behind a switch (2026-09-09, fourth step)
+
+- The thylakoid scene is now the TOP THYLAKOID DISC of the host chloroplast (owner: 'recreate the scene in the
+  thylakoid membrane of a chloroplast, contained in a box'). The sheet still sits at y = 0 with its particle box
+  and all its planar logic - the CELL is laid out around it: `HOST` (relative to CEN) and `HOST_Y` (world) fix
+  the host chloroplast's centre and CEN is derived from them. The host is a bigger lens (R 2800, s 1/0.6/0.5),
+  its top disc (R 2100, lumen 600 deep, `sheet:true`) has its top face at y = 0 and skips its own lattice inside
+  the sheet's rectangle, two thin discs stack below. The plasma membrane is a full sphere again (`facet` code
+  kept, inert). The box is inside the host disc's lumen + the stroma above it - check the inner envelope
+  clears the box's corners if the box or the host ever changes. The nucleus, the ER and the Golgi moved a
+  little to keep the 150+ margins.
+- In cell mode a selection never swings the camera (`focusCameraOn` / `focusAlongMembrane` return early). F HELD
+  puts the pivot on the selection (a complex, an atom, a cofactor: `selCentreOf`), the camera stays put, a
+  middle-drag then orbits it; on release the pivot is left there until the next turn re-pivots 20 ahead
+  (`gFHold` keeps the look-around out of the way meanwhile).
+- The pill row, the score card and the timer are hidden by `html.nopills` (set at startup) until the gear
+  menu's 'Pillit' button switches them on - both modes.
