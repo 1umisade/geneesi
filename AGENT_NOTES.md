@@ -282,3 +282,36 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
   pores are plain holes (the two membranes are not joined at the rim), the free molecules stay in the sheet's
   box (the cytosol between the box and the nucleus is empty), no cell wall, no chloroplasts, and the
   lattices of two cube faces (and the facet annulus against the sheet) meet with a visible seam up close.
+
+### Organelles and the medium (2026-09-09, second step)
+
+- The layout is pure data at the top of run(): `SOLU_CELL` (`CELL` was taken - it is the 60-unit cell size).
+  Every membrane is an axis-aligned ellipsoid {C, R, s} in `SOLU_CELL.MEMS`: the plasma membrane, the nuclear
+  envelope (pushed down toward the facet, as the vacuole does in a real plant cell), a vacuole, three chloroplasts
+  (lens + inner envelope + four flat thylakoid discs), four mitochondria (outer + inner + three flat cristae), a
+  Golgi stack of five cisternae, three ER sheets around the nucleus, six vesicles - 56 membranes. Positions were
+  placed by hand with 150+ margins - move one and check its neighbours. `SOLU_CELL.ORG` (23) are the outer
+  membranes that keep the free molecules out. `SOLU_CELL.surf(M, d)` is the one surface function (point +
+  outward normal) shared by the lattice, the shells and the protein placement.
+- An ellipsoid stretches the sphere lattice unevenly, so the pitch is set for the sparsest place (Jmax =
+  det(S)/min(s)) and every cell is KEPT with probability J/Jmax (`Jat`, `keepH`): one even density, flat sacs
+  included. Flat sacs get 8 x 8 blocks (their compressed rims would be thousands of near-empty 4 x 4 ones). The
+  shell shader reads which face of the bilayer a fragment is on from a `surf` vertex attribute (+1 / -1) and the
+  camera's side from `camSide`, so the band cut works on any shape - the old radial `hgt` is gone.
+- The duplicate row (the '-row410' clones, DUP_ROWS stays 1) is placed in the organelles (`SOLU_CELL.PLACE`):
+  b6f and ATP synthase in mitochondrion 1's inner membrane (stroma side = matrix), STN7 / PPH1 on a thylakoid
+  disc, VDE / ZEP / FNR / Fd / PGR5 / PGRL1 floating between discs. Through gModelQuat / gModelOff /
+  rebuildModelXform, so hull and shell follow. `gOrganelleModels` keeps them out of the bouncers AND out of the
+  RTS floor flatten (which runs later and used to drag their z back to 0). No new heap: the facet keeps its
+  first row only.
+- The medium: in cell mode the free molecules' box REPEATS around the camera - `bnc` / `bncY` on the CPU wrap
+  to the copy nearest the camera (bnc tells x from z by the bounds it is handed), the imp shader does the same
+  under CELLCLIP - and a copy (never the base box, where the physics lives) is drawn only inside the cytosol:
+  inside the plasma membrane, above the facet, outside every ORG ellipsoid by the bilayer's thickness measured
+  along the local normal (`cytosol` in JS, the shader's twin). The six CPU sites that mirror positions (the
+  water-orbital gather, the collision list, the proton lights, the picker, `near`, the free-orbital placer) call
+  `gCellDrop`. The far haze (HAZE define, 120000 slow spheres of radius 5 in a box the size of the cell) is a
+  sparse fill so the interior never looks empty from a distance - it may drift into the vacuole (hazeOk).
+  Organelle interiors are empty of molecules for now.
+- Measured in the preview pane: membranes 0.2 ms of the before-render CPU, the particle gathers 15 ms - the same
+  as the plain thylakoid mode there (20 ms), so the owner's 4.5 ms machine should be fine.
