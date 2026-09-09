@@ -121,8 +121,8 @@ travel between binding sites, photons that hit chlorophylls. UI text is Finnish.
   `gDepthLo`). Chlorophylls are green, carotenoids orange, by ETC cofactor type.
 - Camera: ArcRotate. The wheel has an ABSOLUTE full step `gZoomMax` (63 units per notch) and a
   deterministic GEOMETRIC ramp: the first notch of a gesture is 10 percent of it, each notch multiplies
-  by about 2.33 and the seventh lands on the ceiling of 16x the full step (2026-09-09, the owner wanted
-  much faster acceleration with the first notch unchanged and the maximum at seven notches - 400 ms
+  by about 1.76 and the tenth lands on the ceiling of 16x the full step (2026-09-09, the owner wanted
+  much faster acceleration with the first notch unchanged and the maximum at ten notches - 400 ms
   chain window, a pause resets). It pivots at what is under the cursor and bleeds inertially. Never make the step a
   fraction of a distance - the owner rejected that twice.
 - Selection follows atoms on moving models (`followModelAtom`); you cannot select a protein
@@ -315,3 +315,35 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
   Organelle interiors are empty of molecules for now.
 - Measured in the preview pane: membranes 0.2 ms of the before-render CPU, the particle gathers 15 ms - the same
   as the plain thylakoid mode there (20 ms), so the owner's 4.5 ms machine should be fine.
+
+### Picking, the look-around pivot, the far grain (2026-09-09, third step)
+
+- The closed membranes' lipids are pickable: `gPickCell` (in the cell block, third hook in pickAtom's list after
+  gPickFree / gPickLipid) walks the cached blocks inside the reveal bubble, rotates each atom's template offset
+  and the sway by the lipid's frame exactly as LIPTPL draws it, and returns the same atom object as the
+  sheet's picker (track = live centre, fill = the lobes rotated). `gSwayCPU` exports the sheet's sway mirror.
+- `pickModelAtCursor` tests the ray in each model's BAKED frame (the inverse of gModelXform) against its baked
+  box - the old box-plus-offset ignored the rotation, so tumbling bouncers, shuttles and the organelle-placed
+  complexes missed the click.
+- Cell mode look-around: a middle-drag pivots about a point LOOK_R = 20 units in front of the camera
+  (`gLookPivot`, set at button-down, the pivot put back at the old distance along the new view once the drag
+  and its inertia end). The shading plane reads `gFocalD()` (the old distance while re-pivoted) so the depth
+  darkening does not jump during a turn. The thylakoid mode keeps its orbit. Arrow keys / the pad already
+  looked around from the camera.
+- The shell grain is MULTI-SCALE (`grain()` in the cellshell shader): the lipid-pitch cells up close, twice /
+  four times / ... the pitch as they go sub-pixel, two levels blended - a large thing seen from far away is
+  mottled, never a flat band (owner). The sheet's own slab shader still fades to its mean.
+- Selections are ON by default in cell mode (`gSelEnabled = SOLU`) - on the sheet the dev switch 'valinnat' keeps
+  them off, which is why 'nothing is selectable' there is not a bug.
+- Organelle rainbow: `TINT` in the layout, by name prefix (nucleus violet, vacuole blue, chloroplast / thylakoid
+  green, mitochondrion / crista red, Golgi pink, ER indigo, vesicle orange, the plasma membrane untinted). The
+  near lipids get a per-instance `tint` thin-instance buffer (rgb + amount, the sheet's writer sets the amount
+  to 0) that the LIPTPL path of the imp shader mixes into the vdW colour keeping the lipid's own light and dark -
+  the orbital lobes keep their element colours - and the shells tint their slab colour the same way.
+- The far clip reads `gFocalD()` and, in cell mode, is at least the distance to the cell's centre plus its
+  radius: with the look pivot at 20 the old `ar*2 + reach` formula collapsed and the cell's sides vanished
+  while turning. In cell mode I (resetView) and the start view are the whole cell from outside (CAM_DEF_TGT /
+  CAM_DEF_POS rewritten in place), the same direction as the sheet's default.
+- 'Käynnistä keskeneräisenä' shows a small bottom-centre bar (`#miniload`, driven by setBar / paintLbl, hidden
+  when the bar completes). `#editortools` is laid out only under html.editori - its unconditional display:flex
+  beat `.vesi{display:none}` and the editor's tool row sat in the viewer's dock.
