@@ -268,6 +268,9 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
 - Every cell lipid is a ROTATED template (frame columns T, N, B - N the outward normal). The LIPTPL / LIPBAKE /
   LIPTILE shader paths now rotate the atom offset, memSway and ocen by mat3(W) (identity on the sheet), the
   nucleon pool gets a `tileRot` mat3 uniform (mesh.metadata.rot, `cellNearTiles` feeds it).
+- Cell mode starts with the slab tier ON (`gSlabLod = SOLU`) and the sheet's own slab box stays off: the
+  plasma membrane's shell carries the facet, rectangle included (footHalf 0 on that material). With the box
+  on, the facet stood out of the cell - real lipids at every distance, and the box's side faces as a seam.
 - The far tier is a `cellshell` mesh pair per membrane (outer and inner face, CreateSphere with the vertices
   rewritten via setVerticesData - updateVerticesData SILENTLY skips the GPU upload on a non-updatable buffer,
   which cost an hour), the slab shader's grain and hole plus a soft wrap by the angle to the camera.

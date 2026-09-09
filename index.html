@@ -4538,7 +4538,7 @@ void main(void){
      wants the real lipids at every distance for now. The dev button 'laatta-LoD' turns it back on.
      Off means: every block within the footprint is gathered in full, no wrap, no cell ever goes
      megacheap, the slab mesh stays hidden. The PROTEIN hull handover keeps using memR regardless. */
-  let gSlabLod = false;
+  let gSlabLod = SOLU;   // cell mode starts with the slab tier ON: the closed membranes are always slab past memR, and a facet still covered in lipid spheres stuck out of the cell (2026-09-09)
   let gMembrane = true;    // membrane SHOWN by default (it used to start hidden as the heaviest thing in the scene, but the slab and the density ramp made it cheap enough); the Kalvo button hides it
   { const mb = document.getElementById('membrane-btn');
     if(mb){ mb.addEventListener('click', () => { gMembrane = !gMembrane;
@@ -6330,7 +6330,7 @@ void main(void){
         mat.backFaceCulling = false;
         mat.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22)); mat.setFloat('grainPitch', S*0.5); mat.setFloat('halfH', ySpan);
         mat.setVector3('cen', CEN); mat.setFloat('R', M.R); mat.setFloat('facetOn', M.facet ? 1 : 0); mat.setFloat('facetY', bilayerCen.y); mat.setFloat('facetR', facetR);
-        mat.setVector2('footCen', new BABYLON.Vector2(bilayerCen.x, bilayerCen.z)); mat.setVector2('footHalf', new BABYLON.Vector2(gMemFootX, gMemFootZ));
+        mat.setVector2('footCen', new BABYLON.Vector2(bilayerCen.x, bilayerCen.z)); mat.setVector2('footHalf', new BABYLON.Vector2(0, 0));   // the shell's plane part covers the sheet's rectangle too (the sheet's own slab box is off in cell mode) - a half extent here would cut the rectangle out again
         mat.setFloat('poreOn', M.pores ? 1 : 0); mat.setFloat('poreCos', M.poreCos); mat.setFloat('poreDP', DP); mat.setFloat('poreNP', NP); mat.setFloat('poreLim', PORE_LIM);
         mat.onBindObservable.add(()=>{ const eff=mat.getEffect(); if(!eff) return;
           eff.setFloat('focalD', cam.radius); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
@@ -8052,7 +8052,7 @@ void main(void){
         const K = 1.0;   // the darkening now lives in the 'laatan tummuus' slider (gSlabDark), applied in the shader
         gMemSlab.material.setColor3('slabCol',
           new BABYLON.Color3(gSlabR/gSlabN*K, gSlabG/gSlabN*K, gSlabB/gSlabN*K)); }
-      const wantSlab = gMembrane && gSlabLod;   // the slab only stands in when its tier is on
+      const wantSlab = gMembrane && gSlabLod && !SOLU;   // the slab only stands in when its tier is on - in cell mode the plasma membrane's shell carries the facet, so the box (its side faces made a visible seam) stays off
       if(gMemSlab.isEnabled() !== wantSlab) gMemSlab.setEnabled(wantSlab);
     }
     const MEGA2 = _memR*_memR;   // the protein thinning tier sits on the same radius as the hull handover and the membrane slab
