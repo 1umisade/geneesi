@@ -216,7 +216,7 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
 - Camera: ArcRotate, the viewer's FLIGHT - E/Q in and out along the view, A/D strafe, W/S screen-up/down
   (target and camera move together, so it passes through the plane), arrows turn, N/M roll, wheel zooms toward
   the cursor (detent ramp + smoothing), middle/right drag look, LEFT drag pans, merged gamepads, I resets, space
-  pauses. No beta limits. Held keys ramp 5 % -> 100 % in 3.5 s (the viewer's FLIGHT ramp is half that rate, 7 s, since 2026-09-09 - 'panning acceleration 2x slower' - the turn ramp stays 3.5 s).
+  pauses. No beta limits. Held keys ramp 5 % -> 100 % in 3.5 s (the viewer's PAN keys A/D/W/S ramp at half that rate, 7 s, since 2026-09-09 - 'panning acceleration 2x slower, not the zoom' - Q/E and the turn stay 3.5 s, `_panRamp`).
 - Selection: a left CLICK (< 4 px of motion) picks by a ray against every molecule's bounding sphere
   (`pickMol`, shared with the eraser): shells tint sage (proteins via the shader's selModel), `#valinta` card
   names it, the target eases onto it (`focusAnim`). Empty click or Esc clears.

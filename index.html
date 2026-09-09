@@ -4062,7 +4062,7 @@ void main(void){
   let gRotSpeed  = 2.705;  // max yaw/pitch rate in rad/s (WASD) — 2.705 ≈ 155 deg/s
   const RAMP_S = 3.5;      // seconds from the initial nudge to full speed (halved from 7 on request, 2026-09-06)
   const RAMP_MIN = 0.05;   // a press starts at 5% of max and eases to 100% over RAMP_S, so a tap barely creeps and a held key winds all the way up
-  let _moveRamp = RAMP_MIN, _rotRamp = RAMP_MIN;
+  let _moveRamp = RAMP_MIN, _rotRamp = RAMP_MIN, _panRamp = RAMP_MIN;   // _panRamp: the strafe / up-down keys, half the rate of the others (owner, 2026-09-09)
   const rampStep = () => (1-RAMP_MIN) * Math.min(120, scene.getEngine().getDeltaTime())/1000/RAMP_S;
   scene.onBeforeRenderObservable.add(() => {
     // WASD FLIES the camera (FPS-style): W/S forward/back along the view direction (moving in = zooming in),
@@ -4071,13 +4071,15 @@ void main(void){
     if(wasdKeys.e) fwd+=1; if(wasdKeys.q) fwd-=1;          // E / Q → in / out along the view direction (zoom)
     if(wasdKeys.d) strafe+=1; if(wasdKeys.a) strafe-=1;    // A / D → strafe left / right
     if(wasdKeys.w) vert+=1; if(wasdKeys.s) vert-=1;        // W / S → straight up / down the WORLD vertical
-    if(!fwd && !strafe && !vert){ _moveRamp = RAMP_MIN; return; }
-    _moveRamp = Math.min(1, _moveRamp + rampStep()*0.5);   // the flight (pan) ramps HALF as fast as the turn: 7 s to full speed (owner, 2026-09-09 - 'panning acceleration 2x slower')
+    if(!fwd) _moveRamp = RAMP_MIN; if(!strafe && !vert) _panRamp = RAMP_MIN;
+    if(!fwd && !strafe && !vert) return;
+    if(fwd) _moveRamp = Math.min(1, _moveRamp + rampStep());              // Q / E: 3.5 s to full speed, as before
+    if(strafe || vert) _panRamp = Math.min(1, _panRamp + rampStep()*0.5);   // A / D / W / S (the pan): half that rate, 7 s (owner: 'panning acceleration 2x slower, not the zoom')
     orbitLocked = false; gCamFollow = false;
     const t=cam.getTarget(), p=cam.position;
     const F=cam.getDirection(BABYLON.Axis.Z), R=cam.getDirection(BABYLON.Axis.X);   // camera's OWN forward + right (screen-relative → stay consistent even when flipped upside-down)
-    const sp = Math.max(4, Math.abs(cam.radius)*0.5) * _moveRamp * Math.min(120, scene.getEngine().getDeltaTime())/1000;
-    const spP = sp * gPanSpeed, spZ = sp * gZoomSpeed;   // pan and zoom are tuned separately
+    const sp = Math.max(4, Math.abs(cam.radius)*0.5) * Math.min(120, scene.getEngine().getDeltaTime())/1000;
+    const spP = sp * gPanSpeed * _panRamp, spZ = sp * gZoomSpeed * _moveRamp;   // pan and zoom are tuned separately, each on its own ramp
     // Vertical is the camera's OWN up, i.e. straight up ON SCREEN. A fixed world axis does not work here:
     // the arrow-key free look rewrites cam.upVector, so after looking around "world up" is no longer the
     // up you see — and the membrane's normal is Y while the floor's is Z, so neither axis is reliably
