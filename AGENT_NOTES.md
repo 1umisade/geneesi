@@ -218,8 +218,13 @@ every other body child, the editor's own DOM has class `.vesi` (the list `#lista
   in z and tumble about their own axis (`ax3`) instead of the z-spin + rock. Back to 2D flattens z.
 - List thumbnails = the info cards' pictures: atoms and molecules are rendered into `thumbRT` (128 px, transparent)
   with the card's recipe - lobes + nucleus only, no shell, alpha -pi/2.5, beta pi/2.7, fov 0.7, radius 3 x the
-  orbital cloud (`sp.orbR`), a SQUARE projection frozen on the camera (else it takes the screen aspect and a wide screen squeezes every picture), one per frame from a queue that starts after 30 frames (the first frames still
-  compile and drew partial atoms), a blank result is retried. A protein gets the card's dot image
+  orbital cloud (`sp.orbR`), a SQUARE projection frozen on the camera (else it takes the screen aspect and a wide screen squeezes every picture), one per frame from a queue that starts after 30 frames AND after the four
+  dynamic materials are force-compiled (`thumbReady`). The molecule is spawned 50000 units out, the code waits one
+  real frame (keyed on the frame counter - an observer added during onAfterRender can fire in the same pass) so the
+  shared thin-instance buffers reach the GPU, then renders the target. A result under 1.5 % coverage is retried up to
+  40 times, ten frames apart (`thumbWait`). Pitfall that cost a session: the render line is `... scene.activeCamera =
+  thumbCam; thumbRT.render(); ...` with a trailing `//` comment - a comment inserted MID-line once swallowed the
+  render call and every non-protein picture came out empty while all the buffer counts looked right. A protein gets the card's dot image
   (`drawProteinDots`, the viewer's drawProteinImage in a pastel of its own). File-based species join the queue
   when they load. A background preload (1.5 s after start, small files first, proteins smallest to largest)
   fetches and builds every file-based species so all pictures appear and a drop is instant. Species lobe

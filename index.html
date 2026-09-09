@@ -11943,18 +11943,27 @@ const renderThumb = async key => { const sp = SPECIES[key]; if(!sp) return;
   const m = spawn(key, 50000, 0, 0, 0); if(!m) return; m.held = true; m.thumb = true; m.ang = 0; m.rockAmp = 0; m.angV = 0;
   thumbCam.target.set(50000, 0, 0); thumbCam.alpha = -Math.PI/2.5; thumbCam.beta = Math.PI/2.7; thumbCam.fov = 0.7; thumbCam.radius = Math.max(0.6, sp.orbR*(sp.model.na > 1 ? 2.6 : 3.0)); thumbCam.upVector.set(0, 1, 0);   // the card's 3 x the cloud for an atom, a little tighter for a molecule (its bounding sphere is mostly empty)
   thumbCam.freezeProjectionMatrix(BABYLON.Matrix.PerspectiveFovLH(thumbCam.fov, 1.0, thumbCam.minZ, thumbCam.maxZ));   // a SQUARE projection - left to itself the camera took the screen's aspect, and on a wide screen every thumbnail came out squeezed into a narrow ellipse
-  const was = mols.slice(); mols.length = 0; mols.push(m); draw(); mols.length = 0; mols.push(...was);   // build this frame's instance buffers for the thumbnail molecule alone
-  thumbRT.renderList = (sp.coreN + sp.bondN) ? [coreMesh, bondMesh, nucMesh] : [shellMesh, nucMesh]; const saveCam = scene.activeCamera;   // a bare ion (the proton) has no lobes - its small shell stands in scene.activeCamera = thumbCam; thumbRT.render(); scene.activeCamera = saveCam;
+  /* one ORDINARY frame first: the molecule sits 50000 units out, so the main pass draws it off-screen and its
+     lobe and nucleus buffers reach the GPU the normal way - rendering straight into the target from meshes
+     that had never drawn content gave a bare nucleus every time. The target then reads those buffers. */
+  await new Promise(r => { const f0 = thumbFrames; const ob = scene.onAfterRenderObservable.add(() => { if(thumbFrames > f0){ scene.onAfterRenderObservable.remove(ob); r(); } }); });   // keyed on the frame counter: an observer added during a notification can fire in that same pass, which skipped the frame entirely
+  if(!mols.includes(m)) return;   // removed meanwhile (eraser, reset)
+  thumbRT.renderList = (sp.coreN + sp.bondN) ? [coreMesh, bondMesh, nucMesh] : [shellMesh, nucMesh]; const saveCam = scene.activeCamera; scene.activeCamera = thumbCam; thumbRT.render(); scene.activeCamera = saveCam;   // a bare ion (the proton) has no lobes - its small shell stands in
   try { const px = await thumbRT.readPixels(); const img = thumbCanvas.getContext('2d').createImageData(THUMB, THUMB); const src = new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
     for(let y=0;y<THUMB;y++) img.data.set(src.subarray((THUMB-1-y)*THUMB*4, (THUMB-y)*THUMB*4), y*THUMB*4);   // GL rows run bottom-up
     let cov = 0; for(let i=3;i<src.length;i+=4) if(src[i] > 8) cov++;
-    if(cov < ((sp.coreN + sp.bondN) ? THUMB*THUMB*0.015 : 1)){ thumbTries[key] = (thumbTries[key] || 0) + 1; if(thumbTries[key] < 6){ thumbDone[key] = false; thumbQueue.push(key); } remove(m); return; }   // (nearly) blank - a nucleus alone, before the lobe materials were ready - try again a few frames later
+    if(cov < ((sp.coreN + sp.bondN) ? THUMB*THUMB*0.015 : 1)){ thumbTries[key] = (thumbTries[key] || 0) + 1; if(thumbTries[key] < 40){ thumbDone[key] = false; thumbQueue.push(key); thumbWait = thumbFrames + 10; } remove(m); return; }   // (nearly) blank - a nucleus alone, before the lobe materials were ready - try again a few frames later
     thumbCanvas.getContext('2d').putImageData(img, 0, 0); setThumb(key, thumbCanvas.toDataURL('image/png')); }
   catch(err){ console.warn('thumbnail', key, err); }
   remove(m); };
 let thumbBusy = false;
-let thumbFrames = 0;
-scene.onAfterRenderObservable.add(() => { if(++thumbFrames < 30 || thumbBusy || !thumbQueue.length) return; thumbBusy = true; renderThumb(thumbQueue.shift()).finally(() => { thumbBusy = false; }); });   // the first frames still compile shaders and upload buffers - a render then draws only part of the atom
+let thumbFrames = 0, thumbReady = false, thumbWait = 0;
+/* The lobe materials report ready a little before they really draw - the first thumbnails came out as a
+   bare nucleus, burned their retries within a few frames and were abandoned (only the proteins, which
+   never touch these materials, got pictures). So: the queue starts only after the four dynamic materials
+   have been force-compiled, and a failed attempt waits ten frames before the next one. */
+Promise.all([[dynShell, shellMesh], [dynNuc, nucMesh], [dynCore, coreMesh], [dynBond, bondMesh]].map(([m, mesh]) => m.forceCompilationAsync(mesh).catch(() => {}))).then(() => { thumbReady = true; });
+scene.onAfterRenderObservable.add(() => { if(++thumbFrames < 30 || !thumbReady || thumbFrames < thumbWait || thumbBusy || !thumbQueue.length) return; thumbBusy = true; renderThumb(thumbQueue.shift()).finally(() => { thumbBusy = false; }); });
 for(const sym of ATOMS) queueThumb(sym); for(const S of SMALL) if(SPECIES[S[0]]) queueThumb(S[0]);
 /* Background preload: the file-based species (small files first, then the proteins smallest to largest,
    55 MB in all - the same set the viewer loads) so every list item gets its picture and a drop is instant.
