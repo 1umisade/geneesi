@@ -410,3 +410,15 @@ protein footprints, the shuttles, the bouncers - is untouched. Around it, in `bu
   wheel notch or key breaks it off.
 - F held: the wheel zooms straight at the selection (no cursor pull) and stops at `gFHoldR`, the selection's
   radius (hull maxR, 6 for an atom, 2.5 x a cofactor group's radius) - never through it.
+
+### The plant cell's shape and wall (2026-09-09, seventh step)
+
+- A membrane may be a SUPERELLIPSOID: `p` in its layout entry (|x|^p + |y|^p + |z|^p = R^p in the scaled frame,
+  0 or 2 = the ellipsoid as before). `gOf` (the inverse p-norm of the direction, up to `gmax` on the corners)
+  enters `surf` (point and gradient normal), the lattice density (`Jat`, `Jmax`), `reach`, the camera side,
+  the cytosol test (`pnorm` on the CPU, `cellNorm` / `cellP` in the water shader) and the shell's normal
+  (`shapeP`). The plasma membrane is p 3.2 - slightly angular - and green (TINT 'solukalvo').
+- The CELL WALL: 'soluseinä', R + 210, the same shape, `nolat` (no lattice, no hole, skipped by the gathers),
+  `halfH` 110 (220 thick), its own fixed colour `col` dark brown-green, a coarser grain. From outside the cell
+  you see the wall, the membrane only from within.
+- 'Kalvostoon' sits in the bottom-right dock now, first in the row, not in the gear menu.

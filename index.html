@@ -817,11 +817,13 @@ uniform vec4 thyA;       // the thylakoid cap: centre, radius - no molecule insi
 uniform vec4 thyB;       // the host's inner envelope: centre, base radius
 uniform vec3 thyInvS;
 uniform float cellFade;  // a copy fades out over the last 70 units before this distance from the camera (the box edge is never seen)
+uniform float cellP;     // the plasma membrane's superellipsoid exponent (0 = a sphere)
+float cellNorm(vec3 q){ if(cellP <= 0.0) return length(q); vec3 a = pow(abs(q), vec3(cellP)); return pow(a.x + a.y + a.z, 1.0/cellP); }
 bool inThyBand(vec3 w){ if(thyA.w <= 0.0) return false;
   if(length((w - thyB.xyz) * thyInvS) > thyB.w) return false;
   return abs(length(w - thyA.xyz) - thyA.w) < cellMemT - 26.0; }
 bool cytosol(vec3 w){
-  if(length(w - cellCen) > cellR - cellMemT || w.y < cellFacetY + cellMemT) return false;
+  if(cellNorm(w - cellCen) > cellR - cellMemT || w.y < cellFacetY + cellMemT) return false;
   for(int i = 0; i < 32; i++){ if(float(i) >= nOrg) break;
     vec3 e = (w - orgA[i].xyz) * orgB[i].xyz;
     float le = length(e);
@@ -3050,8 +3052,16 @@ async function run(){
     const CEN = new BABYLON.Vector3(memCenX - HOST[0], HOST_Y - HOST[1], memCenZ - HOST[2]), Yc = CEN.y - MEMBRANE_Y;
     const V = (x,y,z) => new BABYLON.Vector3(CEN.x + x, CEN.y + y, CEN.z + z);
     const MEMS = [], ORG = [];   // MEMS: every lipid membrane in draw order - ORG: the outer membranes that keep the free molecules out
-    const add = (name, C, R, s, o) => { const M = Object.assign({ id: MEMS.length, name, C, R, s: s || [1,1,1], pores:false, facet:false, clip:false }, o || {}); MEMS.push(M); if(M.clip) ORG.push(M); return M; };
-    add('solukalvo', CEN, R, null);   // a full sphere now (the facet code stays, inert)
+    const add = (name, C, R, s, o) => { const M = Object.assign({ id: MEMS.length, name, C, R, s: s || [1,1,1], pores:false, facet:false, clip:false, p:0 }, o || {}); M.gmax = M.p ? Math.pow(3, 1/M.p - 0.5) : 1; MEMS.push(M); if(M.clip) ORG.push(M); return M; };
+    /* the superellipsoid: the point in direction d is R * S * d * g(d), g the inverse p-norm of d (1 on a sphere, up to gmax on the
+       corners), its normal the gradient sign(d)|d|^(p-1) scaled by 1/s */
+    const gOf = (M, d) => M.p ? 1/Math.pow(Math.pow(Math.abs(d[0]), M.p) + Math.pow(Math.abs(d[1]), M.p) + Math.pow(Math.abs(d[2]), M.p), 1/M.p) : 1;
+    const pnorm = (M, x, y, z) => M.p ? Math.pow(Math.pow(Math.abs(x), M.p) + Math.pow(Math.abs(y), M.p) + Math.pow(Math.abs(z), M.p), 1/M.p) : Math.hypot(x, y, z);
+    /* a plant cell (owner, 2026-09-09): slightly ANGULAR - the plasma membrane and the wall are superellipsoids, |x|^p +
+       |y|^p + |z|^p = R^p with p = 3.2 (p 2 is a sphere, larger is boxier), the membrane green, and outside it a
+       thick dark brown-green CELL WALL: no lipids (nolat), just the shell pair, 220 thick, a 100-unit gap to the membrane */
+    add('solukalvo', CEN, R, null, { p:3.2 });
+    add('soluseinä', CEN, R + 210, null, { p:3.2, nolat:true, halfH:110, col:[0.32,0.30,0.14] });
     const NEC = V(600, -3300, -1400);
     const NE = add('tumakotelo', NEC, 2800, null, { pores:true, clip:true }); add('tumakotelo-sisä', NEC, 2500, null, { pores:true, inner:true });
     const VAC = add('vakuoli', V(900, 3600, 800), 3700, null, { clip:true, hazeOk:true });   // hazeOk: the vacuole is water, so the far haze drifts inside it too (the dense medium stops at its membrane)
@@ -3095,16 +3105,19 @@ async function run(){
     /* a rainbow by organelle (owner): the plasma membrane keeps the lipids' own yellow, everything else takes a hue -
        on the near lipids' vdW spheres (a per-instance tint the LIPTPL shader mixes in, the orbitals keep their
        element colours) and on the far shells alike. Inner membranes and sacs share their organelle's hue. */
-    const TINT = { 'tumakotelo':[0.80,0.55,1.00], 'vakuoli':[0.45,0.70,1.00], 'viherhiukkanen':[0.45,0.95,0.45], 'tylakoidi':[0.35,0.85,0.40],
+    const TINT = { 'solukalvo':[0.50,0.90,0.45], 'tumakotelo':[0.80,0.55,1.00], 'vakuoli':[0.45,0.70,1.00], 'viherhiukkanen':[0.45,0.95,0.45], 'tylakoidi':[0.35,0.85,0.40],
                    'mitokondrio':[1.00,0.45,0.40], 'krista':[1.00,0.40,0.35], 'golgin laite':[1.00,0.55,0.85], 'solulimakalvosto':[0.55,0.55,1.00], 'vesikkeli':[1.00,0.72,0.30] };
     for(const M of MEMS){ const key = Object.keys(TINT).find(k => M.name.startsWith(k)); M.tint = (key && !M.notint) ? TINT[key] : null; }   // notint: the host's thylakoid discs stay the sheet's own yellow
     /* depth cue (owner, 2026-09-09: a pore was invisible without it): enclosed membranes are drawn darker, so what shows
        through a hole is darker than the surface around it - and the pores themselves get a rim and a shadow (poreShade) */
     for(const M of MEMS) M.baseShade = M.inner ? 0.70 : (/-sisä$|^krista/.test(M.name) ? 0.82 : 1.0);
     /* the membrane surface: parameter d (a unit direction) -> the point and the outward normal */
-    const surf = (M, d, o) => { const s = M.s, nx = d[0]/s[0], ny = d[1]/s[1], nz = d[2]/s[2], nl = Math.hypot(nx,ny,nz) || 1;
+    const surf = (M, d, o) => { const s = M.s, g = gOf(M, d), q = M.p ? M.p - 1 : 1;
+      const gx = M.p ? Math.sign(d[0])*Math.pow(Math.abs(d[0]), q) : d[0], gy = M.p ? Math.sign(d[1])*Math.pow(Math.abs(d[1]), q) : d[1], gz = M.p ? Math.sign(d[2])*Math.pow(Math.abs(d[2]), q) : d[2];
+      const nx = gx/s[0], ny = gy/s[1], nz = gz/s[2], nl = Math.hypot(nx,ny,nz) || 1;
       o.n[0] = nx/nl; o.n[1] = ny/nl; o.n[2] = nz/nl;
-      o.p[0] = M.C.x + M.R*s[0]*d[0]; o.p[1] = M.C.y + M.R*s[1]*d[1]; o.p[2] = M.C.z + M.R*s[2]*d[2]; return o; };
+      o.p[0] = M.C.x + M.R*s[0]*d[0]*g; o.p[1] = M.C.y + M.R*s[1]*d[1]*g; o.p[2] = M.C.z + M.R*s[2]*d[2]*g; return o; };
+    const inside = (x, y, z) => pnorm(MEMS[0], x - CEN.x, y - CEN.y, z - CEN.z) < R;   // inside the plasma membrane
     /* the duplicate row's proteins go here: a membrane protein on a membrane (mem + surface direction d, its
        stroma side into the organelle), a soluble one at a point inside (at), between the thylakoid discs */
     const along = (o, l, y, a) => o.ax === 'x' ? V(o.C.x - CEN.x + l, o.C.y - CEN.y + y, o.C.z - CEN.z + a) : V(o.C.x - CEN.x + a, o.C.y - CEN.y + y, o.C.z - CEN.z + l);
@@ -3114,7 +3127,7 @@ async function run(){
       { label:'Violaxanthin de-epoxidase', at: along(CHL[0], 500, -330, -250) }, { label:'Zeaxanthin epoxidase', at: along(CHL[0], -600, -330, 150) },   // in the gap under the host disc
       { label:'FNR', at: along(CHL[1], 600, 0, 200) }, { label:'Ferredoxin', at: along(CHL[1], -500, 0, -150) },
       { label:'PGR5', at: along(CHL[2], 400, 300, 100) }, { label:'PGRL1', at: along(CHL[2], -300, -300, -200) } ];
-    return { R, facetR, Yc, CEN, MEMS, ORG, NE, VAC, CHL, MIT, GOL, ER, surf, PLACE, THY: LAYOUT_THY };
+    return { R, facetR, Yc, CEN, MEMS, ORG, NE, VAC, CHL, MIT, GOL, ER, surf, gOf, pnorm, inside, PLACE, THY: LAYOUT_THY };
   })();
 
   /* Count atoms + bond-halves per element (for typed-array sizing) */
@@ -3459,6 +3472,7 @@ uniform float poreLim;
 uniform float poreAng;
 uniform float poreInner;
 uniform float baseShade;
+uniform float shapeP;    // 0 = an ellipsoid, else the superellipsoid exponent (the normal is its gradient)
 uniform float clipOn;
 uniform vec3 clipC;
 uniform vec3 clipInvS;
@@ -3533,6 +3547,7 @@ void main(void){
   /* a soft wrap by the angle to the camera, so the shape reads in the round - full where the shell faces the
      camera (where it meets the drawn lipids), darker toward its limb. Both faces alike. */
   vec3 nrm = onFacet ? vec3(0.0, -1.0, 0.0) : normalize(w3 * invS2);
+  if(shapeP > 0.0){ vec3 qs = w3 * invS; nrm = normalize(sign(qs) * pow(abs(qs) + 1e-6, vec3(shapeP - 1.0)) * invS); }
   float lit = 0.62 + 0.38 * abs(dot(nrm, normalize(camPos - vWP)));
   float dt = clamp((dCam - focalD - startOff) / max(spread, 1.0), 0.0, 1.0);
   gl_FragColor = vec4(slabCol * (1.0 - slabDark) * tone * lit * shadeP * mix(1.0, depthLo, dt * depthK), 1.0);
@@ -4352,7 +4367,7 @@ void main(void){
       cam.setTarget(BABYLON.Vector3.Lerp(fly.q0, TGT, k)); cam.setPosition(BABYLON.Vector3.Lerp(fly.p0, POS, k));
       if(u >= 1) fly = null; }); }
   if(SOLU_CELL) scene.onBeforeRenderObservable.add(() => {   // the depth cue's two regimes (see gShadeD)
-    const inside = BABYLON.Vector3.Distance(cam.position, SOLU_CELL.CEN) < SOLU_CELL.R;
+    const inside = SOLU_CELL.inside(cam.position.x, cam.position.y, cam.position.z);
     gInsideCell = inside;
     if(inside){ gDepthK = 0.75; gDepthLo = 0.30; gDepthStart = 40; gDepthSpread = 3500; }
     else { gDepthK = 0.40; gDepthLo = 0.50; gDepthStart = 0; gDepthSpread = 120; } });
@@ -6513,7 +6528,7 @@ void main(void){
     if(SOLU_CELL){
       const CEN = SOLU_CELL.CEN, facetR = SOLU_CELL.facetR, cellYc = SOLU_CELL.Yc, MEMS = SOLU_CELL.MEMS;
       const NE_PORE_R = 280, NE_PORE_PITCH = 0.5;   // pore hole radius (units) and the pore lattice pitch (radians of the cube-face angle)
-      gWorldReach = Math.max(gWorldReach, cellYc + SOLU_CELL.R + 200);   // the far clip has to reach the far side of the cell
+      gWorldReach = Math.max(gWorldReach, cellYc + (SOLU_CELL.R + 210)*1.35 + 200);   // the far clip has to reach the far side of the cell (its wall, its corners)
       const lb32 = x => { x = (x ^ (x >>> 16)) >>> 0; x = Math.imul(x, 0x7feb352d) >>> 0; x = (x ^ (x >>> 15)) >>> 0; x = Math.imul(x, 0x846ca68b) >>> 0; x = (x ^ (x >>> 16)) >>> 0; return (x & 0xffffff) / 16777216; };   // lowbias32, the shell shader's hsh
       /* the cube: face = (axis, U, V), a direction is A + U tan(au) + V tan(av) normalised, au/av in [-pi/4, pi/4] */
       const FACE = [ [[1,0,0],[0,0,1],[0,1,0]], [[-1,0,0],[0,0,-1],[0,1,0]], [[0,0,1],[-1,0,0],[0,1,0]], [[0,0,-1],[1,0,0],[0,1,0]], [[0,1,0],[1,0,0],[0,0,1]], [[0,-1,0],[1,0,0],[0,0,-1]] ];
@@ -6525,12 +6540,12 @@ void main(void){
       /* per membrane: the area ratio J of the ellipsoid map at a direction (det(S) times |S^-1 d|), its extremes,
          the lattice pitch set for the sparsest place (Jmax), bigger blocks for the flat sacs (their compressed
          rims would otherwise be thousands of nearly empty blocks) */
-      const Jat = (M, d) => M.detS * Math.hypot(d[0]*M.invS[0], d[1]*M.invS[1], d[2]*M.invS[2]);
+      const Jat = (M, d) => { const g = SOLU_CELL.gOf(M, d); return M.detS * Math.hypot(d[0]*M.invS[0], d[1]*M.invS[1], d[2]*M.invS[2]) * g * g; };   // the superellipsoid's corners stretch the lattice too
       { let base = 0;
         for(const M of MEMS){ const s = M.s; M.detS = s[0]*s[1]*s[2]; M.minS = Math.min(s[0],s[1],s[2]); M.maxS = Math.max(s[0],s[1],s[2]); M.invS = [1/s[0], 1/s[1], 1/s[2]];
-          M.Jmax = M.detS/M.minS; M.Jmin = M.detS/M.maxS; M.aniso = M.maxS/M.minS > 1.05; M.BL = M.aniso ? 8 : BL;
+          M.Jmax = M.detS/M.minS*M.gmax*M.gmax; M.Jmin = M.detS/M.maxS; M.aniso = M.maxS/M.minS > 1.05 || M.p > 0; M.BL = M.aniso ? 8 : BL;
           M.N = Math.max(8, Math.round(Q4*2*M.R*Math.sqrt(M.Jmax)/S)); M.D = Q4*2/M.N; M.nb = Math.ceil(M.N/M.BL);
-          M.base = base; base += 6*M.nb*M.nb; M.poreCos = Math.cos(NE_PORE_R/M.R); M.reach = M.R*M.maxS; } }
+          M.base = base; base += 6*M.nb*M.nb; M.poreCos = Math.cos(NE_PORE_R/M.R); M.reach = M.R*M.maxS*M.gmax; } }
       /* the pores: a coarse equi-angular lattice per face, three cells in four carry one, jittered - shared by both
          envelope membranes and mirrored line for line in the cellshell shader (poreAt there) */
       const NP = Math.max(1, Math.round(Q4*2/NE_PORE_PITCH)), DP = Q4*2/NP;
@@ -6655,25 +6670,26 @@ void main(void){
       const _e0 = [0,0,0];
       for(const M of MEMS){
         const mat = new BABYLON.ShaderMaterial('cellShellMat'+M.id, scene, 'cellshell', {
-          attributes:['position','surf'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch','slabDark','halfH','blendW','cen','invS','invS2','camSide','facetOn','facetY','facetR','footCen','footHalf','poreOn','poreCos','poreDP','poreNP','poreLim','poreAng','poreInner','baseShade','clipOn','clipC','clipInvS','clipR'] });
+          attributes:['position','surf'], uniforms:['world','view','projection','slabCol','focalD','depthK','depthLo','startOff','spread','camPos','holeR','grainPitch','slabDark','halfH','blendW','cen','invS','invS2','camSide','facetOn','facetY','facetR','footCen','footHalf','poreOn','poreCos','poreDP','poreNP','poreLim','poreAng','poreInner','baseShade','clipOn','clipC','clipInvS','clipR','shapeP'] });
         mat.setFloat('poreAng', NE_PORE_R/M.R); mat.setFloat('poreInner', M.inner ? 1 : 0); mat.setFloat('baseShade', M.baseShade);
         mat.setFloat('clipOn', M.clipTo ? 1 : 0);
         if(M.clipTo){ const K = M.clipTo; mat.setVector3('clipC', K.C); mat.setVector3('clipInvS', new BABYLON.Vector3(1/K.s[0], 1/K.s[1], 1/K.s[2])); mat.setFloat('clipR', K.R); }
         mat.backFaceCulling = false;
-        mat.setColor3('slabCol', new BABYLON.Color3(0.35,0.33,0.22)); mat.setFloat('grainPitch', S*0.5); mat.setFloat('halfH', ySpan);
+        const hh = M.halfH || ySpan;   // the cell wall is thicker than a bilayer
+        mat.setColor3('slabCol', M.col ? new BABYLON.Color3(M.col[0], M.col[1], M.col[2]) : new BABYLON.Color3(0.35,0.33,0.22)); mat.setFloat('grainPitch', M.nolat ? S*2.0 : S*0.5); mat.setFloat('halfH', hh); mat.setFloat('shapeP', M.p || 0);
         mat.setVector3('cen', M.C); mat.setVector3('invS', new BABYLON.Vector3(M.invS[0], M.invS[1], M.invS[2])); mat.setVector3('invS2', new BABYLON.Vector3(M.invS[0]*M.invS[0], M.invS[1]*M.invS[1], M.invS[2]*M.invS[2]));
         mat.setFloat('facetOn', M.facet ? 1 : 0); mat.setFloat('facetY', bilayerCen.y); mat.setFloat('facetR', facetR);
         mat.setVector2('footCen', new BABYLON.Vector2(bilayerCen.x, bilayerCen.z)); mat.setVector2('footHalf', new BABYLON.Vector2(0, 0));   // the plasma membrane's plane part covers the sheet's rectangle too (the sheet's own slab box is off in cell mode)
         mat.setFloat('poreOn', M.pores ? 1 : 0); mat.setFloat('poreCos', M.poreCos); mat.setFloat('poreDP', DP); mat.setFloat('poreNP', NP); mat.setFloat('poreLim', PORE_LIM);
         mat.onBindObservable.add(()=>{ const eff=mat.getEffect(); if(!eff) return; const cp = cam.position;
           eff.setFloat('focalD', gShadeD()); eff.setFloat('depthK', gDepthK); eff.setFloat('depthLo', gDepthLo); eff.setFloat('startOff', gDepthStart); eff.setFloat('spread', gDepthSpread);
-          const hole = (gMembrane && gMemSpanX > 0) ? Math.max(0, deriveLod().memR + gMemCellR - gMemBlend) : 0;
+          const hole = (gMembrane && gMemSpanX > 0 && !M.nolat) ? Math.max(0, deriveLod().memR + gMemCellR - gMemBlend) : 0;   // no lipids under the cell wall, so no hole
           eff.setFloat('holeR', hole); eff.setVector3('camPos', cp); eff.setFloat('slabDark', gSlabDark); eff.setFloat('blendW', gMemBlend);
           let side;   // which face of this bilayer the camera is on: +1 outside, -1 inside
           if(M.facet && Math.hypot(cp.x-bilayerCen.x, cp.z-bilayerCen.z) < facetR) side = cp.y < bilayerCen.y ? 1 : -1;
-          else { const ex = (cp.x - M.C.x)*M.invS[0], ey = (cp.y - M.C.y)*M.invS[1], ez = (cp.z - M.C.z)*M.invS[2]; side = Math.hypot(ex,ey,ez) > M.R ? 1 : -1; }
+          else { const ex = (cp.x - M.C.x)*M.invS[0], ey = (cp.y - M.C.y)*M.invS[1], ez = (cp.z - M.C.z)*M.invS[2]; side = SOLU_CELL.pnorm(M, ex,ey,ez) > M.R ? 1 : -1; }
           eff.setFloat('camSide', side);
-          if(gSlabN){ let r = gSlabR/gSlabN, g = gSlabG/gSlabN, b = gSlabB/gSlabN;   // the lipids' own mean, like the sheet's slab - tinted like the near lipids
+          if(gSlabN && !M.col){ let r = gSlabR/gSlabN, g = gSlabG/gSlabN, b = gSlabB/gSlabN;   // the lipids' own mean, like the sheet's slab - tinted like the near lipids (the wall keeps its own colour)
             if(M.tint){ const a = 0.72, f = 0.5 + 0.6*(0.3*r + 0.59*g + 0.11*b); r = r*(1-a) + M.tint[0]*f*a; g = g*(1-a) + M.tint[1]*f*a; b = b*(1-a) + M.tint[2]*f*a; }
             eff.setFloat3('slabCol', r, g, b); } });
         for(const sign of [1, -1]){
@@ -6683,7 +6699,7 @@ void main(void){
           for(let k=0;k<p.length;k+=3){ const l = Math.hypot(p[k],p[k+1],p[k+2]) || 1; _e0[0]=p[k]/l; _e0[1]=p[k+1]/l; _e0[2]=p[k+2]/l;
             SOLU_CELL.surf(M, _e0, _sf); let x = _sf.p[0]-M.C.x, y = _sf.p[1]-M.C.y, z = _sf.p[2]-M.C.z, nx = _sf.n[0], ny = _sf.n[1], nz = _sf.n[2];
             if(M.facet && y < -cellYc){ y = -cellYc; nx = 0; ny = -1; nz = 0; }   // the mesh sits at C, so the sheet's plane is y = -cellYc here
-            p[k] = x + nx*sign*ySpan; p[k+1] = y + ny*sign*ySpan; p[k+2] = z + nz*sign*ySpan; }
+            p[k] = x + nx*sign*hh; p[k+1] = y + ny*sign*hh; p[k+2] = z + nz*sign*hh; }
           m.setVerticesData(BABYLON.VertexBuffer.PositionKind, p, false); m.setVerticesData('surf', sf, false, 1);   // setVerticesData, not updateVerticesData - the latter silently skips the GPU upload on a non-updatable buffer
           m.refreshBoundingInfo(); m.position.copyFrom(M.C);
           m.material = mat; m.isPickable = false; m.renderingGroupId = 0; m.alwaysSelectAsActiveMesh = true; shells.push(m); }
@@ -6698,7 +6714,7 @@ void main(void){
         if(frameNo % 240 === 0) for(const [k, e] of cache) if(frameNo - e.last > 600) cache.delete(k);   // blocks left behind fall out of the cache
         oHasRot.fill(0, 0, nC);   // the sheet's candidates carry no frame
         const memR = L.memR;
-        for(const M of MEMS){
+        for(const M of MEMS){ if(M.nolat) continue;   // the cell wall has no lipids
           const reach = memR + 3*S*M.BL;
           if(Math.hypot(cp.x-M.C.x, cp.y-M.C.y, cp.z-M.C.z) > M.reach + reach) continue;   // its bounding sphere is out of reach
           if(distTo(M, cp) > reach) continue;
@@ -6739,7 +6755,7 @@ void main(void){
          sheet's rule (distance), both leaflets read from the cached block */
       const RADC = 3;
       cellNearTiles = (cp, out) => { if(!gMembrane) return;
-        for(const M of MEMS){
+        for(const M of MEMS){ if(M.nolat) continue;
           if(Math.hypot(cp.x-M.C.x, cp.y-M.C.y, cp.z-M.C.z) > M.reach + NEAR_R + 50) continue;
           const rx = cp.x - bilayerCen.x, rz = cp.z - bilayerCen.z, rho = Math.hypot(rx, rz);
           const onFacet = M.facet && rho < facetR && Math.abs(cp.y - bilayerCen.y) < NEAR_R;
@@ -6761,7 +6777,7 @@ void main(void){
       /* THE MEDIUM. The free molecules' box repeats around the camera (bnc / bncY on the CPU, CELLCLIP in the
          shader) and a copy is shown only inside the cytosol: this is the CPU's copy of the shader's rule. */
       const mT = ySpan + 30;
-      const cytosol = (x,y,z) => { const dx = x-CEN.x, dy = y-CEN.y, dz = z-CEN.z; if(dx*dx+dy*dy+dz*dz > (SOLU_CELL.R-mT)*(SOLU_CELL.R-mT) || y < bilayerCen.y + mT) return false;
+      const cytosol = (x,y,z) => { if(SOLU_CELL.pnorm(MEMS[0], x-CEN.x, y-CEN.y, z-CEN.z) > SOLU_CELL.R - mT || y < bilayerCen.y + mT) return false;
         for(const M of SOLU_CELL.ORG){ const ex=(x-M.C.x)*M.invS[0], ey=(y-M.C.y)*M.invS[1], ez=(z-M.C.z)*M.invS[2], le = Math.hypot(ex,ey,ez); if(le < 1e-6) return false;
           const g = Math.hypot(ex/le*M.invS[0], ey/le*M.invS[1], ez/le*M.invS[2]); if(le < M.R + mT*g) return false; } return true; };
       const THY = SOLU_CELL.THY, HIN = THY && THY.clipTo;
@@ -6780,7 +6796,7 @@ void main(void){
       const _thyB = HIN ? new BABYLON.Vector4(HIN.C.x, HIN.C.y, HIN.C.z, HIN.R) : new BABYLON.Vector4(0,0,0,1);
       const _thyS = HIN ? new BABYLON.Vector3(1/HIN.s[0], 1/HIN.s[1], 1/HIN.s[2]) : new BABYLON.Vector3(1,1,1);
       gCellBind = (eff, haze) => { if(gBoxLo && !haze) _wrap.set(gBoxHi.x-gBoxLo.x, gBoxHi.y-gBoxLo.y, gBoxHi.z-gBoxLo.z); else _wrap.set(0,0,0);
-        eff.setVector4('thyA', _thyA); eff.setVector4('thyB', _thyB); eff.setVector3('thyInvS', _thyS); eff.setFloat('cellFade', haze ? 0 : CELL_FADE);
+        eff.setVector4('thyA', _thyA); eff.setVector4('thyB', _thyB); eff.setVector3('thyInvS', _thyS); eff.setFloat('cellFade', haze ? 0 : CELL_FADE); eff.setFloat('cellP', MEMS[0].p || 0);
         eff.setVector3('cellWrap', _wrap); eff.setVector3('cellCam', cam.position); eff.setVector3('cellCen', CEN); eff.setFloat('cellR', SOLU_CELL.R);
         eff.setFloat('cellFacetY', bilayerCen.y); eff.setFloat('cellMemT', mT); eff.setFloat('cellClipAll', haze ? 1 : 0);
         eff.setArray4('orgA', orgA); eff.setArray4('orgB', orgB); eff.setFloat('nOrg', Math.min(32, SOLU_CELL.ORG.length)); };
@@ -7265,7 +7281,7 @@ void main(void){
     const wMat=(rad, solid, glow, bias, outline, haze)=>{ const m=new BABYLON.ShaderMaterial('wMat'+rad+(glow?'g':'')+(bias?'b':'')+(haze?'h':''),scene,'imp',{
         attributes:['position','instanceColor','wOrig','wVel','molId','world0','world1','world2','world3'],
         uniforms:['view','projection','radius','fogColor','fogStart','fogEnd','isShell','shellMin','revealFade','bubbleR','protonOutline','uT','coneCos','boxLo','boxHi','memY','memHalf','shellSkip','molTexDim','shellCen','shellRot','shellR2','pLight','pLightN','pLightR','keyDir','depthBias',
-                  'cellWrap','cellCam','cellCen','cellR','cellFacetY','cellMemT','cellClipAll','orgA','orgB','nOrg','thyA','thyB','thyInvS','cellFade','focalD','depthK','depthLo','startOff','spread'],
+                  'cellWrap','cellCam','cellCen','cellR','cellFacetY','cellMemT','cellClipAll','orgA','orgB','nOrg','thyA','thyB','thyInvS','cellFade','cellP','focalD','depthK','depthLo','startOff','spread'],
         samplers:['shellTex','molTex'],
         defines: (NSH ? ['#define WATERBOX', '#define NSHELL '+NSH, '#define SH_LAT '+SH_LAT+'.0', '#define SH_LON '+SH_LON+'.0']
                       : ['#define WATERBOX']).concat(glow ? ['#define PGLOW'] : ['#define PLIGHT']).concat(SOLU_CELL ? ['#define CELLCLIP', '#define DEPTHSHADE'] : []).concat(haze ? ['#define HAZE'] : []) });   // DEPTHSHADE: in cell mode the free molecules and the haze darken with distance like everything else   // CELLCLIP: cell mode wraps the medium around the camera and keeps it to the cytosol - HAZE: the sparse far fill
@@ -7316,7 +7332,7 @@ void main(void){
        half a box away - so from a distance the cytosol would look empty. This is a sparse fill of the whole cell:
        single spheres a little larger than an atom, drifting slowly in a box the size of the cell and clipped to the
        cytosol like the copies, in the free species' colours (mostly water blue). Not pickable, no orbitals. */
-    if(SOLU_CELL){ const NH = 250000, C = SOLU_CELL.CEN, HR = SOLU_CELL.R, sd = 5150;   // 250000 (owner: the cytoplasm looked only partly filled)
+    if(SOLU_CELL){ const NH = 250000, C = SOLU_CELL.CEN, HR = SOLU_CELL.R*SOLU_CELL.MEMS[0].gmax, sd = 5150;   // 250000 (owner: the cytoplasm looked only partly filled)
       const mesh = BABYLON.MeshBuilder.CreatePlane('haze', {size:2}, scene); mesh.material = wMat(6.0, true, false, 0, false, true);
       mesh.isPickable = false; mesh.alwaysSelectAsActiveMesh = true; mesh.renderingGroupId = 1;
       const cb=new Float32Array(NH*4), mb=new Float32Array(NH*16), og=new Float32Array(NH*3), vl=new Float32Array(NH*3), mid=new Float32Array(NH);
@@ -10925,7 +10941,7 @@ void main(void){
       pb.addEventListener('click', () => { const on = document.documentElement.classList.toggle('nopills'); pb.classList.toggle('on', !on); });
       document.body.appendChild(pb); }
     for(const id of ['darkmode-btn','gfx-btn','color-btn','etc-btn','dev-btn','lantern-btn','membrane-btn',
-                     'memcut-btn','memonly-btn','outline-btn','particles-btn','pills-btn','zoomin-btn','shade-btn','vr-btn']){   // vr-btn too — it stays hidden until a headset is found
+                     'memcut-btn','memonly-btn','outline-btn','particles-btn','pills-btn','shade-btn','vr-btn']){   // vr-btn too — it stays hidden until a headset is found (zoomin-btn sits in the dock)
       const b = document.getElementById(id); if(!b) continue;
       b.style.position = 'static'; b.style.left = 'auto'; b.style.top = 'auto'; menu.appendChild(b);   // static → they stack in the menu
     }
@@ -11800,7 +11816,7 @@ void main(void){
     document.head.appendChild(st);
     let idleTimer = null, fsTimer = null;
     // the floating chrome that steps aside when the mouse is still
-    const chrome = () => ['fs-btn','settings-btn','speedbox','boilbox','elecbox','gpu-lbl'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
+    const chrome = () => ['zoomin-btn','fs-btn','settings-btn','speedbox','boilbox','elecbox','gpu-lbl'].map(i=>document.getElementById(i)).filter(Boolean);   // (the controller picture stays - it is not chrome)
     const wake = () => {
       document.documentElement.classList.remove('cursor-idle');
       clearTimeout(idleTimer);
@@ -12157,7 +12173,7 @@ void main(void){
     /* The toggle buttons stay INSIDE the gear's menu (settings-menu) - the dock holds only the gear, the
        fullscreen button, the speed slider and the GPU badge, and the menu is re-anchored to open UPWARD
        from the dock, right-aligned (a drop-up, since everything sits at the bottom now). */
-    for(const id of ['settings-btn','fs-btn','speedbox','boilbox','elecbox','gpu-lbl']){
+    for(const id of ['zoomin-btn','settings-btn','fs-btn','speedbox','boilbox','elecbox','gpu-lbl']){   // zoomin-btn: 'Kalvostoon' first, always in view (owner: not in the gear menu)
       const el = document.getElementById(id); if(!el) continue;
       el.style.position = 'static'; el.style.left = el.style.top = el.style.right = el.style.bottom = ''; el.style.transform = 'none'; el.style.margin = '0'; el.style.pointerEvents = 'auto';
       dock.appendChild(el); }
